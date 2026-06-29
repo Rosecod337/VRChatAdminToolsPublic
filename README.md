@@ -1,6 +1,6 @@
 # VRChat Log Analyzer
 
-Windows desktop application for VRChat server administrators. Monitors your VRChat session in real time — tracks who joins and leaves, what avatars people use, and when portals are spawned.
+Windows desktop application for VRChat server administrators. Monitors your VRChat session in real time — tracks who joins and leaves, what avatars people use.
 
 > 💬 **Discord:** [discord.gg/7URkA6EQYY](https://discord.gg/7URkA6EQYY) — support, updates, and bug reports
 
