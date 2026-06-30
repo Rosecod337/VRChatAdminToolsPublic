@@ -74,7 +74,6 @@ If you paste a VRChat `auth=...` cookie in settings, the app uses it to resolve 
 ## Tabs
 
 - **Заход / Выход** — player join and leave events
-- **Порталы** — portal spawn events
 - **Аватары** — avatar change events
 - **Custom Builder** — rearrange all panels, choose layout
 
