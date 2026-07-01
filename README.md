@@ -19,7 +19,7 @@ Windows-приложение для администраторов VRChat-инс
 ## Важно про Analyze Server
 
 
-Version `0.3.3-beta.4`: current world detection now prefers confirmed `world-joined` events instead of temporary loading markers like `Entering Room` or `Joining`.
+Version `0.3.3-beta.5`: current world detection now prefers confirmed `world-joined` events instead of temporary loading markers like `Entering Room` or `Joining`.
 
 Кнопка **Analyze Server** не читает всю историю логов. Она ограниченно анализирует несколько последних `output_log_*.txt` и восстанавливает события только для текущего инстанса.
 
@@ -80,7 +80,7 @@ C:\Users\<You>\AppData\LocalLow\VRChat\VRChat\
 
 Проект находится в beta-версии. Возможны ошибки в подсчёте онлайна, если VRChat не записал часть событий в лог или пользователь зашёл/вышел до запуска мониторинга.
 
-Актуальная версия на момент этого описания: `0.3.3-beta.4`.
+Актуальная версия на момент этого описания: `0.3.3-beta.5`.
 
 ## Лицензия
 
