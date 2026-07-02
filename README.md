@@ -1,87 +1,76 @@
 # VRChat Admin Tools [BETA]
 
-Windows-приложение для администраторов VRChat-инстансов. Оно читает локальные логи VRChat, показывает текущий онлайн, входы/выходы игроков, аватары, порталы, историю игровых сессий и может выводить компактное окно поверх рабочего стола для использования в VR.
+Windows application for VRChat community staff. It helps monitor the current VRChat instance from local log files: joins, leaves, avatar changes, player activity, shared notes and quick Discord snapshots.
 
-> Discord: [discord.gg/7URkA6EQYY](https://discord.gg/7URkA6EQYY) - поддержка, обновления и сообщения об ошибках.
+> Discord: [discord.gg/7URkA6EQYY](https://discord.gg/7URkA6EQYY) - support, updates and bug reports.
 
-## Возможности
+## Features
 
-- Мониторинг текущего VRChat-лога в реальном времени.
-- Дашборд с текущим онлайном, пиковым онлайном и списком игроков в инстансе.
-- Анализ текущего сервера через кнопку **Analyze Server**.
-- Отслеживание входов, выходов, смены аватаров и порталов.
-- История игровых сессий через серверную часть.
-- Активация по лицензии с привязкой к устройству.
-- Автообновления через GitHub Releases.
-- Собственная иконка приложения.
-- VR Overlay в виде прозрачного always-on-top окна Electron.
+- Live monitoring of the current VRChat log file.
+- Player join and leave tracking with timestamps.
+- Avatar change tracking when VRChat writes the event to the log.
+- Dashboard with current activity and recent events.
+- Admin Tools with shared player labels and notes for your staff team.
+- Snapshot button for quickly copying a readable report.
+- Analyze Server button for recovering recent events from the current session logs.
+- Optional VRChat account check for better profile/name detection.
+- Auto-updates through GitHub Releases.
 
-## Важно про Analyze Server
+## Requirements
 
+- Windows 10 or Windows 11, 64-bit.
+- VRChat installed and launched at least once.
+- A personal license key.
 
-Version `0.3.3-beta.7`: current world detection now prefers confirmed `world-joined` events instead of temporary loading markers like `Entering Room` or `Joining`.
+## License Key
 
-Кнопка **Analyze Server** не читает всю историю логов. Она ограниченно анализирует несколько последних `output_log_*.txt` и восстанавливает события только для текущего инстанса.
+The app requires a personal license key. You can get a key through the project Discord:
 
-Анализ старых логов может временно вызвать лаги, особенно если VRChat уже давно открыт. Лучший сценарий:
+[discord.gg/7URkA6EQYY](https://discord.gg/7URkA6EQYY)
 
-1. Нажать **Start**.
-2. Перезайти в нужный мир/инстанс.
-3. Использовать приложение как live-мониторинг.
+Do not share your key with other people. Each user should have their own key. If the app says the key is invalid, expired, blocked, or the device limit was reached, contact support in Discord.
 
-Если вы уже находитесь в мире, **Analyze Server** может помочь восстановить часть данных, но он не гарантирует 100% точность, если VRChat не записал нужные события в лог.
+## Installation
+
+1. Open [Releases](../../releases/latest).
+2. Download `VRChat-Log-Analyzer-Setup-<version>.exe`.
+3. Run the installer.
+4. Start the app and enter your license key.
+5. Press **Start** to begin live monitoring.
+
+## Optional VRChat Cookie
+
+The VRChat account session cookie is optional. It can help the app resolve VRChat profile information more accurately.
+
+Only use your own cookie and never send it to other people. The app stores it locally on your computer.
+
+## Analyze Server
+
+**Analyze Server** is useful when you opened the app after already joining an instance. It scans recent VRChat log data and tries to reconstruct the current session.
+
+For the most accurate results:
+
+1. Press **Start** before moderating.
+2. Rejoin the target world or instance if possible.
+3. Use live monitoring as the main source of truth.
+
+Old or incomplete VRChat logs can miss events, so analysis is not guaranteed to be perfect.
 
 ## VR Overlay
 
-Текущий VR Overlay - это не нативный OpenVR/SteamVR overlay. Сейчас это прозрачное окно Electron, которое можно закрепить поверх других окон.
+The current VR Overlay is a transparent always-on-top desktop window. To see it inside VR, capture it with tools such as Desktop+, OVR Toolkit, XSOverlay, Virtual Desktop, or SteamVR desktop view.
 
-Для отображения внутри VR его можно захватить через:
+## Privacy
 
-- Desktop+
-- OVR Toolkit
-- XSOverlay
-- Virtual Desktop
-- SteamVR desktop view
+- The app reads VRChat log files created by VRChat itself.
+- It does not inject into VRChat, modify game files, or interact with the game process.
+- Your VRChat cookie is optional and stored locally.
+- License checks are used only to activate the app and protect access.
 
-Это промежуточная реализация. Нативный VR overlay требует отдельной интеграции с OpenVR/OpenXR и будет рассматриваться отдельно.
+## Beta Status
 
-## Установка
+This is beta software. Some counters can be wrong if VRChat did not write the required events to the log, or if monitoring started after players had already joined.
 
-1. Откройте [Releases](../../releases/latest).
-2. Скачайте `VRChat-Log-Analyzer-Setup-<version>.exe`.
-3. Установите приложение.
-4. При первом запуске введите URL API-сервера и лицензионный ключ.
-5. Нажмите **Start** для live-мониторинга.
+## License
 
-## Автообновление
-
-Приложение проверяет обновления при запуске. Если в GitHub Releases опубликована новая версия с `latest.yml`, установщик скачивается автоматически, после чего приложение предложит перезапуск.
-
-Для beta-релизов автообновление включено.
-
-## Как это работает
-
-Приложение читает локальные логи VRChat из:
-
-```text
-C:\Users\<You>\AppData\LocalLow\VRChat\VRChat\
-```
-
-Приложение не внедряется в VRChat, не меняет файлы игры и не взаимодействует с процессом игры напрямую. Оно читает только те лог-файлы, которые VRChat создаёт сам.
-
-## Приватность
-
-- Данные отправляются только на ваш лицензированный API-сервер.
-- HWID хранится и передаётся в виде хэша для проверки лицензии.
-- VRChat cookie, если вы его добавляете, используется только для резолва имён и хранится локально.
-- Приложение не собирает пароли и не получает доступ к аккаунту VRChat напрямую.
-
-## Статус
-
-Проект находится в beta-версии. Возможны ошибки в подсчёте онлайна, если VRChat не записал часть событий в лог или пользователь зашёл/вышел до запуска мониторинга.
-
-Актуальная версия на момент этого описания: `0.3.3-beta.7`.
-
-## Лицензия
-
-Программное обеспечение проприетарное. Распространение, декомпиляция и реверс-инжиниринг запрещены.
+This software is proprietary. Redistribution, decompilation, and reverse engineering are prohibited.
