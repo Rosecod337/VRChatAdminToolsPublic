@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "issuedAt": "2026-07-15T00:00:00.000Z",
+  "apiBaseUrl": "https://web-production-a9b1cd.up.railway.app",
+  "notice": {
+    "id": "connection-migration-2026-07",
+    "level": "warning",
+    "message": "У части пользователей возможны временные проблемы с подключением. Мы готовим перенос сервиса на другую площадку."
+  },
+  "signature": "+yo71JdOW2knMm8A9P4NgIEs5SZAYFrT6yyaOlBH/g1m/UMnG1dggSktbvYkCsXTFaElGjln+/xoXsHBRM0dCQ=="
+}
