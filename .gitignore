@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+coverage/
+.env
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+*.log
+*.asar
+apps/*/renderer/*.map

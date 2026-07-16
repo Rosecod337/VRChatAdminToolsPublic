@@ -1,0 +1,32 @@
+{
+  "name": "vrchat-key-admin",
+  "productName": "VRChat Key Admin",
+  "version": "0.1.1",
+  "main": "src/main.js",
+  "private": true,
+  "description": "Windows GUI admin panel for VRChat Log Suite license keys.",
+  "author": "VRChat Admin Tools contributors",
+  "license": "AGPL-3.0-only",
+  "build": {
+    "appId": "com.vrchatlogsuite.admin",
+    "productName": "VRChat Key Admin",
+    "electronVersion": "42.3.3",
+    "asar": true,
+    "icon": "../../logo.ico",
+    "directories": {
+      "output": "../../release/admin"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "../../logo.ico",
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    }
+  }
+}

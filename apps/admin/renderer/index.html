@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self';">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VRChat Key Admin</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>VRChat Key Admin</h1>
+          <p id="statusText">Готово</p>
+        </div>
+        <button id="refreshBtn" class="iconButton" title="Обновить список">Refresh</button>
+      </header>
+
+      <section class="settingsBand">
+        <label>
+          <span>API server</span>
+          <input id="serverUrl" type="url" spellcheck="false" placeholder="https://your-app.railway.app">
+        </label>
+        <label>
+          <span>Admin token</span>
+          <input id="adminToken" type="password" spellcheck="false" placeholder="ADMIN_TOKEN">
+        </label>
+        <button id="saveSettingsBtn">Сохранить</button>
+      </section>
+
+      <section class="workspace">
+        <form id="createForm" class="panel">
+          <div class="panelHeader">
+            <h2>Новый ключ</h2>
+          </div>
+          <label>
+            <span>Метка</span>
+            <input id="labelInput" type="text" maxlength="80" placeholder="Например: test user">
+          </label>
+          <label>
+            <span>Team ID</span>
+            <input id="teamInput" type="text" maxlength="80" placeholder="example-team">
+          </label>
+          <div class="twoCols">
+            <label>
+              <span>Устройств</span>
+              <input id="maxDevicesInput" type="number" min="1" max="50" value="1">
+            </label>
+            <label>
+              <span>Истекает</span>
+              <input id="expiresInput" type="datetime-local">
+            </label>
+          </div>
+          <label>
+            <span>Сколько ключей</span>
+            <input id="bulkCountInput" type="number" min="1" max="100" value="1">
+          </label>
+          <button type="submit" class="primary">Сгенерировать</button>
+          <button id="bulkCreateBtn" type="button">Сгенерировать много по 1 устройству</button>
+          <div class="generated">
+            <span>Последний ключ</span>
+            <code id="generatedKey">-</code>
+            <button id="copyKeyBtn" type="button">Copy</button>
+          </div>
+        </form>
+
+        <section class="panel tablePanel">
+          <div class="panelHeader">
+            <h2>Лицензии</h2>
+            <span id="licenseCount">0</span>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ключ</th>
+                  <th>Метка</th>
+                  <th>Team ID</th>
+                  <th>Статус</th>
+                  <th>Устройства</th>
+                  <th>Истекает</th>
+                  <th>Активность</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="licenseRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self';">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VRChat Log Analyzer</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell" hidden>
+      <section id="activationView" class="activationView">
+        <form id="activationForm" class="activationPanel">
+          <h1>VRChat Log Analyzer</h1>
+          <label>
+            <span class="fieldLabel">
+              License key
+              <button class="helpTip" type="button" aria-label="License key help" title="Лицензионный ключ выдаётся владельцем проекта. Если ключ не работает или достигнут лимит устройства, обратитесь в Discord поддержки. Не передавайте свой ключ другим людям.">?</button>
+            </span>
+            <input id="licenseKey" type="password" spellcheck="false" autocomplete="off" placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
+          </label>
+          <label>
+            <span class="fieldLabel">
+              VRChat account session cookie
+              <button class="helpTip" type="button" aria-label="VRChat cookie help" title="Необязательно. Cookie нужен только для проверки VRChat аккаунта. Приложение не читает cookie из браузера автоматически.">?</button>
+            </span>
+            <input id="vrchatAuthCookie" type="password" spellcheck="false" autocomplete="off" placeholder="auth=...">
+          </label>
+          <div class="cookieGuide" aria-label="VRChat cookie instruction">
+            <strong>Как вставить VRChat cookie</strong>
+            <ol>
+              <li>Установите расширение Cookie-Editor в браузер.</li>
+              <li>Откройте vrchat.com и войдите в свой VRChat аккаунт.</li>
+              <li>В Cookie-Editor найдите cookie с именем <code>auth</code>.</li>
+              <li>Вставьте сюда в формате <code>auth=значение</code>, например <code>auth=authcookie_...</code>.</li>
+            </ol>
+            <p>Если проверка выдаёт 401, cookie устарел или скопирован без <code>auth=</code>. Не отправляйте этот cookie другим людям.</p>
+          </div>
+          <label class="rememberRow">
+            <input id="rememberMe" type="checkbox">
+            <span>Запомнить меня</span>
+          </label>
+          <button id="checkVrchatBtn" type="button">Check VRChat account</button>
+          <button id="activateBtn" type="submit" class="primary">Активировать</button>
+          <p id="activationStatus">Ожидание ключа</p>
+        </form>
+      </section>
+
+      <section id="appView" class="appView" hidden>
+        <header class="topbar">
+          <div class="brand">
+            <h1>VRChat Log Analyzer</h1>
+            <p id="runtimeStatus">Session active</p>
+          </div>
+          <div class="toolbar">
+            <button id="updateBtn" class="updateBtn" hidden>Update ready — Restart</button>
+            <button id="chooseFileBtn">Log file</button>
+            <button id="analyzeCurrentBtn">Analyze Server</button>
+            <button id="copySnapshotBtn">Snapshot</button>
+            <button id="communityBtn" title="Discord и Telegram проекта">Сообщество</button>
+            <button id="startBtn" class="primary">Start</button>
+            <button id="stopBtn">Stop</button>
+            <button id="logoutBtn">Logout</button>
+          </div>
+        </header>
+
+        <section class="statusBand">
+          <span id="filePathLabel">-</span>
+          <span id="eventCountLabel">0 events</span>
+        </section>
+
+        <nav class="tabs" aria-label="Event filters">
+          <button class="tab active" data-tab="players">Заход / Выход</button>
+          <button class="tab" data-tab="avatars">Аватары</button>
+          <button class="tab" data-tab="dashboard">Дашборд</button>
+          <button class="tab" data-tab="admin">Admin Tools</button>
+          <button class="tab" data-tab="crash">Crash Analyzer</button>
+          <button class="tab" data-tab="builder">Custom Builder</button>
+          <button class="tab" data-tab="history">История</button>
+        </nav>
+
+        <section class="content">
+          <section class="tabPane active" data-pane="players">
+            <div class="paneHeader">
+              <h2>Заход / Выход игроков</h2>
+              <input class="searchInput" data-search="players" type="search" placeholder="Поиск по имени...">
+              <span id="playersCount">0</span>
+            </div>
+            <div id="playersList" class="eventList"></div>
+          </section>
+
+          <section class="tabPane" data-pane="avatars">
+            <div class="paneHeader">
+              <h2>Смена аватара</h2>
+              <input class="searchInput" data-search="avatars" type="search" placeholder="Поиск по имени...">
+              <span id="avatarsCount">0</span>
+            </div>
+            <div id="avatarsList" class="eventList"></div>
+          </section>
+
+          <section class="tabPane" data-pane="dashboard">
+            <div class="paneHeader">
+              <h2>Дашборд активности</h2>
+              <span class="dashPeriod">Онлайн в текущем мире</span>
+            </div>
+            <div class="dashStats">
+              <div class="dashStat">
+                <span class="dashStatValue" id="dashOnline">0</span>
+                <span class="dashStatLabel">Сейчас онлайн</span>
+              </div>
+              <div class="dashStat">
+                <span class="dashStatValue" id="dashPeak">0</span>
+                <span class="dashStatLabel">Пик онлайна</span>
+              </div>
+              <div class="dashStat">
+                <span class="dashStatValue" id="dashTotal">0</span>
+                <span class="dashStatLabel">Уникальных игроков</span>
+              </div>
+              <div class="dashStat">
+                <span class="dashStatValue" id="dashWorld">-</span>
+                <span class="dashStatLabel">Текущий мир</span>
+              </div>
+            </div>
+            <section class="diagnosticsPanel" aria-labelledby="diagnosticsTitle">
+              <div class="diagnosticsHeader">
+                <h3 id="diagnosticsTitle">Состояние приложения</h3>
+                <span id="diagnosticsUpdatedAt">-</span>
+              </div>
+              <div class="diagnosticsGrid">
+                <div><span>Чтение лога</span><strong id="diagTail">Остановлено</strong></div>
+                <div><span>Последнее событие</span><strong id="diagLastEvent">Нет данных</strong></div>
+                <div><span>Синхронизация</span><strong id="diagSync">Нет данных</strong></div>
+                <div><span>VRChat API</span><strong id="diagApi">Нет данных</strong></div>
+                <div><span>События в памяти</span><strong id="diagMemory">0 / 5000</strong></div>
+              </div>
+              <div class="notificationSettings">
+                <span>Уведомления</span>
+                <label><input id="notifyMarkedPlayers" type="checkbox"> Отмеченный игрок вошёл</label>
+                <label><input id="notifyCrashAvatars" type="checkbox"> Появился аватар с меткой crash</label>
+              </div>
+            </section>
+            <div class="dashChartWrap">
+              <canvas id="dashChart"></canvas>
+            </div>
+            <div id="dashRecentList" class="dashRecentList"></div>
+          </section>
+
+          <section class="tabPane adminPane" data-pane="admin">
+            <div class="paneHeader">
+              <h2>Admin Tools</h2>
+              <div class="adminHeaderActions">
+                <span id="adminSyncStatus" class="adminSyncStatus" title="Используются данные, сохранённые на этом устройстве.">Локальный кэш</span>
+                <input id="adminPlayerSearch" class="searchInput" type="search" placeholder="Поиск игрока...">
+                <button id="copyAdminSnapshotBtn">Копировать снимок</button>
+              </div>
+            </div>
+            <div class="adminLayout">
+              <aside id="adminPlayerList" class="adminPlayerList"></aside>
+              <section id="adminPlayerCard" class="adminPlayerCard">
+                <div class="emptyState">Выберите игрока</div>
+              </section>
+            </div>
+          </section>
+
+          <section class="tabPane crashPane" data-pane="crash">
+            <div class="paneHeader">
+              <h2>Crash Risk Analyzer</h2>
+              <div class="crashHeaderActions">
+                <span id="crashStatusBadge" class="crashStatusBadge">disabled</span>
+                <button id="crashToggleBtn">Enable</button>
+                <button id="captureLagBtn">Лагает сейчас</button>
+                <button id="copyCrashReportBtn">Copy Report</button>
+              </div>
+            </div>
+            <div class="crashBody">
+              <section class="crashPanel">
+                <h3>Статус</h3>
+                <p id="crashStatusText">Анализатор выключен.</p>
+                <p class="crashHint">Экспериментальная функция. Она не доказывает вину игрока, а сохраняет последние события и кандидатов по времени перед лагом или возможным сбоем VRChat.</p>
+              </section>
+              <section class="crashPanel">
+                <h3>Последние возможные сбои</h3>
+                <div id="crashIncidentList" class="crashIncidentList">
+                  <div class="emptyState">Инцидентов нет</div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="tabPane builderPane" data-pane="builder">
+            <div class="paneHeader">
+              <h2>Custom Builder</h2>
+              <div class="builderHeaderControls">
+                <div class="builderBlockPickerWrap">
+                  <button id="builderAddBlockBtn" class="builderAddBlockBtn">Добавить блок ▾</button>
+                  <div id="builderBlockPicker" class="builderBlockPicker" hidden>
+                    <label class="builderBlockPickerItem">
+                      <input type="checkbox" id="builderVisPlayers" checked> Заход / Выход
+                    </label>
+                    <label class="builderBlockPickerItem">
+                      <input type="checkbox" id="builderVisAvatars" checked> Аватары
+                    </label>
+                    <label class="builderBlockPickerItem">
+                      <input type="checkbox" id="builderVisPortals"> Порталы
+                    </label>
+                    <label class="builderBlockPickerItem">
+                      <input type="checkbox" id="builderVisWorlds"> Мир / инстанс
+                    </label>
+                    <label class="builderBlockPickerItem">
+                      <input type="checkbox" id="builderVisAdmin"> Admin Tools
+                    </label>
+                  </div>
+                </div>
+                <select id="builderLayout">
+                  <option value="grid">Grid</option>
+                  <option value="columns">Columns</option>
+                  <option value="rows">Rows</option>
+                </select>
+                <button id="alwaysOnTopBtn" class="builderWindowBtn" type="button" aria-pressed="false" title="Закрепить окно поверх остальных">Поверх</button>
+                <button id="compactModeBtn" class="builderWindowBtn" type="button" aria-pressed="false" title="Уменьшить окно и элементы Builder">Компактно</button>
+              </div>
+            </div>
+            <div id="builderGrid" class="builderGrid layout-grid"></div>
+          </section>
+
+          <section class="tabPane" data-pane="history">
+            <div class="paneHeader">
+              <h2>История сессий</h2>
+              <button id="refreshHistoryBtn">&#x21bb; Обновить</button>
+            </div>
+            <div class="historyFilters">
+              <input id="historySearch" type="search" placeholder="Поиск по миру, игроку или метке...">
+              <input id="historyDate" type="date" title="Дата сессии">
+              <select id="historyState" title="Состояние сессии">
+                <option value="all">Все сессии</option>
+                <option value="active">В процессе</option>
+                <option value="ended">Завершённые</option>
+              </select>
+              <button id="historyResetBtn" type="button">Сбросить</button>
+            </div>
+            <div id="historyList" class="historyList"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="recent-avatar-uses.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>

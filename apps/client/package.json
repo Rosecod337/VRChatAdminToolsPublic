@@ -1,0 +1,50 @@
+{
+  "name": "vrchat-log-analyzer",
+  "productName": "VRChat Log Analyzer",
+  "version": "1.0.0",
+  "main": "src/main.js",
+  "private": true,
+  "description": "Windows-приложение для анализа локальных логов VRChat.",
+  "license": "AGPL-3.0-only",
+  "author": {
+    "name": "VRChat Admin Tools contributors"
+  },
+  "copyright": "Copyright © 2026 VRChat Admin Tools contributors",
+  "dependencies": {
+    "@vrchat-log-suite/parser": "0.1.0",
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "com.vrchatlogsuite.client",
+    "productName": "VRChat Log Analyzer",
+    "electronVersion": "42.3.3",
+    "asar": true,
+    "icon": "../../logo.ico",
+    "asarUnpack": [
+      "node_modules/@vrchat-log-suite/parser/**/*"
+    ],
+    "artifactName": "VRChat-Log-Analyzer-Setup-${version}.${ext}",
+    "directories": {
+      "output": "../../release/client"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json",
+      "config.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "icon": "../../logo.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

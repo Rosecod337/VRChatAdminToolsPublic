@@ -1,0 +1,36 @@
+{
+  "name": "vrchat-admin-tools-source",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Исходный код двух Windows-приложений VRChat Admin Tools и совместимого серверного шаблона.",
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "server-template"
+  ],
+  "scripts": {
+    "server:dev": "node server-template/src/index.js",
+    "server:start": "node server-template/src/index.js",
+    "admin:dev": "electron apps/admin",
+    "client:dev": "electron apps/client",
+    "test": "node --test tests/*.test.js tests/*-test.js",
+    "build:admin": "node scripts/build-electron.mjs admin",
+    "build:client": "node scripts/build-electron.mjs client",
+    "build:all": "npm run test && npm run build:admin && npm run build:client",
+    "release:check": "node scripts/verify-release.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "electron": "42.3.3",
+    "electron-builder": "^26.15.2",
+    "javascript-obfuscator": "^5.4.3"
+  }
+}

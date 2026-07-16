@@ -1,0 +1,19 @@
+{
+  "name": "vrchat-admin-tools-server-template",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1"
+  }
+}

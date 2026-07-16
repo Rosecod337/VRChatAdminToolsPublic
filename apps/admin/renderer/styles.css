@@ -1,0 +1,272 @@
+:root {
+  color-scheme: dark;
+  --bg: #101317;
+  --panel: #171c22;
+  --panel-strong: #1f2630;
+  --line: #2b3441;
+  --text: #ecf0f3;
+  --muted: #94a1ad;
+  --accent: #42b883;
+  --accent-strong: #35a071;
+  --danger: #ed6a5e;
+  --warning: #f4c95d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 900px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  min-height: 36px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #506171;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08120d;
+  font-weight: 700;
+}
+
+button.primary:hover {
+  background: var(--accent-strong);
+}
+
+button.danger {
+  border-color: rgba(237, 106, 94, 0.4);
+  color: #ffc9c4;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0e1115;
+  color: var(--text);
+  padding: 0 10px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+label span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: #12171c;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+#statusText {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.settingsBand {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(240px, 0.9fr) 130px;
+  gap: 14px;
+  align-items: end;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 24px 24px;
+  overflow: hidden;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.twoCols {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+}
+
+#createForm {
+  align-self: start;
+  display: grid;
+  gap: 14px;
+}
+
+.generated {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 6px;
+}
+
+.generated span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0e1115;
+  color: #c7f2dd;
+}
+
+.tablePanel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tableWrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+}
+
+.teamCell {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 260px;
+}
+
+.teamInput {
+  min-height: 32px;
+}
+
+th,
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 12px;
+  z-index: 1;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+}
+
+.badge.ok {
+  color: #c7f2dd;
+  border-color: rgba(66, 184, 131, 0.45);
+}
+
+.badge.blocked {
+  color: #ffc9c4;
+  border-color: rgba(237, 106, 94, 0.55);
+}
+
+.muted {
+  color: var(--muted);
+}
