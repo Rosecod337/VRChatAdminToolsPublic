@@ -217,6 +217,11 @@
                   <option value="rows">Rows</option>
                 </select>
                 <button id="alwaysOnTopBtn" class="builderWindowBtn" type="button" aria-pressed="false" title="Закрепить окно поверх остальных">Поверх</button>
+                <label id="windowOpacityControl" class="windowOpacityControl" title="Настроить прозрачность закреплённого окна" hidden>
+                  <span>Прозрачность</span>
+                  <input id="windowOpacityRange" type="range" min="40" max="100" step="5" value="100" aria-label="Прозрачность окна">
+                  <output id="windowOpacityValue" for="windowOpacityRange">100%</output>
+                </label>
                 <button id="compactModeBtn" class="builderWindowBtn" type="button" aria-pressed="false" title="Уменьшить окно и элементы Builder">Компактно</button>
               </div>
             </div>

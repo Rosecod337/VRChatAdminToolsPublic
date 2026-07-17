@@ -1432,6 +1432,45 @@ h2 {
   font-weight: 700;
 }
 
+.windowOpacityControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+
+.windowOpacityControl span {
+  display: inline;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.windowOpacityControl input[type="range"] {
+  width: 84px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.windowOpacityControl output {
+  min-width: 34px;
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  text-align: right;
+}
+
 .builderBlockPicker {
   position: absolute;
   top: calc(100% + 6px);
@@ -1564,6 +1603,26 @@ body.compactMode .builderHeaderControls {
 body.compactMode .builderWindowBtn {
   display: inline-flex;
   align-items: center;
+}
+
+body.compactMode .windowOpacityControl {
+  min-height: 26px;
+  height: 26px;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+body.compactMode .windowOpacityControl span {
+  display: none;
+}
+
+body.compactMode .windowOpacityControl input[type="range"] {
+  width: 68px;
+}
+
+body.compactMode .windowOpacityControl output {
+  min-width: 30px;
+  font-size: 10px;
 }
 
 body.compactMode .builderBlockPickerWrap,

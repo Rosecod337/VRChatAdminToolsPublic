@@ -52,7 +52,7 @@ test("resets parser state between independent log sessions", () => {
 
 test("parses world events", () => {
   const parser = createParser();
-  const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "sample-vrchat.log"), "utf8").split(/\r?\n/u);
+  const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "sample-vrchat.txt"), "utf8").split(/\r?\n/u);
   const events = parser.parseLines(fixture);
 
   assert.equal(events.some((event) => event.type === "world-joining"), true);

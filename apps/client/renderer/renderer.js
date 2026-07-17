@@ -54,6 +54,9 @@ const builderVisPortals = document.querySelector("#builderVisPortals");
 const builderVisWorlds = document.querySelector("#builderVisWorlds");
 const builderVisAdmin = document.querySelector("#builderVisAdmin");
 const alwaysOnTopBtn = document.querySelector("#alwaysOnTopBtn");
+const windowOpacityControl = document.querySelector("#windowOpacityControl");
+const windowOpacityRange = document.querySelector("#windowOpacityRange");
+const windowOpacityValue = document.querySelector("#windowOpacityValue");
 const compactModeBtn = document.querySelector("#compactModeBtn");
 const diagnosticsUpdatedAt = document.querySelector("#diagnosticsUpdatedAt");
 const diagTail = document.querySelector("#diagTail");
@@ -66,7 +69,15 @@ const notifyCrashAvatars = document.querySelector("#notifyCrashAvatars");
 
 const BUILDER_KINDS = ["players", "avatars", "portals", "worlds", "admin"];
 const CRASH_LOG_SILENCE_WARNING_MS = 5 * 60 * 1000;
+const WINDOW_OPACITY_MIN_PERCENT = 40;
+const WINDOW_OPACITY_MAX_PERCENT = 100;
 const savedBuilderSearch = loadJson("builderSearch", {});
+
+function normalizeWindowOpacityPercent(value) {
+  const percent = Number(value);
+  if (!Number.isFinite(percent)) return WINDOW_OPACITY_MAX_PERCENT;
+  return Math.min(WINDOW_OPACITY_MAX_PERCENT, Math.max(WINDOW_OPACITY_MIN_PERCENT, Math.round(percent)));
+}
 
 const state = {
   currentFile: null,
@@ -146,6 +157,7 @@ const state = {
   },
   builderAdminUserId: localStorage.getItem("builderAdminUserId") || "",
   alwaysOnTop: localStorage.getItem("alwaysOnTop") === "true",
+  windowOpacity: normalizeWindowOpacityPercent(localStorage.getItem("windowOpacity") || WINDOW_OPACITY_MAX_PERCENT),
   compactMode: false
 };
 
@@ -3311,6 +3323,10 @@ function syncWindowControlButtons() {
   alwaysOnTopBtn.classList.toggle("active", state.alwaysOnTop);
   alwaysOnTopBtn.setAttribute("aria-pressed", String(state.alwaysOnTop));
   alwaysOnTopBtn.title = state.alwaysOnTop ? "Открепить окно от верхнего слоя" : "Закрепить окно поверх остальных";
+  windowOpacityControl.hidden = !state.alwaysOnTop;
+  windowOpacityRange.disabled = !state.alwaysOnTop;
+  windowOpacityRange.value = String(state.windowOpacity);
+  windowOpacityValue.textContent = `${state.windowOpacity}%`;
   compactModeBtn.classList.toggle("active", state.compactMode);
   compactModeBtn.setAttribute("aria-pressed", String(state.compactMode));
   compactModeBtn.textContent = state.compactMode ? "Обычный вид" : "Компактно";
@@ -3319,13 +3335,22 @@ function syncWindowControlButtons() {
 alwaysOnTopBtn.addEventListener("click", async () => {
   alwaysOnTopBtn.disabled = true;
   try {
-    const result = await window.clientApi.setAlwaysOnTop(!state.alwaysOnTop);
+    const result = await window.clientApi.setAlwaysOnTop(!state.alwaysOnTop, state.windowOpacity / 100);
     state.alwaysOnTop = Boolean(result.enabled);
     localStorage.setItem("alwaysOnTop", String(state.alwaysOnTop));
     syncWindowControlButtons();
   } finally {
     alwaysOnTopBtn.disabled = false;
   }
+});
+
+windowOpacityRange.addEventListener("input", () => {
+  state.windowOpacity = normalizeWindowOpacityPercent(windowOpacityRange.value);
+  localStorage.setItem("windowOpacity", String(state.windowOpacity));
+  windowOpacityValue.textContent = `${state.windowOpacity}%`;
+  void window.clientApi.setWindowOpacity(state.windowOpacity / 100).catch((error) => {
+    setRuntimeStatus(error.message, true);
+  });
 });
 
 compactModeBtn.addEventListener("click", async () => {
@@ -3604,7 +3629,10 @@ async function init() {
 
   builderLayout.value = state.builderLayout;
   syncBuilderPickerCheckboxes();
-  const topResult = await window.clientApi.setAlwaysOnTop(state.alwaysOnTop).catch(() => ({ enabled: false }));
+  const topResult = await window.clientApi.setAlwaysOnTop(
+    state.alwaysOnTop,
+    state.windowOpacity / 100
+  ).catch(() => ({ enabled: false }));
   state.alwaysOnTop = Boolean(topResult.enabled);
   syncWindowControlButtons();
   renderCrashAnalyzer();

@@ -57,6 +57,17 @@ test("renderer requests Windows notifications through the Electron bridge", () =
   assert.match(main, /Notification\.isSupported/u);
 });
 
+test("always-on-top opacity stays behind IPC and resets when unpinned", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(renderer, /clientApi\.setWindowOpacity/u);
+  assert.match(preload, /window:set-opacity/u);
+  assert.match(main, /MIN_WINDOW_OPACITY = 0\.4/u);
+  assert.match(main, /setOpacity\(alwaysOnTopEnabled \? preferredWindowOpacity : 1\)/u);
+});
+
 test("silent VRChat logs produce a five minute warning instead of a crash incident", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
 

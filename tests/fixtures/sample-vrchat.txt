@@ -1,0 +1,2 @@
+2026.06.09 13:37:56 Debug      -  [Behaviour] Joining wrld_11111111-2222-3333-4444-555555555555:12345~group(grp_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)~groupAccessType(public)~region(eu)
+2026.06.09 13:37:56 Debug      -  [Behaviour] Joining or Creating Room: Example Community World

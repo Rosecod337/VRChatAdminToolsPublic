@@ -58,6 +58,8 @@ const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) =>
 const approvedLogFiles = new Set();
 const notificationTimes = new Map();
 const API_TIMEOUT_MS = 20_000;
+const MIN_WINDOW_OPACITY = 0.4;
+let preferredWindowOpacity = 1;
 
 function isVrchatRunning() {
   if (process.platform !== "win32") return Promise.resolve(false);
@@ -228,6 +230,18 @@ function openExternalHttpsUrl(value) {
   return shell.openExternal(url.toString());
 }
 
+function normalizeWindowOpacity(value) {
+  const opacity = Number(value);
+  if (!Number.isFinite(opacity)) return 1;
+  return Math.min(1, Math.max(MIN_WINDOW_OPACITY, opacity));
+}
+
+function applyWindowOpacity() {
+  if (!mainWindow || mainWindow.isDestroyed()) return 1;
+  mainWindow.setOpacity(alwaysOnTopEnabled ? preferredWindowOpacity : 1);
+  return mainWindow.getOpacity();
+}
+
 function applyAlwaysOnTop({ moveToTop = false } = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   if (alwaysOnTopEnabled) {
@@ -236,6 +250,7 @@ function applyAlwaysOnTop({ moveToTop = false } = {}) {
   } else {
     mainWindow.setAlwaysOnTop(false);
   }
+  applyWindowOpacity();
   return mainWindow.isAlwaysOnTop();
 }
 
@@ -966,10 +981,24 @@ ipcMain.handle("crash:status", async (_event, options) => {
 
 ipcMain.handle("shell:open", (_event, url) => openExternalHttpsUrl(url));
 
-ipcMain.handle("window:set-always-on-top", (_event, enabled) => {
+ipcMain.handle("window:set-always-on-top", (_event, enabled, opacity) => {
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Window is not available");
+  if (opacity !== undefined) preferredWindowOpacity = normalizeWindowOpacity(opacity);
   alwaysOnTopEnabled = enabled === true;
-  return { enabled: applyAlwaysOnTop({ moveToTop: alwaysOnTopEnabled }) };
+  return {
+    enabled: applyAlwaysOnTop({ moveToTop: alwaysOnTopEnabled }),
+    opacity: mainWindow.getOpacity(),
+    preferredOpacity: preferredWindowOpacity
+  };
+});
+
+ipcMain.handle("window:set-opacity", (_event, opacity) => {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Window is not available");
+  preferredWindowOpacity = normalizeWindowOpacity(opacity);
+  return {
+    opacity: applyWindowOpacity(),
+    preferredOpacity: preferredWindowOpacity
+  };
 });
 
 ipcMain.handle("window:set-compact", (_event, enabled) => {
