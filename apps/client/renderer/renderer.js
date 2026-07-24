@@ -1954,7 +1954,7 @@ function renderAdminPlayerCard() {
 function moderationStatusLabel(status) {
   return {
     pending: "В очереди",
-    dispatching: "WhiteCore выполняет",
+    dispatching: "Служба модерации выполняет",
     processing: "Выполняется",
     succeeded: "Выполнено",
     expired: "Срок завершён",
@@ -2134,7 +2134,7 @@ function ownerPlayerCardHtml(userId) {
           <button type="button" class="adminCardClose" data-clear-owner-selection title="Убрать выбранного игрока" aria-label="Убрать выбранного игрока">×</button>
         </div>
       </div>
-      <p class="ownerWarning">Временный бан экспериментальный: WhiteCore снимет его после указанного срока. Перед действием проверьте профиль и причину.</p>
+      <p class="ownerWarning">Временный бан экспериментальный: служба модерации снимет его после указанного срока. Перед действием проверьте профиль и причину.</p>
       <div class="adminSection">
         <h3>Операции с игроком · подтверждено ранее: ${confirmedModerationCount(userId)}</h3>
         ${moderationHistoryHtml(userId)}
@@ -4215,7 +4215,7 @@ banRequestForm?.addEventListener("submit", (event) => {
       durationMinutes: temporary ? moderationDurationMinutes() : null
     });
     closeBanRequestDialog();
-    setRuntimeStatus("Операция передана WhiteCore.");
+    setRuntimeStatus("Операция передана службе модерации.");
     await loadModerationRequests({ silent: true });
     renderOwnerTools();
   }).catch((error) => setRuntimeStatus(moderationRequestError(error), true));

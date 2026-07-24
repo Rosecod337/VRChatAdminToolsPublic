@@ -152,3 +152,11 @@ test("owner moderation dashboard uses IPC for retries, reports, and watch state"
   assert.match(preload, /moderation:retry-group-ban-request/u);
   assert.match(main, /\/moderation\/ban-requests\/\$\{encodeURIComponent\(safeRequestId\)\}\/retry/u);
 });
+
+test("public client does not expose the internal moderation bot name", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
+
+  assert.doesNotMatch(renderer, /whitecore/iu);
+  assert.doesNotMatch(markup, /whitecore/iu);
+});
