@@ -17,9 +17,9 @@
 | --- | --- | --- |
 | Electron lifecycle, IPC и обновления клиента | `apps/client/src/main.js` | `preload.js`, `security.js` |
 | Чтение и анализ VRChat-логов | `apps/client/src/log-tailer.js` | `packages/parser/index.js` |
-| Интерфейс, диагностика, заметки и архив | `apps/client/renderer/renderer.js` | `index.html`, `styles.css` |
+| Интерфейс, диагностика, заметки, архив и условная вкладка Owner | `apps/client/renderer/renderer.js` | `index.html`, `styles.css` |
 | Управление ключами | `apps/admin/src/main.js` | `apps/admin/renderer/` |
-| API, лицензии и синхронизация | `server-template/src/index.js` | `db.js`, `crypto.js` |
+| API, лицензии и синхронизация общих заметок | `server-template/src/index.js` | `db.js`, `crypto.js` |
 | PostgreSQL migrations | `server-template/src/db.js` | API routes in `index.js` |
 
 ## Поток данных
@@ -29,6 +29,8 @@
 3. Main process передаёт события renderer через preload bridge.
 4. Renderer хранит ограниченное состояние и синхронизирует заметки и архив через API.
 5. Сервер проверяет сессии лицензий и сохраняет данные в PostgreSQL.
+
+Клиент содержит IPC-контракты официальной вкладки Owner, но нейтральный `server-template` не реализует закрытые маршруты модерации и не выдаёт права Owner.
 
 ## Проверка
 

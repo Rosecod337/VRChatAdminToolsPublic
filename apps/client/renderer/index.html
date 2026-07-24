@@ -74,6 +74,7 @@
           <button class="tab" data-tab="avatars">Аватары</button>
           <button class="tab" data-tab="dashboard">Дашборд</button>
           <button class="tab" data-tab="admin">Admin Tools</button>
+          <button id="ownerTabButton" class="tab" data-tab="owner" hidden>Owner</button>
           <button class="tab" data-tab="crash">Crash Analyzer</button>
           <button class="tab" data-tab="builder">Custom Builder</button>
           <button class="tab" data-tab="history">История</button>
@@ -162,6 +163,25 @@
             </div>
           </section>
 
+          <section class="tabPane ownerPane" data-pane="owner">
+            <div class="paneHeader">
+              <div>
+                <h2>Owner</h2>
+                <p id="ownerGroupLabel" class="ownerGroupLabel">VRChat-группа не настроена</p>
+              </div>
+              <div class="adminHeaderActions">
+                <input id="ownerPlayerSearch" class="searchInput" type="search" placeholder="Поиск игрока...">
+                <button id="refreshModerationBtn">Обновить</button>
+              </div>
+            </div>
+            <div class="adminLayout">
+              <aside id="ownerPlayerList" class="adminPlayerList"></aside>
+              <section id="ownerPlayerCard" class="adminPlayerCard">
+                <div class="emptyState">Выберите игрока для управления</div>
+              </section>
+            </div>
+          </section>
+
           <section class="tabPane crashPane" data-pane="crash">
             <div class="paneHeader">
               <h2>Crash Risk Analyzer</h2>
@@ -170,6 +190,7 @@
                 <button id="crashToggleBtn">Enable</button>
                 <button id="captureLagBtn">Лагает сейчас</button>
                 <button id="copyCrashReportBtn">Copy Report</button>
+                <button id="clearCrashHistoryBtn" class="eventAction--danger" title="Удалить сохранённые инциденты Crash Analyzer">Очистить историю</button>
               </div>
             </div>
             <div class="crashBody">
@@ -248,6 +269,66 @@
         </section>
       </section>
     </main>
+
+    <dialog id="banRequestDialog" class="moderationDialog">
+      <form id="banRequestForm" class="moderationDialogForm">
+        <header>
+          <div>
+            <h2>Забанить в группе</h2>
+            <p id="banRequestTarget">Игрок не выбран</p>
+          </div>
+          <button id="banRequestCloseBtn" type="button" class="iconButton" title="Закрыть" aria-label="Закрыть">×</button>
+        </header>
+        <p class="moderationDialogNotice">
+          Действие будет передано WhiteCore без ручного подтверждения. Проверьте игрока, срок и причину перед отправкой.
+        </p>
+        <fieldset class="moderationMode">
+          <legend>Срок</legend>
+          <label>
+            <input type="radio" name="banDurationMode" value="permanent" checked>
+            <span>Бессрочный бан</span>
+          </label>
+          <label>
+            <input type="radio" name="banDurationMode" value="temporary">
+            <span>Временный <small>экспериментально</small></span>
+          </label>
+        </fieldset>
+        <label id="banRequestDurationField" hidden>
+          <span>Длительность временного бана · от 5 минут до 30 дней</span>
+          <span class="moderationDurationCustom">
+            <input id="banRequestDuration" type="number" min="5" max="43200" step="1" value="30" inputmode="numeric">
+            <select id="banRequestDurationUnit" aria-label="Единица длительности">
+              <option value="minutes">Минуты</option>
+              <option value="hours">Часы</option>
+              <option value="days">Дни</option>
+            </select>
+          </span>
+        </label>
+        <label>
+          <span>Шаблон причины</span>
+          <select id="banReasonTemplate">
+            <option value="">Без шаблона</option>
+            <option value="crash-avatar">Использование крашерского аватара</option>
+            <option value="harassment">Оскорбления или преследование</option>
+            <option value="disruption">Намеренный срыв мероприятия</option>
+            <option value="ban-evasion">Обход ранее выданной блокировки</option>
+            <option value="rules">Нарушение правил группы</option>
+          </select>
+        </label>
+        <label>
+          <span>Причина</span>
+          <textarea id="banRequestReason" maxlength="1000" required placeholder="Опишите нарушение и контекст..."></textarea>
+        </label>
+        <label>
+          <span>Ссылка на доказательства <small>необязательно, только HTTPS</small></span>
+          <input id="banRequestEvidence" type="url" maxlength="1000" placeholder="https://...">
+        </label>
+        <div class="moderationDialogActions">
+          <button id="banRequestCancelBtn" type="button">Отмена</button>
+          <button id="banRequestSubmitBtn" type="submit" class="primaryAction">Выполнить бан</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="recent-avatar-uses.js"></script>
     <script src="renderer.js"></script>

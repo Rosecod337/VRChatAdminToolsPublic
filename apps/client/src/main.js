@@ -278,6 +278,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
       devTools: !app.isPackaged
     }
   });
@@ -348,11 +349,18 @@ async function startHeartbeat() {
   heartbeatTimer = setInterval(async () => {
     try {
       const hwid = await getHardwareId();
-      await apiPost("/auth/heartbeat", {
+      const payload = await apiPost("/auth/heartbeat", {
         sessionToken: settings.sessionToken,
         hwid
       });
-      send("auth:status", { ok: true, message: "Session active" });
+      if (payload.license) {
+        await writeSettings({ ...settings, license: payload.license });
+      }
+      send("auth:status", {
+        ok: true,
+        message: "Session active",
+        license: payload.license || null
+      });
     } catch (error) {
       send("auth:status", { ok: false, message: error.message });
       await endCurrentPlaySession().catch(() => {});
@@ -724,6 +732,46 @@ ipcMain.handle("global-player-notes:remove", async (_event, userId) => {
   });
 });
 
+ipcMain.handle("moderation:request-group-ban", async (_event, request) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/moderation/ban-requests", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    targetUserId: request?.targetUserId,
+    targetDisplayName: request?.targetDisplayName,
+    reason: request?.reason,
+    evidenceUrl: request?.evidenceUrl,
+    durationMinutes: request?.durationMinutes ?? null
+  });
+  return payload.request;
+});
+
+ipcMain.handle("moderation:list-group-ban-requests", async () => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/moderation/ban-requests/list", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    limit: 200
+  });
+  return payload.requests ?? [];
+});
+
+ipcMain.handle("moderation:retry-group-ban-request", async (_event, requestId) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const safeRequestId = String(requestId || "").trim();
+  if (!/^[0-9a-f-]{36}$/iu.test(safeRequestId)) {
+    throw new Error("invalid_moderation_request_id");
+  }
+  const payload = await apiPost(`/moderation/ban-requests/${encodeURIComponent(safeRequestId)}/retry`, {
+    sessionToken: settings.sessionToken,
+    hwid
+  });
+  return payload.request;
+});
+
 ipcMain.handle("player-notes:history", async (_event, userId) => {
   const settings = await readSettings();
   const hwid = await getHardwareId();
@@ -785,6 +833,45 @@ ipcMain.handle("avatar-notes:save", async (_event, note) => {
     })
   });
   return payload.note;
+});
+
+ipcMain.handle("global-avatar-notes:list", async () => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/global-avatar-notes/list", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    limit: 5_000
+  });
+  return payload.notes ?? [];
+});
+
+ipcMain.handle("global-avatar-notes:save", async (_event, note) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const avatarId = String(note?.avatarId || "");
+  const payload = await apiRequest(`/global-avatar-notes/${encodeURIComponent(avatarId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      sessionToken: settings.sessionToken,
+      hwid,
+      avatarName: note?.avatarName,
+      avatarId,
+      status: note?.status,
+      note: note?.note
+    })
+  });
+  return payload.note;
+});
+
+ipcMain.handle("global-avatar-notes:remove", async (_event, avatarIdValue) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const avatarId = String(avatarIdValue || "");
+  return apiRequest(`/global-avatar-notes/${encodeURIComponent(avatarId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ sessionToken: settings.sessionToken, hwid })
+  });
 });
 
 const ANALYSIS_LOAD_PROFILES = [

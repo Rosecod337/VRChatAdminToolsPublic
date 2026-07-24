@@ -12,7 +12,7 @@ const {
 
 const SERVER_URL = "https://service.example";
 
-test("client keeps the configured trusted server", () => {
+test("client always uses the trusted production server", () => {
   const retired = new Set(["https://old.example"]);
   assert.equal(normalizeTrustedServerUrl(SERVER_URL, SERVER_URL, retired), SERVER_URL);
   assert.equal(normalizeTrustedServerUrl(`${SERVER_URL}/`, SERVER_URL, retired), SERVER_URL);
@@ -68,9 +68,87 @@ test("always-on-top opacity stays behind IPC and resets when unpinned", () => {
   assert.match(main, /setOpacity\(alwaysOnTopEnabled \? preferredWindowOpacity : 1\)/u);
 });
 
+test("background log events are coalesced until the window is visible", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(main, /backgroundThrottling:\s*false/u);
+  assert.match(renderer, /if \(document\.hidden \|\| state\.renderSuspended\) \{\s*state\.renderDeferred = true;/u);
+  assert.match(renderer, /function scheduleResumeRefresh\(\)/u);
+  assert.match(renderer, /Promise\.allSettled\(\[/u);
+  assert.match(renderer, /CRASH_BUFFER_SAVE_DELAY_MS = 500/u);
+  assert.equal((renderer.match(/localStorage\.setItem\("crashEventBuffer"/gu) || []).length, 1);
+});
+
 test("silent VRChat logs produce a five minute warning instead of a crash incident", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
 
   assert.match(renderer, /CRASH_LOG_SILENCE_WARNING_MS = 5 \* 60 \* 1000/u);
   assert.doesNotMatch(renderer, /createCrashIncident\("Возможный фриз/u);
+});
+
+test("renderer can clear crash history without deleting the live event buffer", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const clearHandlerStart = renderer.indexOf('clearCrashHistoryBtn?.addEventListener("click"');
+  const clearHandlerEnd = renderer.indexOf("\n});", clearHandlerStart);
+
+  assert.match(html, /id="clearCrashHistoryBtn"/u);
+  assert.notEqual(clearHandlerStart, -1);
+  assert.notEqual(clearHandlerEnd, -1);
+
+  const clearHandler = renderer.slice(clearHandlerStart, clearHandlerEnd + 4);
+  assert.match(clearHandler, /state\.crashIncidents = \[\];\s*saveCrashState\(\);\s*renderCrashAnalyzer\(\);/u);
+  assert.doesNotMatch(clearHandler, /state\.crashEventBuffer = \[\]/u);
+});
+
+test("admin and owner cards expose explicit player deselection controls", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+
+  assert.match(renderer, /data-clear-admin-selection/u);
+  assert.match(renderer, /state\.selectedUserId = "";\s*renderAdminTools\(\);/u);
+  assert.match(renderer, /data-clear-owner-selection/u);
+  assert.match(renderer, /state\.ownerSelectedUserId = "";\s*renderOwnerTools\(\);/u);
+});
+
+test("global avatar notes use the Electron bridge and require a confirmed avatar id", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(renderer, /clientApi\.saveGlobalAvatarNote/u);
+  assert.match(renderer, /Для общей публикации нужен подтверждённый Avatar ID/u);
+  assert.match(preload, /global-avatar-notes:save/u);
+  assert.match(preload, /global-avatar-notes:remove/u);
+  assert.match(main, /\/global-avatar-notes\/\$\{encodeURIComponent\(avatarId\)\}/u);
+});
+
+test("owner tools refresh shared notes and show non-default player marks", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+
+  assert.match(
+    renderer,
+    /activePaneName\(\) === "owner" && !isEditingAdminPlayer\(state\.ownerSelectedUserId\)[\s\S]*?renderWhenVisible\(renderOwnerTools\)/u
+  );
+  assert.match(
+    renderer,
+    /data-owner-user-id[\s\S]*?\$\{status\}/u
+  );
+  assert.match(renderer, /if \(activePaneName\(\) === "owner"\) renderOwnerTools\(\);/u);
+});
+
+test("owner moderation dashboard uses IPC for retries, reports, and watch state", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(renderer, /function ownerOverviewHtml\(\)/u);
+  assert.match(renderer, /function ownerIncidentReport\(userId\)/u);
+  assert.match(renderer, /data-owner-watch/u);
+  assert.match(renderer, /MODERATION_REASON_TEMPLATES/u);
+  assert.match(renderer, /function moderationDurationMinutes\(\)/u);
+  assert.match(renderer, /minutes < 5 \|\| minutes > 30 \* 24 \* 60/u);
+  assert.match(renderer, /retryGroupBanRequest/u);
+  assert.match(preload, /moderation:retry-group-ban-request/u);
+  assert.match(main, /\/moderation\/ban-requests\/\$\{encodeURIComponent\(safeRequestId\)\}\/retry/u);
 });

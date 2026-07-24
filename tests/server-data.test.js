@@ -2,7 +2,10 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { sanitizePlaySessionSnapshot } = require("../server-template/src/index");
+const {
+  sanitizeGlobalAvatarNote,
+  sanitizePlaySessionSnapshot
+} = require("../server-template/src/index");
 
 test("play session snapshot keeps a bounded unique player list", () => {
   const players = Array.from({ length: 300 }, (_value, index) => ({
@@ -26,4 +29,18 @@ test("play session snapshot ignores entries without a user id", () => {
   });
 
   assert.deepEqual(snapshot.players.map((player) => player.userId), ["usr_valid"]);
+});
+
+test("global avatar notes require a confirmed VRChat avatar id", () => {
+  const avatarId = "avtr_0cf89a3e-314b-40f2-bc97-600bbf0e0f1d";
+  const note = sanitizeGlobalAvatarNote({
+    avatarId,
+    avatarName: "Example",
+    status: "crash",
+    note: "Test note"
+  });
+
+  assert.equal(note.avatarKey, `id:${avatarId}`);
+  assert.equal(note.status, "crash");
+  assert.throws(() => sanitizeGlobalAvatarNote({ avatarId: "name-only" }));
 });

@@ -21,8 +21,8 @@ const {
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-const VERSION = "1.0.0";
-const SERVER_FEATURES = ["global-player-notes", "note-history", "session-snapshots"];
+const VERSION = "1.1.0";
+const SERVER_FEATURES = ["global-player-notes", "global-avatar-notes", "note-history", "session-snapshots"];
 const SOURCE_URL = String(process.env.SOURCE_URL || "").trim();
 const SESSION_TTL_HOURS = Number(process.env.SESSION_TTL_HOURS ?? 24);
 const REMEMBER_SESSION_TTL_HOURS = Number(process.env.REMEMBER_SESSION_TTL_HOURS ?? 720);
@@ -257,6 +257,16 @@ function sanitizeAvatarNote(body, fallbackKey = "") {
   const status = requestedStatus === "crash" ? "crash" : "ok";
   const note = String(body.note ?? "").trim().slice(0, 2000);
   return { avatarKey, avatarName, avatarId, status, note };
+}
+
+function sanitizeGlobalAvatarNote(body, fallbackAvatarId = "") {
+  const avatarId = String(body.avatarId || fallbackAvatarId || "").trim().slice(0, 80);
+  if (!AVATAR_ID_RE.test(avatarId)) {
+    const error = new Error("global avatar note requires a confirmed avatarId");
+    error.status = 400;
+    throw error;
+  }
+  return sanitizeAvatarNote({ ...body, avatarId }, `id:${avatarId}`);
 }
 
 async function listLicenses(pool) {
@@ -1156,6 +1166,120 @@ async function main() {
     }
   });
 
+  app.post("/global-avatar-notes/list", async (req, res, next) => {
+    try {
+      const sessionResult = await validateSession(pool, req.body ?? {});
+      if (!sessionResult.body.ok) return res.status(sessionResult.status).json(sessionResult.body);
+
+      const limit = boundedLimit(req.body?.limit, 5_000, 10_000);
+      const result = await pool.query(
+        `SELECT source_team_id, avatar_key, avatar_name, avatar_id, status, note,
+           updated_by_key, updated_by_label, updated_at
+         FROM global_avatar_notes
+         ORDER BY updated_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      return res.json({ ok: true, notes: result.rows });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.patch("/global-avatar-notes/:avatarId", async (req, res, next) => {
+    try {
+      const sessionResult = await validateSession(pool, req.body ?? {});
+      if (!sessionResult.body.ok) return res.status(sessionResult.status).json(sessionResult.body);
+
+      const note = sanitizeGlobalAvatarNote(req.body ?? {}, req.params.avatarId);
+      const author = noteAuthorFromSession(sessionResult.session);
+      const result = await pool.query(
+        `WITH previous AS (
+           SELECT status, note
+           FROM global_avatar_notes
+           WHERE source_team_id = $1 AND avatar_key = $3
+         ), saved AS (
+           INSERT INTO global_avatar_notes (
+             source_team_id, license_id, avatar_key, avatar_name, avatar_id, status, note,
+             updated_by_key, updated_by_label, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (source_team_id, avatar_key)
+           DO UPDATE SET
+             license_id = EXCLUDED.license_id,
+             avatar_name = EXCLUDED.avatar_name,
+             avatar_id = EXCLUDED.avatar_id,
+             status = EXCLUDED.status,
+             note = EXCLUDED.note,
+             updated_by_key = EXCLUDED.updated_by_key,
+             updated_by_label = EXCLUDED.updated_by_label,
+             updated_at = NOW()
+           RETURNING source_team_id, avatar_key, avatar_name, avatar_id, status, note,
+             updated_by_key, updated_by_label, updated_at
+         ), logged AS (
+           INSERT INTO note_history (
+             entity_type, visibility, scope_id, entity_key, display_name,
+             previous_status, previous_note, status, note, updated_by_key, updated_by_label
+           )
+           SELECT 'avatar', 'global', $1, $3, $4,
+             COALESCE((SELECT status FROM previous), ''), COALESCE((SELECT note FROM previous), ''),
+             $6, $7, $8, $9
+           FROM saved
+           WHERE NOT EXISTS (SELECT 1 FROM previous)
+              OR (SELECT status FROM previous) IS DISTINCT FROM $6
+              OR (SELECT note FROM previous) IS DISTINCT FROM $7
+         )
+         SELECT * FROM saved`,
+        [
+          sessionResult.session.teamId,
+          sessionResult.session.licenseId,
+          note.avatarKey,
+          note.avatarName,
+          note.avatarId,
+          note.status,
+          note.note,
+          author.updatedByKey,
+          author.updatedByLabel
+        ]
+      );
+      await pruneNoteHistory(pool, "avatar", note.avatarKey, "global", sessionResult.session.teamId);
+      return res.json({ ok: true, note: result.rows[0] });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.delete("/global-avatar-notes/:avatarId", async (req, res, next) => {
+    try {
+      const sessionResult = await validateSession(pool, req.body ?? {});
+      if (!sessionResult.body.ok) return res.status(sessionResult.status).json(sessionResult.body);
+
+      const note = sanitizeGlobalAvatarNote({}, req.params.avatarId);
+      const author = noteAuthorFromSession(sessionResult.session);
+      const result = await pool.query(
+        `WITH removed AS (
+           DELETE FROM global_avatar_notes
+           WHERE source_team_id = $1 AND avatar_key = $2
+           RETURNING avatar_key, avatar_name, status, note
+         ), logged AS (
+           INSERT INTO note_history (
+             entity_type, visibility, scope_id, entity_key, display_name,
+             previous_status, previous_note, status, note, updated_by_key, updated_by_label
+           )
+           SELECT 'avatar', 'global', $1, avatar_key, avatar_name,
+             status, note, 'removed', '', $3, $4
+           FROM removed
+         )
+         SELECT * FROM removed`,
+        [sessionResult.session.teamId, note.avatarKey, author.updatedByKey, author.updatedByLabel]
+      );
+      await pruneNoteHistory(pool, "avatar", note.avatarKey, "global", sessionResult.session.teamId);
+      return res.json({ ok: true, removed: result.rowCount > 0 });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.use((error, _req, res, _next) => {
     const status = error.status || 500;
     if (status >= 500) {
@@ -1181,5 +1305,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  sanitizeGlobalAvatarNote,
   sanitizePlaySessionSnapshot
 };

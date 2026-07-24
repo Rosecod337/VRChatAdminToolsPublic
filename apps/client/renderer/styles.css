@@ -246,6 +246,7 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .toolbar {
   display: flex;
   gap: 9px;
@@ -1035,6 +1036,362 @@ h2 {
   font-size: 12px;
 }
 
+.adminCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.adminCardClose {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.eventAction--danger {
+  border-color: rgba(217, 107, 95, 0.65);
+  color: #ffb4aa;
+}
+
+.moderationDialog {
+  width: min(560px, calc(100vw - 32px));
+  max-width: 560px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0;
+}
+
+.moderationDialog::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.moderationDialogForm {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.moderationDialogForm header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.moderationDialogForm h2,
+.moderationDialogForm p {
+  margin: 0;
+}
+
+.moderationDialogForm header p,
+.moderationDialogNotice,
+.moderationDialogForm small {
+  color: var(--muted);
+}
+
+.moderationDialogForm header p {
+  margin-top: 5px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.moderationDialogNotice {
+  border-left: 3px solid var(--amber);
+  padding-left: 10px;
+  line-height: 1.45;
+}
+
+.moderationDialogForm label {
+  display: grid;
+  gap: 7px;
+}
+
+.moderationDialogForm textarea,
+.moderationDialogForm input,
+.moderationDialogForm select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0c0c0b;
+  color: var(--text);
+  font: inherit;
+  padding: 10px;
+}
+
+.moderationDurationCustom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 8px;
+}
+
+.moderationDurationCustom > input,
+.moderationDurationCustom > select {
+  min-width: 0;
+}
+
+.moderationMode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.moderationMode legend {
+  grid-column: 1 / -1;
+  margin-bottom: 7px;
+}
+
+.moderationMode label {
+  position: relative;
+}
+
+.moderationMode input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.moderationMode label > span {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0c0c0b;
+  cursor: pointer;
+}
+
+.moderationMode input:checked + span {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.moderationMode small {
+  color: var(--amber);
+}
+
+.ownerGroupLabel {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.ownerActionPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.ownerOverview {
+  align-content: start;
+}
+
+.ownerSummaryGrid,
+.ownerIncidentStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ownerSummaryGrid > div,
+.ownerIncidentStats > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.ownerSummaryGrid strong,
+.ownerIncidentStats strong {
+  display: block;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ownerSummaryGrid span,
+.ownerIncidentStats span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ownerCompactList,
+.ownerWatchList {
+  display: grid;
+  gap: 6px;
+}
+
+.ownerCompactRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.ownerCompactRow:last-child {
+  border-bottom: 0;
+}
+
+.ownerCompactRow > div:last-child {
+  text-align: right;
+}
+
+.ownerCompactRow strong,
+.ownerCompactRow small,
+.ownerWatchList strong,
+.ownerWatchList small {
+  display: block;
+}
+
+.ownerCompactRow small,
+.ownerWatchList small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ownerWatchList {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ownerWatchList > span {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.ownerModerationPanel {
+  padding: 12px;
+  border: 1px solid rgba(217, 107, 95, 0.45);
+  border-radius: 8px;
+  background: rgba(217, 107, 95, 0.05);
+}
+
+.ownerWarning {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--amber);
+  background: rgba(216, 163, 62, 0.08);
+  color: var(--muted);
+}
+
+.moderationHistory {
+  display: grid;
+  gap: 8px;
+}
+
+.moderationHistoryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.moderationHistoryRow small,
+.moderationHistoryRow p {
+  color: var(--muted);
+}
+
+.moderationHistoryRow p {
+  grid-column: 1 / -1;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.moderationHistoryStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.moderationStatus--succeeded {
+  color: var(--accent-strong);
+}
+
+.moderationStatus--expired {
+  color: var(--muted);
+}
+
+.moderationStatus--failed,
+.moderationStatus--rejected,
+.moderationStatus--cancelled {
+  color: var(--danger);
+}
+
+.moderationStatus--pending,
+.moderationStatus--dispatching,
+.moderationStatus--processing {
+  color: var(--amber);
+}
+
+.ownerIncident {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ownerIncidentEvents {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 1050px) {
+  .ownerSummaryGrid,
+  .ownerIncidentStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ownerWatchList {
+    grid-template-columns: 1fr;
+  }
+}
+
+.moderationDialogForm textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.moderationDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.moderationDialog .iconButton {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  font-size: 20px;
+}
+
+.moderationDialog .primaryAction {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #071008;
+  font-weight: 700;
+}
+
 .adminStats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1214,14 +1571,100 @@ h2 {
   font-family: "Cascadia Mono", Consolas, monospace;
 }
 
+.adminAvatarRowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.adminAvatarControls {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 8px 10px;
+  padding: 2px 0 12px 100px;
+}
+
+.adminAvatarControls label {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.adminAvatarControls label > span,
+.adminAvatarShareActions > span,
+.adminAvatarGlobalHint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.adminAvatarNoteField textarea {
+  height: 40px;
+  min-height: 40px;
+  resize: vertical;
+}
+
+.adminAvatarShareActions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adminAvatarShareActions > span {
+  flex: 1;
+}
+
+.adminAvatarGlobalHint,
+.adminAvatarGlobalReports {
+  grid-column: 1 / -1;
+}
+
+.adminAvatarGlobalReports > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+  border-top: 1px solid var(--line);
+  padding: 7px 0;
+  font-size: 11px;
+}
+
+.adminAvatarGlobalReports small {
+  color: var(--muted);
+}
+
+.adminAvatarGlobalReports p {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
 .adminMiniMuted {
   justify-self: end;
   font-size: 12px;
 }
 
+@media (max-width: 900px) {
+  .adminAvatarControls {
+    grid-template-columns: 1fr;
+    padding-left: 0;
+  }
+
+  .adminAvatarShareActions,
+  .adminAvatarGlobalHint,
+  .adminAvatarGlobalReports {
+    grid-column: 1;
+  }
+}
+
 .crashHeaderActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

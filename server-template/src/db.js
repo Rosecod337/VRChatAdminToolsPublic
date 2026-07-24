@@ -252,6 +252,33 @@ async function migrate(pool) {
 
     CREATE INDEX IF NOT EXISTS idx_avatar_notes_team_updated ON avatar_notes(team_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_avatar_notes_avatar_id ON avatar_notes(avatar_id);
+
+    CREATE TABLE IF NOT EXISTS global_avatar_notes (
+      source_team_id TEXT NOT NULL,
+      license_id TEXT REFERENCES licenses(id) ON DELETE SET NULL,
+      avatar_key TEXT NOT NULL,
+      avatar_name TEXT NOT NULL DEFAULT '',
+      avatar_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ok',
+      note TEXT NOT NULL DEFAULT '',
+      updated_by_key TEXT NOT NULL DEFAULT '',
+      updated_by_label TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (source_team_id, avatar_key),
+      CHECK (char_length(source_team_id) <= 80),
+      CHECK (char_length(avatar_key) <= 220),
+      CHECK (char_length(avatar_name) <= 240),
+      CHECK (char_length(avatar_id) <= 80),
+      CHECK (char_length(status) <= 40),
+      CHECK (char_length(note) <= 2000),
+      CHECK (char_length(updated_by_key) <= 80),
+      CHECK (char_length(updated_by_label) <= 120)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_global_avatar_notes_avatar_updated
+      ON global_avatar_notes(avatar_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_global_avatar_notes_updated
+      ON global_avatar_notes(updated_at DESC);
   `);
 }
 

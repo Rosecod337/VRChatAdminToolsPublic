@@ -38,10 +38,29 @@ const adminPlayerList = document.querySelector("#adminPlayerList");
 const adminPlayerCard = document.querySelector("#adminPlayerCard");
 const copyAdminSnapshotBtn = document.querySelector("#copyAdminSnapshotBtn");
 const adminSyncStatus = document.querySelector("#adminSyncStatus");
+const ownerTabButton = document.querySelector("#ownerTabButton");
+const ownerGroupLabel = document.querySelector("#ownerGroupLabel");
+const ownerPlayerSearch = document.querySelector("#ownerPlayerSearch");
+const ownerPlayerList = document.querySelector("#ownerPlayerList");
+const ownerPlayerCard = document.querySelector("#ownerPlayerCard");
+const refreshModerationBtn = document.querySelector("#refreshModerationBtn");
+const banRequestDialog = document.querySelector("#banRequestDialog");
+const banRequestForm = document.querySelector("#banRequestForm");
+const banRequestTarget = document.querySelector("#banRequestTarget");
+const banRequestReason = document.querySelector("#banRequestReason");
+const banRequestEvidence = document.querySelector("#banRequestEvidence");
+const banRequestDurationField = document.querySelector("#banRequestDurationField");
+const banRequestDuration = document.querySelector("#banRequestDuration");
+const banRequestDurationUnit = document.querySelector("#banRequestDurationUnit");
+const banReasonTemplate = document.querySelector("#banReasonTemplate");
+const banRequestCloseBtn = document.querySelector("#banRequestCloseBtn");
+const banRequestCancelBtn = document.querySelector("#banRequestCancelBtn");
+const banRequestSubmitBtn = document.querySelector("#banRequestSubmitBtn");
 const crashStatusBadge = document.querySelector("#crashStatusBadge");
 const crashToggleBtn = document.querySelector("#crashToggleBtn");
 const captureLagBtn = document.querySelector("#captureLagBtn");
 const copyCrashReportBtn = document.querySelector("#copyCrashReportBtn");
+const clearCrashHistoryBtn = document.querySelector("#clearCrashHistoryBtn");
 const crashStatusText = document.querySelector("#crashStatusText");
 const crashIncidentList = document.querySelector("#crashIncidentList");
 const builderLayout = document.querySelector("#builderLayout");
@@ -69,8 +88,18 @@ const notifyCrashAvatars = document.querySelector("#notifyCrashAvatars");
 
 const BUILDER_KINDS = ["players", "avatars", "portals", "worlds", "admin"];
 const CRASH_LOG_SILENCE_WARNING_MS = 5 * 60 * 1000;
+const CRASH_BUFFER_SAVE_DELAY_MS = 500;
+const RESUME_REFRESH_DELAY_MS = 120;
 const WINDOW_OPACITY_MIN_PERCENT = 40;
 const WINDOW_OPACITY_MAX_PERCENT = 100;
+const ACTIVE_MODERATION_STATUSES = new Set(["pending", "dispatching", "awaiting_review", "processing"]);
+const MODERATION_REASON_TEMPLATES = {
+  "crash-avatar": "Использование аватара, вызывающего критические лаги или сбой VRChat.",
+  harassment: "Оскорбления, угрозы или систематическое преследование участников.",
+  disruption: "Намеренный срыв мероприятия или работы администрации.",
+  "ban-evasion": "Обход ранее выданной блокировки или ограничений группы.",
+  rules: "Нарушение правил группы. Подробности: "
+};
 const savedBuilderSearch = loadJson("builderSearch", {});
 
 function normalizeWindowOpacityPercent(value) {
@@ -85,10 +114,19 @@ const state = {
   eventIds: new Set(),
   playerEventIndex: null,
   renderTimer: null,
+  renderDeferred: false,
+  renderSuspended: false,
+  resumeRefreshTimer: null,
+  resumeRefreshInFlight: false,
   profiles: new Map(),
   search: { players: "", avatars: "" },
   adminSearch: "",
   selectedUserId: "",
+  ownerSearch: "",
+  ownerSelectedUserId: "",
+  moderationRequests: [],
+  moderationRequestsInFlight: false,
+  banRequestTarget: null,
   license: null,
   teamId: "",
   teamScopeVersion: 0,
@@ -103,6 +141,10 @@ const state = {
   globalPlayerNotesReady: false,
   globalPlayerNotesInFlight: false,
   globalPlayerNotesLastFetchAt: 0,
+  globalAvatarNotes: loadJson("globalAvatarNotes", {}),
+  globalAvatarNotesReady: false,
+  globalAvatarNotesInFlight: false,
+  globalAvatarNotesLastFetchAt: 0,
   playerNoteHistory: {},
   playerNoteHistoryInFlight: new Set(),
   avatarCatalog: {},
@@ -139,6 +181,7 @@ const state = {
   crashLastLogModifiedAt: "",
   crashFreezeReported: false,
   crashEventBuffer: loadJson("crashEventBuffer", []),
+  crashBufferSaveTimer: null,
   crashIncidents: loadJson("crashIncidents", []),
   currentPlaySessionId: "",
   currentPlaySessionStartedAt: "",
@@ -347,6 +390,89 @@ function currentAdminIdentity() {
   };
 }
 
+function moderationRequestError(error) {
+  const code = error?.message || String(error || "");
+  const messages = {
+    moderation_request_permission_required: "У этого ключа нет Owner-доступа.",
+    moderation_group_not_configured: "Для этого ключа не настроена VRChat-группа.",
+    active_moderation_request_exists: "По этому игроку уже есть незавершённый запрос.",
+    moderation_request_retry_not_allowed: "Повторно отправить можно только операцию, завершившуюся ошибкой.",
+    "durationMinutes is not allowed": "Выбран недопустимый срок временного бана.",
+    "targetUserId must be a VRChat user id": "В логе не найден корректный VRChat User ID игрока.",
+    "evidenceUrl must be a valid HTTPS URL": "Ссылка на доказательства должна начинаться с https://"
+  };
+  return messages[code] || code;
+}
+
+function moderationDurationMinutes() {
+  const amount = Number(banRequestDuration?.value);
+  const multiplier = {
+    minutes: 1,
+    hours: 60,
+    days: 24 * 60
+  }[banRequestDurationUnit?.value] || 1;
+  const minutes = amount * multiplier;
+  if (!Number.isInteger(amount) || !Number.isInteger(minutes) || minutes < 5 || minutes > 30 * 24 * 60) {
+    throw new Error("durationMinutes is not allowed");
+  }
+  return minutes;
+}
+
+function syncModerationDurationLimits() {
+  if (!banRequestDuration || !banRequestDurationUnit) return;
+  const limits = {
+    minutes: { min: 5, max: 43200 },
+    hours: { min: 1, max: 720 },
+    days: { min: 1, max: 30 }
+  }[banRequestDurationUnit.value];
+  banRequestDuration.min = String(limits.min);
+  banRequestDuration.max = String(limits.max);
+  const value = Number(banRequestDuration.value);
+  if (!Number.isFinite(value) || value < limits.min) banRequestDuration.value = String(limits.min);
+  if (value > limits.max) banRequestDuration.value = String(limits.max);
+}
+
+function openBanRequestDialog(userId) {
+  if (!banRequestDialog || !state.license?.canRequestGroupBan) return;
+  const summary = buildPlayerSummary(userId);
+  state.banRequestTarget = { userId, displayName: summary.name || userId };
+  banRequestTarget.textContent = `${state.banRequestTarget.displayName} · ${userId}`;
+  banRequestReason.value = "";
+  banRequestEvidence.value = "";
+  if (banReasonTemplate) banReasonTemplate.value = "";
+  if (banRequestDuration) banRequestDuration.value = "30";
+  if (banRequestDurationUnit) banRequestDurationUnit.value = "minutes";
+  syncModerationDurationLimits();
+  const permanent = banRequestForm?.querySelector('input[name="banDurationMode"][value="permanent"]');
+  if (permanent) permanent.checked = true;
+  if (banRequestDurationField) banRequestDurationField.hidden = true;
+  banRequestDialog.showModal();
+  banRequestReason.focus();
+}
+
+function closeBanRequestDialog() {
+  if (banRequestDialog?.open) banRequestDialog.close();
+  state.banRequestTarget = null;
+}
+
+function hasOwnerAccess() {
+  return Boolean(state.license?.ownerAccess ?? state.license?.canRequestGroupBan) &&
+    Boolean(state.license?.moderationGroupId);
+}
+
+function syncOwnerAccess() {
+  const enabled = hasOwnerAccess();
+  if (ownerTabButton) ownerTabButton.hidden = !enabled;
+  if (ownerGroupLabel) {
+    ownerGroupLabel.textContent = enabled
+      ? state.license.moderationGroupId
+      : "VRChat-группа не настроена";
+  }
+  if (!enabled && activePaneName() === "owner") {
+    document.querySelector('.tab[data-tab="admin"]')?.click();
+  }
+}
+
 function normalizePlayerNote(row, fallback = {}) {
   return {
     status: row?.status || fallback.status || "ok",
@@ -503,7 +629,10 @@ function importServerPlayerNotes(notes) {
   state.playerNotes = next;
   state.playerNotesReady = true;
   cachePlayerNotes();
-  if (activePaneName() === "admin") renderAdminTools();
+  if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderWhenVisible(renderAdminTools);
+  if (activePaneName() === "owner" && !isEditingAdminPlayer(state.ownerSelectedUserId)) {
+    renderWhenVisible(renderOwnerTools);
+  }
 }
 
 async function loadPlayerNotes(options = {}) {
@@ -570,7 +699,10 @@ function importGlobalPlayerNotes(rows) {
   state.globalPlayerNotesReady = true;
   state.globalPlayerNotesLastFetchAt = Date.now();
   localStorage.setItem("globalPlayerNotes", JSON.stringify(grouped));
-  if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderAdminPlayerCard();
+  if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderWhenVisible(renderAdminPlayerCard);
+  if (activePaneName() === "owner" && !isEditingAdminPlayer(state.ownerSelectedUserId)) {
+    renderWhenVisible(renderOwnerTools);
+  }
 }
 
 async function loadGlobalPlayerNotes(options = {}) {
@@ -611,6 +743,9 @@ async function loadPlayerNoteHistory(userId, options = {}) {
     if (state.selectedUserId === userId && activePaneName() === "admin" && !isEditingAdminPlayer(userId)) {
       renderAdminPlayerCard();
     }
+    if (state.ownerSelectedUserId === userId && activePaneName() === "owner" && !isEditingAdminPlayer(userId)) {
+      renderOwnerTools();
+    }
   }
 }
 
@@ -639,6 +774,97 @@ async function removeGlobalPlayerNote(userId) {
   delete state.playerNoteHistory[userId];
   await loadPlayerNoteHistory(userId, { force: true, silent: true });
   setRuntimeStatus("Общая заметка удалена");
+}
+
+function normalizeGlobalAvatarNote(row) {
+  return {
+    sourceTeamId: String(row?.source_team_id || row?.sourceTeamId || ""),
+    avatarKey: String(row?.avatar_key || row?.avatarKey || ""),
+    avatarName: String(row?.avatar_name || row?.avatarName || ""),
+    avatarId: String(row?.avatar_id || row?.avatarId || ""),
+    status: String(row?.status || "ok").toLowerCase() === "crash" ? "crash" : "ok",
+    note: String(row?.note || ""),
+    updatedByKey: String(row?.updated_by_key || row?.updatedByKey || ""),
+    updatedByLabel: String(row?.updated_by_label || row?.updatedByLabel || ""),
+    updatedAt: row?.updated_at || row?.updatedAt || ""
+  };
+}
+
+function importGlobalAvatarNotes(rows) {
+  const grouped = {};
+  for (const row of rows || []) {
+    const note = normalizeGlobalAvatarNote(row);
+    if (!note.sourceTeamId || !avatarIdNoteKey(note.avatarId)) continue;
+    const key = avatarIdNoteKey(note.avatarId);
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(note);
+  }
+  for (const notes of Object.values(grouped)) {
+    notes.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  }
+  state.globalAvatarNotes = grouped;
+  state.globalAvatarNotesReady = true;
+  state.globalAvatarNotesLastFetchAt = Date.now();
+  localStorage.setItem("globalAvatarNotes", JSON.stringify(grouped));
+  if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderWhenVisible(renderAdminPlayerCard);
+  if (activePaneName() === "owner" && !isEditingAdminPlayer(state.ownerSelectedUserId)) {
+    renderWhenVisible(renderOwnerTools);
+  }
+  if (activePaneName() === "crash" && !isEditingCrashAvatarNote()) renderWhenVisible(renderCrashAnalyzer);
+}
+
+async function loadGlobalAvatarNotes(options = {}) {
+  const { force = false, silent = false } = options;
+  if (!window.clientApi.listGlobalAvatarNotes || state.globalAvatarNotesInFlight) return;
+  if (!force && Date.now() - state.globalAvatarNotesLastFetchAt < 15_000) return;
+  state.globalAvatarNotesInFlight = true;
+  try {
+    importGlobalAvatarNotes(await window.clientApi.listGlobalAvatarNotes());
+  } catch (error) {
+    state.globalAvatarNotesReady = false;
+    state.globalAvatarNotesLastFetchAt = Date.now();
+    if (!silent) setRuntimeStatus(`Общие отметки аватаров недоступны: ${error.message}`, true);
+  } finally {
+    state.globalAvatarNotesInFlight = false;
+  }
+}
+
+function globalAvatarReportsForId(avatarId) {
+  const key = avatarIdNoteKey(avatarId);
+  return key && Array.isArray(state.globalAvatarNotes[key]) ? state.globalAvatarNotes[key] : [];
+}
+
+function ownGlobalAvatarReport(avatarId) {
+  return globalAvatarReportsForId(avatarId).find((row) => row.sourceTeamId === state.teamId) || null;
+}
+
+async function publishGlobalAvatarNote(avatarKey) {
+  const record = normalizeAvatarNote(state.avatarNotes[avatarKey]);
+  const confirmedKey = avatarIdNoteKey(record.avatarId);
+  if (!confirmedKey || confirmedKey !== avatarKey) {
+    throw new Error("Для общей публикации нужен подтверждённый Avatar ID");
+  }
+  const saved = normalizeGlobalAvatarNote(await window.clientApi.saveGlobalAvatarNote({
+    avatarName: record.avatarName,
+    avatarId: record.avatarId,
+    status: record.status,
+    note: record.note
+  }));
+  const others = globalAvatarReportsForId(record.avatarId)
+    .filter((row) => row.sourceTeamId !== saved.sourceTeamId);
+  state.globalAvatarNotes[confirmedKey] = [saved, ...others];
+  localStorage.setItem("globalAvatarNotes", JSON.stringify(state.globalAvatarNotes));
+  setRuntimeStatus("Отметка аватара опубликована для всех команд");
+}
+
+async function removeGlobalAvatarNote(avatarId) {
+  const key = avatarIdNoteKey(avatarId);
+  if (!key) throw new Error("Подтверждённый Avatar ID не найден");
+  await window.clientApi.removeGlobalAvatarNote(avatarId);
+  state.globalAvatarNotes[key] = globalAvatarReportsForId(avatarId)
+    .filter((row) => row.sourceTeamId !== state.teamId);
+  localStorage.setItem("globalAvatarNotes", JSON.stringify(state.globalAvatarNotes));
+  setRuntimeStatus("Общая отметка аватара удалена");
 }
 
 async function restorePlayerNoteHistory(userId, historyId) {
@@ -796,7 +1022,8 @@ function importServerAvatarNotes(notes) {
   state.avatarNotes = next;
   state.avatarNotesReady = true;
   cacheAvatarNotes();
-  if (activePaneName() === "crash") renderCrashAnalyzer();
+  if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderWhenVisible(renderAdminPlayerCard);
+  if (activePaneName() === "crash") renderWhenVisible(renderCrashAnalyzer);
 }
 
 async function loadAvatarNotes(options = {}) {
@@ -836,6 +1063,7 @@ function startAvatarNotesPolling() {
   state.avatarNotesPollTimer = setInterval(() => {
     if (document.hidden) return;
     loadAvatarNotes({ silent: true }).catch(() => {});
+    loadGlobalAvatarNotes({ silent: true }).catch(() => {});
     flushAvatarNotes({ silent: true }).catch(() => {});
   }, 10_000);
 }
@@ -843,20 +1071,43 @@ function startAvatarNotesPolling() {
 function avatarNoteRecord(avatarName = "", avatarId = "", forcedKey = "") {
   const key = forcedKey || avatarNoteKey(avatarName, avatarId);
   if (!key) return null;
-  const fallback = { avatarKey: key, avatarName, avatarId, status: "ok", note: "" };
+  const nameRecord = avatarName ? state.avatarNotes[avatarNameNoteKey(avatarName)] : null;
+  const fallback = normalizeAvatarNote(nameRecord, {
+    avatarKey: key,
+    avatarName,
+    avatarId,
+    status: "ok",
+    note: ""
+  });
+  fallback.avatarKey = key;
+  if (avatarId) fallback.avatarId = avatarId;
   state.avatarNotes[key] = normalizeAvatarNote(state.avatarNotes[key], fallback);
   if (!state.avatarNotes[key].avatarName && avatarName) state.avatarNotes[key].avatarName = avatarName;
   if (!state.avatarNotes[key].avatarId && avatarId) state.avatarNotes[key].avatarId = avatarId;
   return state.avatarNotes[key];
 }
 
-function avatarNoteForEvent(event) {
+function teamAvatarNoteForEvent(event) {
   if (!event) return null;
   const avatarId = verifiedAvatarId(event);
   const byId = avatarId ? state.avatarNotes[avatarIdNoteKey(avatarId)] : null;
   if (byId) return { ...normalizeAvatarNote(byId), match: "id" };
   const byName = event.avatarName ? state.avatarNotes[avatarNameNoteKey(event.avatarName)] : null;
   return byName ? { ...normalizeAvatarNote(byName), match: "name" } : null;
+}
+
+function avatarNoteForEvent(event) {
+  if (!event) return null;
+  const teamNote = teamAvatarNoteForEvent(event);
+  const avatarId = verifiedAvatarId(event);
+  const globalReports = globalAvatarReportsForId(avatarId);
+  const globalCrash = globalReports.find((row) => row.status === "crash");
+  if (teamNote?.status === "crash") return { ...teamNote, visibility: "team" };
+  if (globalCrash) return { ...globalCrash, match: "global-id", visibility: "global" };
+  if (teamNote) return { ...teamNote, visibility: "team" };
+  return globalReports[0]
+    ? { ...globalReports[0], match: "global-id", visibility: "global" }
+    : null;
 }
 
 function touchAvatarNoteRecord(record) {
@@ -1281,7 +1532,7 @@ function buildPlayerSummary(userId) {
 
 function isEditingAdminPlayer(userId = state.selectedUserId) {
   const active = document.activeElement;
-  if (!active?.matches?.("[data-player-note-status], [data-player-note-text]")) return false;
+  if (!active?.matches?.("[data-player-note-status], [data-player-note-text], [data-admin-avatar-note-status], [data-admin-avatar-note-text]")) return false;
   return active.closest("[data-player-note-editor]")?.dataset.userId === userId;
 }
 
@@ -1334,23 +1585,77 @@ function avatarMiniAction(event) {
   return `<button class="eventAction eventAction--mini" data-url="${escapeHtml(avatarUrl(event.avatarId))}" title="${probable ? "ID найден по совпадению названия и не подтверждён логом." : "Открыть страницу аватара"}">${probable ? "Возможный ID" : "Аватар"}</button>`;
 }
 
+function adminAvatarGlobalReportsHtml(avatarId) {
+  if (!avatarIdNoteKey(avatarId)) {
+    return `<div class="adminAvatarGlobalHint">Общая публикация доступна после подтверждения Avatar ID.</div>`;
+  }
+  const reports = globalAvatarReportsForId(avatarId);
+  if (reports.length === 0) {
+    return `<div class="adminAvatarGlobalHint">В общих данных отметок пока нет.</div>`;
+  }
+  return `<div class="adminAvatarGlobalReports">
+    ${reports.map((report) => `<div>
+      <span class="eventAvatarBadge eventAvatarBadge--${escapeHtml(report.status)}">${escapeHtml(report.status)}</span>
+      <strong>${escapeHtml(report.updatedByLabel || "Неизвестный администратор")}</strong>
+      <small>${escapeHtml(formatDateTime(report.updatedAt))}</small>
+      ${report.note ? `<p>${escapeHtml(report.note)}</p>` : ""}
+    </div>`).join("")}
+  </div>`;
+}
+
 function adminAvatarRow(event) {
   const avatarName = event.avatarName || event.avatarId || "-";
-  const avatarId = event.avatarId || "";
+  const shownAvatarId = event.avatarId || "";
+  const avatarId = verifiedAvatarId(event);
+  const key = avatarNoteKey(avatarName, avatarId);
+  const inherited = teamAvatarNoteForEvent(event);
+  const record = normalizeAvatarNote(state.avatarNotes[key], {
+    avatarKey: key,
+    avatarName,
+    avatarId,
+    status: inherited?.status || "ok",
+    note: inherited?.note || ""
+  });
+  const effective = avatarNoteForEvent(event);
+  const ownReport = ownGlobalAvatarReport(avatarId);
   const source = event.avatarIdSource === "catalog"
     ? " · из каталога"
     : event.avatarIdSource === "api-name"
       ? " · возможный ID по имени"
       : "";
   const action = event.avatarId ? avatarMiniAction(event) : avatarCandidateActions(event, true) || `<span class="adminMiniMuted">Без ссылки</span>`;
-  return `<div class="adminMiniRow adminMiniRow--avatar">
-    <span>${escapeHtml(formatTime(event))}</span>
-    <div class="adminAvatarInfo">
-      <strong>${escapeHtml(avatarName)}</strong>
-      ${avatarId ? `<small>${escapeHtml(avatarId + source)}</small>` : `<small>avtr_... не найден в логе</small>`}
+  const effectiveBadge = effective
+    ? `<span class="eventAvatarBadge eventAvatarBadge--${escapeHtml(effective.status)}" data-admin-avatar-effective-status title="${effective.visibility === "global" ? "Отметка из общих данных" : "Командная отметка"}">${escapeHtml(effective.status)}${effective.visibility === "global" ? " · общая" : ""}</span>`
+    : "";
+  return `<article class="adminAvatarEditor" data-admin-avatar-editor data-avatar-key="${escapeHtml(key)}" data-avatar-name="${escapeHtml(avatarName)}" data-avatar-id="${escapeHtml(avatarId)}">
+    <div class="adminMiniRow adminMiniRow--avatar">
+      <span>${escapeHtml(formatTime(event))}</span>
+      <div class="adminAvatarInfo">
+        <strong>${escapeHtml(avatarName)}</strong>
+        ${shownAvatarId ? `<small>${escapeHtml(shownAvatarId + source)}</small>` : `<small>avtr_... не найден в логе</small>`}
+      </div>
+      <div class="adminAvatarRowActions">${effectiveBadge}${action}</div>
     </div>
-    ${action}
-  </div>`;
+    ${key ? `<div class="adminAvatarControls">
+      <label>
+        <span>Командная метка</span>
+        <select data-admin-avatar-note-status>
+          <option value="ok"${record.status === "ok" ? " selected" : ""}>ok</option>
+          <option value="crash"${record.status === "crash" ? " selected" : ""}>crash</option>
+        </select>
+      </label>
+      <label class="adminAvatarNoteField">
+        <span>Заметка об аватаре</span>
+        <textarea data-admin-avatar-note-text spellcheck="false" placeholder="Почему аватар отмечен...">${escapeHtml(record.note)}</textarea>
+      </label>
+      <div class="adminAvatarShareActions">
+        <span>${avatarId ? "Публикация будет видна всем лицензированным командам." : "Нужен подтверждённый Avatar ID; совпадения только по имени не публикуются."}</span>
+        <button type="button" data-publish-global-avatar-note${avatarId ? "" : " disabled"}>${ownReport ? "Обновить общую" : "Опубликовать всем"}</button>
+        ${ownReport ? `<button type="button" data-remove-global-avatar-note>Убрать общую</button>` : ""}
+      </div>
+      ${adminAvatarGlobalReportsHtml(avatarId)}
+    </div>` : ""}
+  </article>`;
 }
 
 function adminEventRow(event) {
@@ -1380,7 +1685,7 @@ function rowHtml(event) {
     : profileButton(event);
   const avatarNote = event.category === "avatars" ? avatarNoteForEvent(event) : null;
   const avatarBadge = avatarNote?.status
-    ? `<span class="eventAvatarBadge eventAvatarBadge--${escapeHtml(avatarNote.status)}">${escapeHtml(avatarNote.status)}</span>`
+    ? `<span class="eventAvatarBadge eventAvatarBadge--${escapeHtml(avatarNote.status)}" title="${avatarNote.visibility === "global" ? "Отметка из общих данных" : "Командная отметка"}">${escapeHtml(avatarNote.status)}</span>`
     : "";
   const avatarMatchBadge = event.category === "avatars" && event.avatarIdSource === "api-name"
     ? `<span class="eventAvatarBadge eventAvatarBadge--probable">ID по имени</span>`
@@ -1447,15 +1752,33 @@ function render() {
   eventCountLabel.textContent = `${state.events.length} событий`;
   if (activePane === "builder") renderBuilder(builderParts(parts));
   if (activePane === "admin") renderAdminTools();
+  if (activePane === "owner") renderOwnerTools();
   if (activePane === "crash") renderCrashAnalyzer();
 }
 
 function scheduleRender(delayMs = 75) {
+  if (document.hidden || state.renderSuspended) {
+    state.renderDeferred = true;
+    return;
+  }
   if (state.renderTimer) return;
   state.renderTimer = setTimeout(() => {
     state.renderTimer = null;
+    if (document.hidden || state.renderSuspended) {
+      state.renderDeferred = true;
+      return;
+    }
+    state.renderDeferred = false;
     render();
   }, delayMs);
+}
+
+function renderWhenVisible(renderTask) {
+  if (document.hidden || state.renderSuspended) {
+    state.renderDeferred = true;
+    return;
+  }
+  renderTask();
 }
 
 function playerSummaries() {
@@ -1470,11 +1793,13 @@ function playerSummaries() {
 function renderAdminTools() {
   if (!adminPlayerList || !adminPlayerCard) return;
   if (adminSyncStatus) {
-    adminSyncStatus.textContent = state.playerNotesReady ? "Общие данные" : "Локальный кэш";
-    adminSyncStatus.title = state.playerNotesReady
-      ? "Метки и заметки синхронизируются каждые 5 секунд."
+    const syncReady = state.playerNotesReady && state.avatarNotesReady &&
+      state.globalPlayerNotesReady && state.globalAvatarNotesReady;
+    adminSyncStatus.textContent = syncReady ? "Общие данные" : "Локальный кэш";
+    adminSyncStatus.title = syncReady
+      ? "Метки игроков и аватаров синхронизируются с командными и общими данными."
       : "Нет связи с сервисом. Используются данные, сохранённые на этом устройстве.";
-    adminSyncStatus.classList.toggle("adminSyncStatus--synced", state.playerNotesReady);
+    adminSyncStatus.classList.toggle("adminSyncStatus--synced", syncReady);
   }
   const q = state.adminSearch.toLowerCase();
   const summaries = playerSummaries().filter((summary) => {
@@ -1545,9 +1870,10 @@ function adminNoteHistoryHtml(userId) {
   }).join("");
 }
 
-function adminPlayerCardHtml(userId) {
+function adminPlayerCardHtml(userId, options = {}) {
   if (!userId) return `<div class="emptyState">Выберите игрока</div>`;
 
+  const { showClose = false } = options;
   const summary = buildPlayerSummary(userId);
   const record = playerRecord(userId);
   const profile = state.profiles.get(userId);
@@ -1565,7 +1891,10 @@ function adminPlayerCardHtml(userId) {
         <h2>${escapeHtml(summary.name)}</h2>
         <p>${escapeHtml(userId)}</p>
       </div>
-      <button class="eventAction" data-url="${escapeHtml(profileUrl)}">Профиль</button>
+      <div class="adminCardActions">
+        <button class="eventAction" data-url="${escapeHtml(profileUrl)}">Профиль</button>
+        ${showClose ? `<button type="button" class="adminCardClose" data-clear-admin-selection title="Убрать выбранного игрока" aria-label="Убрать выбранного игрока">×</button>` : ""}
+      </div>
     </div>
     <div class="adminStats">
       <div><strong class="adminStatus ${summary.online ? "adminStatus--online" : "adminStatus--offline"}">${summary.online ? "В сети" : "Не в сети"}</strong><span>Статус</span></div>
@@ -1615,11 +1944,258 @@ function adminPlayerCardHtml(userId) {
 function renderAdminPlayerCard() {
   if (!adminPlayerCard) return;
   const previousScrollTop = adminPlayerCard.scrollTop;
-  const nextHtml = adminPlayerCardHtml(state.selectedUserId);
+  const nextHtml = adminPlayerCardHtml(state.selectedUserId, { showClose: true });
   if (adminPlayerCard._renderedHtml === nextHtml) return;
   adminPlayerCard.innerHTML = nextHtml;
   adminPlayerCard._renderedHtml = nextHtml;
   adminPlayerCard.scrollTop = previousScrollTop;
+}
+
+function moderationStatusLabel(status) {
+  return {
+    pending: "В очереди",
+    dispatching: "WhiteCore выполняет",
+    processing: "Выполняется",
+    succeeded: "Выполнено",
+    expired: "Срок завершён",
+    failed: "Ошибка",
+    rejected: "Отклонено",
+    cancelled: "Отменено",
+    awaiting_review: "Ожидает"
+  }[status] || status || "Неизвестно";
+}
+
+function moderationDurationLabel(request) {
+  if (!request.durationMinutes) return "Бессрочно";
+  const minutes = Number(request.durationMinutes);
+  if (minutes < 60) return `${minutes} мин.`;
+  if (minutes < 1440) return `${minutes / 60} ч.`;
+  return `${minutes / 1440} дн.`;
+}
+
+function moderationRemainingLabel(request) {
+  if (!request?.banExpiresAt) return "";
+  const remainingMs = new Date(request.banExpiresAt).valueOf() - Date.now();
+  if (!Number.isFinite(remainingMs)) return "";
+  if (remainingMs <= 0) return "Срок истёк, ожидается подтверждение снятия";
+  const minutes = Math.ceil(remainingMs / 60_000);
+  if (minutes < 60) return `Осталось ${minutes} мин.`;
+  if (minutes < 1440) return `Осталось ${Math.ceil(minutes / 60)} ч.`;
+  return `Осталось ${Math.ceil(minutes / 1440)} дн.`;
+}
+
+function confirmedModerationCount(userId) {
+  const requests = state.moderationRequests.filter((request) => request.targetUserId === userId);
+  return Math.max(
+    0,
+    ...requests.map((request) => Number(request.repeatCount || 0)),
+    requests.filter((request) => ["succeeded", "expired"].includes(request.status)).length
+  );
+}
+
+function moderationHistoryHtml(userId, limit = 50) {
+  const requests = state.moderationRequests
+    .filter((request) => !userId || request.targetUserId === userId)
+    .slice(0, limit);
+  if (state.moderationRequestsInFlight && requests.length === 0) {
+    return `<div class="emptyState">Загрузка операций...</div>`;
+  }
+  if (requests.length === 0) return `<div class="emptyState">Операций пока нет</div>`;
+  return `<div class="moderationHistory">${requests.map((request) => `
+    <article class="moderationHistoryRow">
+      <div>
+        <strong>${escapeHtml(request.targetDisplayName || request.targetUserId)}</strong>
+        <small>${escapeHtml(moderationDurationLabel(request))} · ${escapeHtml(formatDateTime(request.createdAt))} · ${escapeHtml(request.keyLabel || request.keyPrefix || "Администратор")}</small>
+      </div>
+      <div class="moderationHistoryStatus">
+        <strong class="moderationStatus--${escapeHtml(request.status)}">${escapeHtml(moderationStatusLabel(request.status))}</strong>
+        ${request.status === "failed" ? `<button type="button" class="eventAction eventAction--mini" data-retry-moderation="${escapeHtml(request.id)}">Повторить</button>` : ""}
+      </div>
+      <p>${escapeHtml(request.reason || "Причина не указана")}${request.errorMessage ? `<br>Ошибка: ${escapeHtml(request.errorMessage)}` : ""}</p>
+    </article>
+  `).join("")}</div>`;
+}
+
+function ownerQueueRowsHtml(requests, emptyText) {
+  if (requests.length === 0) return `<div class="emptyState">${escapeHtml(emptyText)}</div>`;
+  return `<div class="ownerCompactList">${requests.map((request) => `
+    <article class="ownerCompactRow">
+      <div>
+        <strong>${escapeHtml(request.targetDisplayName || request.targetUserId)}</strong>
+        <small>${escapeHtml(request.reason || "Причина не указана")}</small>
+      </div>
+      <div>
+        <strong class="moderationStatus--${escapeHtml(request.status)}">${escapeHtml(moderationStatusLabel(request.status))}</strong>
+        <small>${escapeHtml(moderationRemainingLabel(request) || formatDateTime(request.updatedAt))}</small>
+      </div>
+    </article>
+  `).join("")}</div>`;
+}
+
+function ownerOverviewHtml() {
+  const queue = state.moderationRequests.filter((request) => ACTIVE_MODERATION_STATUSES.has(request.status));
+  const activeTemporary = state.moderationRequests.filter((request) => (
+    request.status === "succeeded" && request.durationMinutes && request.banExpiresAt
+  ));
+  const watched = Object.entries(state.playerNotes)
+    .filter(([, record]) => record?.status === "watch")
+    .sort(([, a], [, b]) => String(a.displayName || "").localeCompare(String(b.displayName || ""), "ru"));
+  const failed = state.moderationRequests.filter((request) => request.status === "failed").length;
+  return `<div class="ownerActionPanel ownerOverview">
+    <div class="ownerSummaryGrid">
+      <div><strong>${queue.length}</strong><span>В очереди</span></div>
+      <div><strong>${activeTemporary.length}</strong><span>Временные баны</span></div>
+      <div><strong>${watched.length}</strong><span>Под наблюдением</span></div>
+      <div><strong>${failed}</strong><span>Требуют внимания</span></div>
+    </div>
+    <section class="adminSection">
+      <h3>Активные временные баны</h3>
+      ${ownerQueueRowsHtml(activeTemporary, "Активных временных банов нет")}
+    </section>
+    <section class="adminSection">
+      <h3>Очередь операций</h3>
+      ${ownerQueueRowsHtml(queue, "Очередь пуста")}
+    </section>
+    <section class="adminSection">
+      <h3>Наблюдение</h3>
+      ${watched.length ? `<div class="ownerWatchList">${watched.map(([userId, record]) => `
+        <span><strong>${escapeHtml(record.displayName || userId)}</strong><small>${escapeHtml(userId)}</small></span>
+      `).join("")}</div>` : `<div class="emptyState">Список наблюдения пуст</div>`}
+    </section>
+    <section class="adminSection">
+      <h3>Журнал модерации команды</h3>
+      ${moderationHistoryHtml("", 50)}
+    </section>
+  </div>`;
+}
+
+function ownerIncidentReport(userId) {
+  const summary = buildPlayerSummary(userId);
+  const record = playerRecord(userId);
+  const world = currentWorldEvent();
+  const worldName = world?.worldName || world?.worldId || world?.instance || "-";
+  const avatars = recentAvatarUses(summary.avatars).slice(-5).reverse();
+  const recent = eventsForUser(userId).slice(-8).reverse();
+  return [
+    "VRChat Admin Tools · карточка инцидента",
+    `Игрок: ${summary.name}`,
+    `User ID: ${userId}`,
+    `Мир: ${worldName}`,
+    `Статус: ${record.status}`,
+    `Заметка: ${record.note || "нет"}`,
+    `Подтверждённых операций: ${confirmedModerationCount(userId)}`,
+    "",
+    "Последние аватары:",
+    ...(avatars.length ? avatars.map((event) => `- ${event.avatarName || event.avatarId || "-"}${event.avatarId ? ` · ${event.avatarId}` : ""}`) : ["- нет данных"]),
+    "",
+    "Последние события:",
+    ...(recent.length ? recent.map((event) => `- ${formatTime(event)} · ${eventKind(event)} · ${eventDetails(event)}`) : ["- нет событий"])
+  ].join("\n");
+}
+
+function ownerIncidentHtml(userId) {
+  const summary = buildPlayerSummary(userId);
+  const record = playerRecord(userId);
+  const recent = eventsForUser(userId).slice(-5).reverse();
+  const repeats = confirmedModerationCount(userId);
+  return `<section class="ownerIncident">
+    <div class="adminCardHeader">
+      <div>
+        <h2>Карточка инцидента</h2>
+        <p>Краткий контекст перед решением модератора</p>
+      </div>
+      <button type="button" class="eventAction" data-copy-owner-incident>Копировать отчёт</button>
+    </div>
+    <div class="ownerIncidentStats">
+      <div><strong>${escapeHtml(summary.name)}</strong><span>Игрок</span></div>
+      <div><strong>${escapeHtml(record.status)}</strong><span>Метка</span></div>
+      <div><strong>${repeats}</strong><span>Прошлые операции</span></div>
+      <div><strong>${recent.length}</strong><span>События</span></div>
+    </div>
+    <div class="ownerIncidentEvents">
+      ${recent.map(adminEventRow).join("") || `<div class="emptyState">Событий пока нет</div>`}
+    </div>
+  </section>`;
+}
+
+function ownerPlayerCardHtml(userId) {
+  if (!userId) return ownerOverviewHtml();
+  const watched = playerRecord(userId).status === "watch";
+  return `<div class="ownerActionPanel" data-owner-player="${escapeHtml(userId)}">
+    <section class="ownerModerationPanel">
+      <div class="adminCardHeader">
+        <div>
+          <h2>Управление баном</h2>
+          <p>${escapeHtml(state.license?.moderationGroupId || "")}</p>
+        </div>
+        <div class="adminCardActions">
+          <button class="eventAction" data-owner-watch>${watched ? "Убрать наблюдение" : "Наблюдать"}</button>
+          <button class="eventAction eventAction--danger" data-owner-ban>Забанить</button>
+          <button type="button" class="adminCardClose" data-clear-owner-selection title="Убрать выбранного игрока" aria-label="Убрать выбранного игрока">×</button>
+        </div>
+      </div>
+      <p class="ownerWarning">Временный бан экспериментальный: WhiteCore снимет его после указанного срока. Перед действием проверьте профиль и причину.</p>
+      <div class="adminSection">
+        <h3>Операции с игроком · подтверждено ранее: ${confirmedModerationCount(userId)}</h3>
+        ${moderationHistoryHtml(userId)}
+      </div>
+    </section>
+    ${ownerIncidentHtml(userId)}
+    ${adminPlayerCardHtml(userId)}
+  </div>`;
+}
+
+function renderOwnerTools() {
+  if (!ownerPlayerList || !ownerPlayerCard || !hasOwnerAccess()) return;
+  if (ownerGroupLabel) ownerGroupLabel.textContent = state.license.moderationGroupId;
+  const query = state.ownerSearch.toLowerCase();
+  const summaries = playerSummaries().filter((summary) => (
+    !query ||
+    summary.name.toLowerCase().includes(query) ||
+    summary.userId.toLowerCase().includes(query)
+  ));
+  const listHtml = summaries.map((summary) => {
+    const record = playerRecord(summary.userId);
+    const active = summary.userId === state.ownerSelectedUserId ? " active" : "";
+    const statusClass = summary.online ? "adminStatus adminStatus--online" : "adminStatus adminStatus--offline";
+    const status = record.status !== "ok" ? `<span class="adminBadge">${escapeHtml(record.status)}</span>` : "";
+    return `<button class="adminPlayerItem${active}" data-owner-user-id="${escapeHtml(summary.userId)}">
+      <span>${escapeHtml(summary.name)}</span>
+      <small><span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.joins.length} заходов</small>
+      ${status}
+    </button>`;
+  }).join("") || `<div class="emptyState">Нет игроков</div>`;
+  if (ownerPlayerList._renderedHtml !== listHtml) {
+    const scrollTop = ownerPlayerList.scrollTop;
+    ownerPlayerList.innerHTML = listHtml;
+    ownerPlayerList._renderedHtml = listHtml;
+    ownerPlayerList.scrollTop = scrollTop;
+  }
+  if (state.ownerSelectedUserId && !summaries.some((summary) => summary.userId === state.ownerSelectedUserId)) {
+    state.ownerSelectedUserId = "";
+  }
+  if (isEditingAdminPlayer(state.ownerSelectedUserId)) return;
+  const cardHtml = ownerPlayerCardHtml(state.ownerSelectedUserId);
+  if (ownerPlayerCard._renderedHtml !== cardHtml) {
+    const scrollTop = ownerPlayerCard.scrollTop;
+    ownerPlayerCard.innerHTML = cardHtml;
+    ownerPlayerCard._renderedHtml = cardHtml;
+    ownerPlayerCard.scrollTop = scrollTop;
+  }
+}
+
+async function loadModerationRequests({ silent = false } = {}) {
+  if (!hasOwnerAccess() || state.moderationRequestsInFlight) return;
+  state.moderationRequestsInFlight = true;
+  if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
+  try {
+    state.moderationRequests = await window.clientApi.listGroupBanRequests();
+  } catch (error) {
+    if (!silent) setRuntimeStatus(moderationRequestError(error), true);
+  } finally {
+    state.moderationRequestsInFlight = false;
+    if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
+  }
 }
 
 function filterBuilderEvents(kind, events) {
@@ -1933,7 +2509,7 @@ function rememberCrashEvent(event) {
   state.crashEventBuffer = state.crashEventBuffer
     .filter((item) => new Date(item.timestamp || item.capturedAt).getTime() >= cutoff)
     .slice(-500);
-  localStorage.setItem("crashEventBuffer", JSON.stringify(state.crashEventBuffer));
+  scheduleCrashBufferSave();
 }
 
 function resetEvents(options = {}) {
@@ -1944,6 +2520,7 @@ function resetEvents(options = {}) {
   invalidatePlayerEventIndex();
   if (state.renderTimer) clearTimeout(state.renderTimer);
   state.renderTimer = null;
+  state.renderDeferred = false;
   if (clearCrashBuffer) {
     state.crashEventBuffer = [];
     state.crashLastLogModifiedAt = "";
@@ -2090,8 +2667,7 @@ async function refreshServerSnapshot(options = {}) {
     if (snapshot && !silent) {
       setRuntimeStatus(`VRChat API: сейчас онлайн ${snapshot.nUsers}${snapshot.capacity !== null ? `/${snapshot.capacity}` : ""}`);
     }
-    const activePane = document.querySelector(".tabPane.active");
-    if (activePane?.dataset.pane === "dashboard") renderDashboard();
+    if (activePaneName() === "dashboard") renderWhenVisible(renderDashboard);
     return snapshot;
   } catch (error) {
     state.serverSnapshotLastFetchAt = Date.now();
@@ -2141,10 +2717,21 @@ async function copySnapshot() {
   setRuntimeStatus("Снимок скопирован");
 }
 
+function saveCrashEventBuffer() {
+  if (state.crashBufferSaveTimer) clearTimeout(state.crashBufferSaveTimer);
+  state.crashBufferSaveTimer = null;
+  localStorage.setItem("crashEventBuffer", JSON.stringify(state.crashEventBuffer.slice(-500)));
+}
+
+function scheduleCrashBufferSave() {
+  if (state.crashBufferSaveTimer) return;
+  state.crashBufferSaveTimer = setTimeout(saveCrashEventBuffer, CRASH_BUFFER_SAVE_DELAY_MS);
+}
+
 function saveCrashState() {
   localStorage.setItem("crashAnalyzerEnabled", String(state.crashAnalyzerEnabled));
   localStorage.setItem("crashIncidents", JSON.stringify(state.crashIncidents.slice(0, 20)));
-  localStorage.setItem("crashEventBuffer", JSON.stringify(state.crashEventBuffer.slice(-500)));
+  saveCrashEventBuffer();
 }
 
 function crashWorldName() {
@@ -2394,7 +2981,7 @@ function createCrashIncident(reason, status, options = {}) {
   state.crashIncidents.unshift(incident);
   state.crashIncidents = state.crashIncidents.slice(0, 20);
   saveCrashState();
-  renderCrashAnalyzer();
+  if (activePaneName() === "crash") renderWhenVisible(renderCrashAnalyzer);
   setRuntimeStatus(options.manual ? "Lag snapshot captured" : "Possible VRChat crash captured", true);
 }
 
@@ -2500,9 +3087,12 @@ function crashSuspectHtml(candidate, index) {
 
 function renderCrashAnalyzer() {
   if (!crashStatusBadge || !crashStatusText || !crashIncidentList || !crashToggleBtn) return;
+  const hasIncidents = state.crashIncidents.length > 0;
   crashToggleBtn.textContent = state.crashAnalyzerEnabled ? "Disable" : "Enable";
   crashStatusBadge.textContent = state.crashAnalyzerEnabled ? "watching" : "disabled";
   crashStatusBadge.classList.toggle("crashStatusBadge--on", state.crashAnalyzerEnabled);
+  if (copyCrashReportBtn) copyCrashReportBtn.disabled = !hasIncidents;
+  if (clearCrashHistoryBtn) clearCrashHistoryBtn.disabled = !hasIncidents;
   const status = state.crashLastStatus;
   if (!state.crashAnalyzerEnabled) {
     crashStatusText.textContent = "Анализатор выключен.";
@@ -2551,7 +3141,7 @@ async function pollCrashAnalyzer() {
   } else {
     state.crashFreezeReported = false;
   }
-  renderCrashAnalyzer();
+  if (activePaneName() === "crash") renderWhenVisible(renderCrashAnalyzer);
 }
 
 function startCrashAnalyzer() {
@@ -2586,6 +3176,7 @@ activationForm.addEventListener("submit", (event) => {
       rememberMe: Boolean(rememberMe?.checked)
     });
     state.license = payload.license || null;
+    syncOwnerAccess();
     setStoredCookieState(willHaveStoredCookie);
     setTeamScope(state.license);
     licenseKey.value = "";
@@ -2598,6 +3189,7 @@ activationForm.addEventListener("submit", (event) => {
     await loadGlobalPlayerNotes({ force: true, silent: true });
     await loadAvatarCatalog({ silent: true, pushLocal: true });
     await loadAvatarNotes({ silent: true, pushLocal: true });
+    await loadGlobalAvatarNotes({ force: true, silent: true });
     await refreshServerSnapshot({ silent: true });
   }).catch((error) => setActivationStatus(error.message, true));
 });
@@ -2699,6 +3291,23 @@ copyCrashReportBtn?.addEventListener("click", () => {
   }).catch((error) => setRuntimeStatus(error.message, true));
 });
 
+clearCrashHistoryBtn?.addEventListener("click", () => {
+  const incidentCount = state.crashIncidents.length;
+  if (incidentCount === 0) {
+    setRuntimeStatus("История Crash Analyzer уже пуста.");
+    return;
+  }
+  const confirmed = window.confirm(
+    `Удалить всю историю Crash Analyzer (${incidentCount})?\n\n` +
+    "Метки и заметки аватаров, а также текущий буфер наблюдения останутся."
+  );
+  if (!confirmed) return;
+  state.crashIncidents = [];
+  saveCrashState();
+  renderCrashAnalyzer();
+  setRuntimeStatus("История Crash Analyzer очищена.");
+});
+
 captureLagBtn?.addEventListener("click", () => {
   runButton(captureLagBtn, captureLagSnapshot)
     .catch((error) => setRuntimeStatus(error.message, true));
@@ -2740,6 +3349,9 @@ logoutBtn.addEventListener("click", () => {
     stopTeamSyncPolling();
     clearTeamScope();
     state.license = null;
+    state.moderationRequests = [];
+    stopModerationTimer();
+    syncOwnerAccess();
     state.currentPlaySessionId = "";
     state.currentPlaySessionStartedAt = "";
     state.playSessionLastSyncAt = 0;
@@ -2971,7 +3583,8 @@ function relativeAge(value) {
 function renderDiagnostics() {
   setDiagnosticValue(diagTail, state.tailRunning ? "Активно" : "Остановлено", state.tailRunning ? "ok" : "warn");
   setDiagnosticValue(diagLastEvent, relativeAge(state.lastEventAt), state.lastEventAt ? "ok" : "warn");
-  const syncReady = state.playerNotesReady && state.avatarNotesReady && state.avatarCatalogReady && state.globalPlayerNotesReady;
+  const syncReady = state.playerNotesReady && state.avatarNotesReady && state.avatarCatalogReady &&
+    state.globalPlayerNotesReady && state.globalAvatarNotesReady;
   const syncText = syncReady ? `Работает · ${relativeAge(state.lastSyncAt)}` : state.lastSyncError || "Локальный кэш";
   setDiagnosticValue(diagSync, syncText, syncReady ? "ok" : "warn");
   const apiSnapshot = activeServerSnapshot();
@@ -3245,15 +3858,28 @@ document.querySelectorAll(".searchInput").forEach((input) => {
 // ── Вкладки ──────────────────────────────────────────────────────────────────
 
 let dashboardTimer = null;
+let moderationTimer = null;
 
 function startDashboardTimer() {
   if (dashboardTimer) return;
-  dashboardTimer = setInterval(() => renderDashboard(), 5000);
+  dashboardTimer = setInterval(() => renderWhenVisible(renderDashboard), 5000);
 }
 
 function stopDashboardTimer() {
   if (dashboardTimer) clearInterval(dashboardTimer);
   dashboardTimer = null;
+}
+
+function startModerationTimer() {
+  if (moderationTimer || !hasOwnerAccess()) return;
+  moderationTimer = setInterval(() => {
+    loadModerationRequests({ silent: true }).catch(() => {});
+  }, 10000);
+}
+
+function stopModerationTimer() {
+  if (moderationTimer) clearInterval(moderationTimer);
+  moderationTimer = null;
 }
 
 tabs.forEach((tab) => {
@@ -3264,7 +3890,15 @@ tabs.forEach((tab) => {
     if (target === "history") loadHistory();
     if (target === "admin") {
       loadGlobalPlayerNotes({ force: true, silent: true }).catch(() => {});
+      loadGlobalAvatarNotes({ force: true, silent: true }).catch(() => {});
       if (state.selectedUserId) loadPlayerNoteHistory(state.selectedUserId, { silent: true }).catch(() => {});
+    }
+    if (target === "owner") {
+      renderOwnerTools();
+      loadModerationRequests({ silent: true }).catch(() => {});
+      startModerationTimer();
+    } else {
+      stopModerationTimer();
     }
     if (target === "dashboard") {
       renderDashboard();
@@ -3435,14 +4069,113 @@ adminPlayerList?.addEventListener("click", (event) => {
 });
 
 adminPlayerCard?.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-clear-admin-selection]")) return;
+  state.selectedUserId = "";
+  renderAdminTools();
+});
+
+ownerPlayerSearch?.addEventListener("input", () => {
+  state.ownerSearch = ownerPlayerSearch.value;
+  renderOwnerTools();
+});
+
+ownerPlayerList?.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-owner-user-id]");
+  if (!item) return;
+  state.ownerSelectedUserId = item.dataset.ownerUserId;
+  renderOwnerTools();
+  loadPlayerNoteHistory(state.ownerSelectedUserId, { silent: true }).catch(() => {});
+});
+
+ownerPlayerCard?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-clear-owner-selection]")) {
+    state.ownerSelectedUserId = "";
+    renderOwnerTools();
+    return;
+  }
+  const retryButton = event.target.closest("[data-retry-moderation]");
+  if (retryButton) {
+    runButton(retryButton, async () => {
+      await window.clientApi.retryGroupBanRequest(retryButton.dataset.retryModeration);
+      await loadModerationRequests({ silent: true });
+      renderOwnerTools();
+      setRuntimeStatus("Операция повторно добавлена в очередь.");
+    }).catch((error) => setRuntimeStatus(moderationRequestError(error), true));
+    return;
+  }
+  const editor = event.target.closest("[data-owner-player]");
+  if (!editor) return;
+  const userId = editor.dataset.ownerPlayer;
+  if (event.target.closest("[data-copy-owner-incident]")) {
+    window.clientApi.writeClipboardText(ownerIncidentReport(userId))
+      .then(() => setRuntimeStatus("Карточка инцидента скопирована."))
+      .catch((error) => setRuntimeStatus(error.message, true));
+    return;
+  }
+  const watchButton = event.target.closest("[data-owner-watch]");
+  if (watchButton) {
+    runButton(watchButton, async () => {
+      const record = playerRecord(userId);
+      record.status = record.status === "watch" ? "ok" : "watch";
+      touchPlayerRecord(record);
+      await savePlayerRecord(userId);
+      renderOwnerTools();
+      setRuntimeStatus(record.status === "watch" ? "Игрок добавлен под наблюдение." : "Наблюдение снято.");
+    }).catch((error) => setRuntimeStatus(error.message, true));
+    return;
+  }
+  if (event.target.closest("[data-owner-ban]")) openBanRequestDialog(userId);
+});
+
+refreshModerationBtn?.addEventListener("click", () => {
+  runButton(refreshModerationBtn, () => loadModerationRequests()).catch(() => {});
+});
+
+function renderActiveAdminPlayerCard() {
+  if (activePaneName() === "owner") renderOwnerTools();
+  else renderAdminPlayerCard();
+}
+
+function handleAdminPlayerCardClick(event) {
   const userId = event.target.closest("[data-player-note-editor]")?.dataset.userId;
   if (!userId) return;
+  const avatarEditor = event.target.closest("[data-admin-avatar-editor]");
+  const publishAvatarButton = event.target.closest("[data-publish-global-avatar-note]");
+  if (publishAvatarButton && avatarEditor) {
+    const confirmed = window.confirm("Опубликовать метку и заметку этого аватара для всех лицензированных команд? Автор публикации будет виден.");
+    if (!confirmed) return;
+    const record = avatarNoteRecord(
+      avatarEditor.dataset.avatarName,
+      avatarEditor.dataset.avatarId,
+      avatarEditor.dataset.avatarKey
+    );
+    if (!record) return;
+    runButton(publishAvatarButton, () => publishGlobalAvatarNote(record.avatarKey))
+      .then(() => {
+        renderActiveAdminPlayerCard();
+        renderCrashAnalyzer();
+      })
+      .catch((error) => setRuntimeStatus(error.message, true));
+    return;
+  }
+  const removeAvatarButton = event.target.closest("[data-remove-global-avatar-note]");
+  if (removeAvatarButton && avatarEditor) {
+    const confirmed = window.confirm("Убрать общую публикацию этого аватара? Командная метка останется без изменений.");
+    if (!confirmed) return;
+    runButton(removeAvatarButton, () => removeGlobalAvatarNote(avatarEditor.dataset.avatarId))
+      .then(() => {
+        renderActiveAdminPlayerCard();
+        renderCrashAnalyzer();
+      })
+      .catch((error) => setRuntimeStatus(error.message, true));
+    return;
+  }
   const restoreButton = event.target.closest("[data-restore-note-history]");
   if (restoreButton) {
     const confirmed = window.confirm("Вернуть метку и заметку к состоянию до этого изменения?");
     if (!confirmed) return;
     runButton(restoreButton, () => restorePlayerNoteHistory(userId, restoreButton.dataset.restoreNoteHistory))
-      .then(() => renderAdminPlayerCard())
+      .then(() => renderActiveAdminPlayerCard())
       .catch((error) => setRuntimeStatus(error.message, true));
     return;
   }
@@ -3451,7 +4184,7 @@ adminPlayerCard?.addEventListener("click", (event) => {
     const confirmed = window.confirm("Опубликовать текущую метку и заметку для всех лицензированных команд? Автор публикации будет виден.");
     if (!confirmed) return;
     runButton(publishButton, () => publishGlobalPlayerNote(userId))
-      .then(() => renderAdminPlayerCard())
+      .then(() => renderActiveAdminPlayerCard())
       .catch((error) => setRuntimeStatus(error.message, true));
     return;
   }
@@ -3460,9 +4193,54 @@ adminPlayerCard?.addEventListener("click", (event) => {
     const confirmed = window.confirm("Убрать общую публикацию вашей команды? Командная заметка останется без изменений.");
     if (!confirmed) return;
     runButton(removeButton, () => removeGlobalPlayerNote(userId))
-      .then(() => renderAdminPlayerCard())
+      .then(() => renderActiveAdminPlayerCard())
       .catch((error) => setRuntimeStatus(error.message, true));
   }
+}
+
+adminPlayerCard?.addEventListener("click", handleAdminPlayerCardClick);
+ownerPlayerCard?.addEventListener("click", handleAdminPlayerCardClick);
+
+banRequestForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const target = state.banRequestTarget;
+  if (!target) return;
+  const temporary = banRequestForm.querySelector('input[name="banDurationMode"]:checked')?.value === "temporary";
+  runButton(banRequestSubmitBtn, async () => {
+    await window.clientApi.requestGroupBan({
+      targetUserId: target.userId,
+      targetDisplayName: target.displayName,
+      reason: banRequestReason.value.trim(),
+      evidenceUrl: banRequestEvidence.value.trim(),
+      durationMinutes: temporary ? moderationDurationMinutes() : null
+    });
+    closeBanRequestDialog();
+    setRuntimeStatus("Операция передана WhiteCore.");
+    await loadModerationRequests({ silent: true });
+    renderOwnerTools();
+  }).catch((error) => setRuntimeStatus(moderationRequestError(error), true));
+});
+
+banRequestForm?.querySelectorAll('input[name="banDurationMode"]').forEach((input) => {
+  input.addEventListener("change", () => {
+    if (banRequestDurationField) banRequestDurationField.hidden = input.value !== "temporary" || !input.checked;
+  });
+});
+
+banRequestDurationUnit?.addEventListener("change", syncModerationDurationLimits);
+
+banReasonTemplate?.addEventListener("change", () => {
+  const template = MODERATION_REASON_TEMPLATES[banReasonTemplate.value];
+  if (!template) return;
+  banRequestReason.value = template;
+  banRequestReason.focus();
+  banRequestReason.setSelectionRange(template.length, template.length);
+});
+
+banRequestCloseBtn?.addEventListener("click", closeBanRequestDialog);
+banRequestCancelBtn?.addEventListener("click", closeBanRequestDialog);
+banRequestDialog?.addEventListener("cancel", () => {
+  state.banRequestTarget = null;
 });
 
 if (notifyMarkedPlayers) {
@@ -3498,8 +4276,26 @@ document.addEventListener("change", (event) => {
   touchPlayerRecord(record);
   savePlayerRecord(userId);
   if (activePaneName() === "admin") renderAdminTools();
+  if (activePaneName() === "owner") renderOwnerTools();
   if (activePaneName() === "builder") updateBuilderBlock("admin");
 });
+
+function handleAdminAvatarStatusChange(event) {
+  if (!event.target.matches("[data-admin-avatar-note-status]")) return;
+  const wrap = event.target.closest("[data-admin-avatar-editor]");
+  if (!wrap) return;
+  const key = wrap.dataset.avatarKey;
+  const record = avatarNoteRecord(wrap.dataset.avatarName, wrap.dataset.avatarId, key);
+  if (!record || record.avatarKey !== key) return;
+  record.status = event.target.value === "crash" ? "crash" : "ok";
+  touchAvatarNoteRecord(record);
+  saveAvatarNoteRecord(key)
+    .then(() => renderCrashAnalyzer())
+    .catch((error) => setRuntimeStatus(error.message, true));
+}
+
+adminPlayerCard?.addEventListener("change", handleAdminAvatarStatusChange);
+ownerPlayerCard?.addEventListener("change", handleAdminAvatarStatusChange);
 
 document.addEventListener("input", (event) => {
   if (!event.target.matches("[data-player-note-text]")) return;
@@ -3517,6 +4313,28 @@ document.addEventListener("input", (event) => {
     savePlayerRecord(userId);
   }, 650));
 });
+
+function handleAdminAvatarNoteInput(event) {
+  if (!event.target.matches("[data-admin-avatar-note-text]")) return;
+  const wrap = event.target.closest("[data-admin-avatar-editor]");
+  if (!wrap) return;
+  const key = wrap.dataset.avatarKey;
+  const record = avatarNoteRecord(wrap.dataset.avatarName, wrap.dataset.avatarId, key);
+  if (!record || record.avatarKey !== key) return;
+  record.note = event.target.value;
+  touchAvatarNoteRecord(record);
+  state.avatarNoteOutbox[key] = true;
+  cacheAvatarNotes();
+  cacheAvatarNoteOutbox();
+  if (state.avatarNotesSaveTimers.has(key)) clearTimeout(state.avatarNotesSaveTimers.get(key));
+  state.avatarNotesSaveTimers.set(key, setTimeout(() => {
+    state.avatarNotesSaveTimers.delete(key);
+    saveAvatarNoteRecord(key).catch((error) => setRuntimeStatus(error.message, true));
+  }, 650));
+}
+
+adminPlayerCard?.addEventListener("input", handleAdminAvatarNoteInput);
+ownerPlayerCard?.addEventListener("input", handleAdminAvatarNoteInput);
 
 crashIncidentList?.addEventListener("change", (event) => {
   if (!event.target.matches("[data-avatar-note-status]")) return;
@@ -3564,18 +4382,24 @@ window.clientApi.onTailStatus((status) => {
   state.tailRunning = Boolean(status.running);
   if (status.filePath) setFilePath(status.filePath);
   setRuntimeStatus(status.message || (status.running ? "Watching" : "Stopped"));
-  renderCrashAnalyzer();
+  if (activePaneName() === "crash") renderWhenVisible(renderCrashAnalyzer);
 });
 
 window.clientApi.onTailError((error) => setRuntimeStatus(error.message, true));
 
-window.clientApi.onAuthStatus((status) => setRuntimeStatus(status.message, !status.ok));
+window.clientApi.onAuthStatus((status) => {
+  if (status.license) {
+    state.license = status.license;
+    syncOwnerAccess();
+    if (activePaneName() === "admin") renderWhenVisible(renderAdminTools);
+    if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
+  }
+  setRuntimeStatus(status.message, !status.ok);
+});
 
 window.clientApi.onUserResolved((profile) => {
   state.profiles.set(profile.userId, profile);
   scheduleRender();
-  const activePane = document.querySelector(".tabPane.active");
-  if (activePane?.dataset.pane === "dashboard") renderDashboard();
 });
 
 window.clientApi.onUpdaterStatus((info) => {
@@ -3598,26 +4422,55 @@ window.clientApi.onUpdaterStatus((info) => {
   }
 });
 
-window.addEventListener("focus", () => {
-  if (!appView.hidden) loadPlayerNotes({ silent: true }).catch(() => {});
-  if (!appView.hidden) loadAvatarCatalog({ silent: true }).catch(() => {});
-  if (!appView.hidden) loadAvatarNotes({ silent: true }).catch(() => {});
-  if (!appView.hidden) refreshServerSnapshot({ silent: true }).catch(() => {});
-});
+function showRuntimeConfigNotice(config) {
+  const notice = config?.notice;
+  if (!notice?.message) return;
+  const isError = notice.level === "error";
+  if (activationView.hidden) setRuntimeStatus(notice.message, isError);
+  else setActivationStatus(notice.message, isError);
+}
+
+window.clientApi.onRuntimeConfig?.(showRuntimeConfigNotice);
+
+function scheduleResumeRefresh() {
+  if (document.hidden || appView.hidden) return;
+  if (state.resumeRefreshTimer || state.resumeRefreshInFlight) return;
+  state.resumeRefreshTimer = setTimeout(() => {
+    state.resumeRefreshTimer = null;
+    state.resumeRefreshInFlight = true;
+    state.renderSuspended = true;
+    Promise.allSettled([
+      loadPlayerNotes({ silent: true }),
+      loadAvatarCatalog({ silent: true }),
+      loadAvatarNotes({ silent: true }),
+      refreshServerSnapshot({ silent: true })
+    ]).finally(() => {
+      state.resumeRefreshInFlight = false;
+      state.renderSuspended = false;
+      scheduleRender(0);
+      if (activePaneName() === "dashboard") renderWhenVisible(renderDashboard);
+    });
+  }, RESUME_REFRESH_DELAY_MS);
+}
+
+window.addEventListener("focus", scheduleResumeRefresh);
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && !appView.hidden) loadPlayerNotes({ silent: true }).catch(() => {});
-  if (!document.hidden && !appView.hidden) loadAvatarCatalog({ silent: true }).catch(() => {});
-  if (!document.hidden && !appView.hidden) loadAvatarNotes({ silent: true }).catch(() => {});
-  if (!document.hidden && !appView.hidden) refreshServerSnapshot({ silent: true }).catch(() => {});
+  if (!document.hidden) scheduleResumeRefresh();
 });
+
+window.addEventListener("beforeunload", saveCrashEventBuffer);
 
 // Инициализация
 
 async function init() {
   migrateBuilderState();
+  const runtimeConfiguration = window.clientApi.getRuntimeConfig
+    ? await window.clientApi.getRuntimeConfig().catch(() => null)
+    : null;
   const settings = await window.clientApi.getSettings();
   state.license = settings.license || null;
+  syncOwnerAccess();
   if (settings.hasSession && state.license) {
     setTeamScope(state.license, { migrateLegacy: true });
   }
@@ -3642,6 +4495,7 @@ async function init() {
     try {
       const session = await window.clientApi.validate();
       state.license = session.license || state.license;
+      syncOwnerAccess();
       setTeamScope(state.license, { migrateLegacy: true });
       setRuntimeStatus(`Session active until ${new Date(session.expiresAt).toLocaleString("ru-RU")}`);
       showApp();
@@ -3652,6 +4506,7 @@ async function init() {
       await loadGlobalPlayerNotes({ force: true, silent: true });
       await loadAvatarCatalog({ silent: true, pushLocal: true });
       await loadAvatarNotes({ silent: true, pushLocal: true });
+      await loadGlobalAvatarNotes({ force: true, silent: true });
       await refreshServerSnapshot({ silent: true });
     } catch (error) {
       setActivationStatus(error.message, true);
@@ -3660,6 +4515,8 @@ async function init() {
   } else {
     showActivation();
   }
+
+  showRuntimeConfigNotice(runtimeConfiguration);
 
   render();
 }
