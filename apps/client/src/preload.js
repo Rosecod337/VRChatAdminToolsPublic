@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("clientApi", {
   requestGroupBan: (request) => ipcRenderer.invoke("moderation:request-group-ban", request),
   listGroupBanRequests: () => ipcRenderer.invoke("moderation:list-group-ban-requests"),
   retryGroupBanRequest: (requestId) => ipcRenderer.invoke("moderation:retry-group-ban-request", requestId),
+  requestGroupManagement: (request) => ipcRenderer.invoke("group-management:request", request),
+  listGroupManagementRequests: () => ipcRenderer.invoke("group-management:list-requests"),
   listPlayerNoteHistory: (userId) => ipcRenderer.invoke("player-notes:history", userId),
   listAvatarCatalog: () => ipcRenderer.invoke("avatar-catalog:list"),
   saveAvatarCatalog: (entry) => ipcRenderer.invoke("avatar-catalog:save", entry),

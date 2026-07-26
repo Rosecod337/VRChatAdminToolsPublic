@@ -1192,6 +1192,99 @@ h2 {
   gap: 12px;
 }
 
+.ownerPane .adminHeaderActions {
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ownerPane .adminHeaderActions select {
+  max-width: 190px;
+}
+
+.ownerGroupMemberPanel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(76, 168, 192, 0.45);
+  border-radius: 8px;
+  background: rgba(76, 168, 192, 0.05);
+}
+
+.ownerRoleColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ownerRoleColumns h4 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ownerRoleList {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 120px;
+  max-height: 280px;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #11100f;
+}
+
+.ownerRoleButton {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.ownerRoleButton small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.ownerRoleButton--management {
+  border-color: rgba(216, 163, 62, 0.55);
+}
+
+.ownerManagerNotes {
+  display: grid;
+  gap: 6px;
+}
+
+.ownerManagerNotes span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ownerManagerNotes textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.ownerGroupPager {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+  background: #151412;
+  text-align: center;
+}
+
+.ownerGroupPager span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .ownerOverview {
   align-content: start;
 }

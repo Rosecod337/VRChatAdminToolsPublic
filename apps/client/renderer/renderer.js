@@ -40,7 +40,9 @@ const copyAdminSnapshotBtn = document.querySelector("#copyAdminSnapshotBtn");
 const adminSyncStatus = document.querySelector("#adminSyncStatus");
 const ownerTabButton = document.querySelector("#ownerTabButton");
 const ownerGroupLabel = document.querySelector("#ownerGroupLabel");
+const ownerSourceSelect = document.querySelector("#ownerSourceSelect");
 const ownerPlayerSearch = document.querySelector("#ownerPlayerSearch");
+const ownerGroupSearchBtn = document.querySelector("#ownerGroupSearchBtn");
 const ownerPlayerList = document.querySelector("#ownerPlayerList");
 const ownerPlayerCard = document.querySelector("#ownerPlayerCard");
 const refreshModerationBtn = document.querySelector("#refreshModerationBtn");
@@ -123,9 +125,20 @@ const state = {
   adminSearch: "",
   selectedUserId: "",
   ownerSearch: "",
+  ownerSource: "group",
   ownerSelectedUserId: "",
   moderationRequests: [],
   moderationRequestsInFlight: false,
+  groupManagementRequests: [],
+  groupManagementRequestsInFlight: false,
+  groupManagementAppliedRequestId: "",
+  groupMembers: [],
+  groupRoles: [],
+  groupMembersTotal: 0,
+  groupMembersOffset: 0,
+  groupMembersLimit: 100,
+  groupMembersQuery: "",
+  groupMembersHasMore: false,
   banRequestTarget: null,
   license: null,
   teamId: "",
@@ -404,6 +417,27 @@ function moderationRequestError(error) {
   return messages[code] || code;
 }
 
+function groupManagementError(error) {
+  const code = error?.message || String(error || "");
+  const messages = {
+    group_management_permission_required: "У этого ключа нет доступа к управлению группой.",
+    moderation_group_not_configured: "Для этого ключа не настроена VRChat-группа.",
+    invalid_group_management_action: "Недопустимое действие управления группой.",
+    "group member search requires at least 3 characters": "Для поиска по имени введите не менее трёх символов.",
+    "targetUserId must be a VRChat user id": "Укажите корректный VRChat User ID или ссылку на профиль.",
+    "roleId must be a VRChat group role id": "VRChat вернул некорректный идентификатор роли."
+  };
+  return messages[code] || code;
+}
+
+function vrchatUserIdFromInput(value) {
+  const text = String(value || "").trim();
+  const direct = text.match(/^usr_[0-9a-f-]{36}$/iu);
+  if (direct) return direct[0];
+  const profile = text.match(/^https?:\/\/(?:www\.)?vrchat\.com\/home\/user\/(usr_[0-9a-f-]{36})(?:[/?#].*)?$/iu);
+  return profile?.[1] || "";
+}
+
 function moderationDurationMinutes() {
   const amount = Number(banRequestDuration?.value);
   const multiplier = {
@@ -435,7 +469,11 @@ function syncModerationDurationLimits() {
 function openBanRequestDialog(userId) {
   if (!banRequestDialog || !state.license?.canRequestGroupBan) return;
   const summary = buildPlayerSummary(userId);
-  state.banRequestTarget = { userId, displayName: summary.name || userId };
+  const groupMember = groupMemberById(userId);
+  state.banRequestTarget = {
+    userId,
+    displayName: groupMember?.displayName || summary.name || userId
+  };
   banRequestTarget.textContent = `${state.banRequestTarget.displayName} · ${userId}`;
   banRequestReason.value = "";
   banRequestEvidence.value = "";
@@ -2032,6 +2070,94 @@ function ownerQueueRowsHtml(requests, emptyText) {
   `).join("")}</div>`;
 }
 
+function groupMemberById(userId) {
+  return state.groupMembers.find((member) => member.userId === userId) || null;
+}
+
+function groupManagementStatusLabel(status) {
+  return {
+    pending: "в очереди",
+    processing: "выполняется",
+    succeeded: "готово",
+    failed: "ошибка",
+    cancelled: "отменено"
+  }[status] || status;
+}
+
+function groupManagementHistoryHtml(limit = 20) {
+  const requests = state.groupManagementRequests.slice(0, limit);
+  if (state.groupManagementRequestsInFlight && requests.length === 0) {
+    return `<div class="emptyState">Загрузка операций группы...</div>`;
+  }
+  if (!requests.length) return `<div class="emptyState">Операций с группой пока нет</div>`;
+  return `<div class="moderationHistory">${requests.map((request) => `
+    <article class="moderationHistoryRow">
+      <div>
+        <strong>${escapeHtml(request.targetDisplayName || request.query || request.action)}</strong>
+        <small>${escapeHtml(request.roleName || request.action)} · ${escapeHtml(formatDateTime(request.createdAt))}</small>
+      </div>
+      <div class="moderationHistoryStatus">
+        <strong class="moderationStatus--${escapeHtml(request.status)}">${escapeHtml(groupManagementStatusLabel(request.status))}</strong>
+      </div>
+      ${request.errorMessage ? `<p>Ошибка: ${escapeHtml(request.errorMessage)}</p>` : ""}
+    </article>
+  `).join("")}</div>`;
+}
+
+function ownerGroupMemberHtml(userId) {
+  const member = groupMemberById(userId);
+  if (!member) {
+    return `<section class="adminSection ownerGroupMemberPanel">
+      <h3>Участник VRChat-группы</h3>
+      <p class="ownerWarning">Членство ещё не проверено или пользователь не найден в загруженной странице группы.</p>
+      <button type="button" class="eventAction" data-group-member-check>Проверить членство</button>
+    </section>`;
+  }
+  const assigned = new Set(member.roleIds || []);
+  const roleRows = (roles, action) => roles.map((role) => `
+    <button
+      type="button"
+      class="ownerRoleButton${role.isManagementRole ? " ownerRoleButton--management" : ""}"
+      data-group-role-${action}="${escapeHtml(role.id)}"
+      data-group-role-name="${escapeHtml(role.name)}"
+    >
+      <strong>${escapeHtml(role.name)}</strong>
+      <small>${role.isManagementRole ? "Управляющая роль" : "Роль группы"}</small>
+    </button>
+  `).join("");
+  const availableRoles = state.groupRoles.filter((role) => !assigned.has(role.id));
+  const assignedRoles = state.groupRoles.filter((role) => assigned.has(role.id));
+  return `<section class="adminSection ownerGroupMemberPanel">
+    <div class="adminCardHeader">
+      <div>
+        <h3>Участник VRChat-группы</h3>
+        <p>${escapeHtml(member.displayName || userId)} · ${escapeHtml(member.membershipStatus || "member")}</p>
+      </div>
+      <div class="adminCardActions">
+        <button type="button" class="eventAction" data-url="https://vrchat.com/home/user/${escapeHtml(userId)}">Открыть профиль</button>
+        <button type="button" class="eventAction" data-group-member-check>Проверить снова</button>
+      </div>
+    </div>
+    <div class="ownerRoleColumns">
+      <div>
+        <h4>Доступные роли</h4>
+        <div class="ownerRoleList">${roleRows(availableRoles, "add") || `<div class="emptyState">Нет доступных ролей</div>`}</div>
+      </div>
+      <div>
+        <h4>Назначенные роли</h4>
+        <div class="ownerRoleList">${roleRows(assignedRoles, "remove") || `<div class="emptyState">Нет назначенных ролей</div>`}</div>
+      </div>
+    </div>
+    <label class="ownerManagerNotes">
+      <span>Заметки управляющих VRChat-группы</span>
+      <textarea data-group-manager-notes maxlength="1000">${escapeHtml(member.managerNotes || "")}</textarea>
+    </label>
+    <button type="button" class="eventAction" data-group-member-notes-save>Сохранить заметки</button>
+    <p class="ownerWarning">Назначение управляющей роли даёт права внутри VRChat. Перед подтверждением повторно проверьте профиль игрока.</p>
+    <button type="button" class="eventAction eventAction--danger" data-group-member-kick>Исключить из группы</button>
+  </section>`;
+}
+
 function ownerOverviewHtml() {
   const queue = state.moderationRequests.filter((request) => ACTIVE_MODERATION_STATUSES.has(request.status));
   const activeTemporary = state.moderationRequests.filter((request) => (
@@ -2065,6 +2191,10 @@ function ownerOverviewHtml() {
     <section class="adminSection">
       <h3>Журнал модерации команды</h3>
       ${moderationHistoryHtml("", 50)}
+    </section>
+    <section class="adminSection">
+      <h3>Операции управления VRChat-группой</h3>
+      ${groupManagementHistoryHtml()}
     </section>
   </div>`;
 }
@@ -2122,6 +2252,7 @@ function ownerPlayerCardHtml(userId) {
   if (!userId) return ownerOverviewHtml();
   const watched = playerRecord(userId).status === "watch";
   return `<div class="ownerActionPanel" data-owner-player="${escapeHtml(userId)}">
+    ${ownerGroupMemberHtml(userId)}
     <section class="ownerModerationPanel">
       <div class="adminCardHeader">
         <div>
@@ -2149,22 +2280,49 @@ function renderOwnerTools() {
   if (!ownerPlayerList || !ownerPlayerCard || !hasOwnerAccess()) return;
   if (ownerGroupLabel) ownerGroupLabel.textContent = state.license.moderationGroupId;
   const query = state.ownerSearch.toLowerCase();
-  const summaries = playerSummaries().filter((summary) => (
-    !query ||
-    summary.name.toLowerCase().includes(query) ||
-    summary.userId.toLowerCase().includes(query)
-  ));
-  const listHtml = summaries.map((summary) => {
+  const summaries = state.ownerSource === "group"
+    ? state.groupMembers
+      .map((member) => ({
+        name: member.displayName || member.userId,
+        userId: member.userId,
+        online: false,
+        joins: [],
+        membershipStatus: member.membershipStatus || "member"
+      }))
+      .filter((summary) => (
+        !query ||
+        summary.name.toLowerCase().includes(query) ||
+        summary.userId.toLowerCase().includes(query)
+      ))
+    : playerSummaries().filter((summary) => (
+      !query ||
+      summary.name.toLowerCase().includes(query) ||
+      summary.userId.toLowerCase().includes(query)
+    ));
+  let listHtml = summaries.map((summary) => {
     const record = playerRecord(summary.userId);
     const active = summary.userId === state.ownerSelectedUserId ? " active" : "";
     const statusClass = summary.online ? "adminStatus adminStatus--online" : "adminStatus adminStatus--offline";
+    const sourceStatus = state.ownerSource === "group"
+      ? escapeHtml(summary.membershipStatus)
+      : `<span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.joins.length} заходов`;
     const status = record.status !== "ok" ? `<span class="adminBadge">${escapeHtml(record.status)}</span>` : "";
     return `<button class="adminPlayerItem${active}" data-owner-user-id="${escapeHtml(summary.userId)}">
       <span>${escapeHtml(summary.name)}</span>
-      <small><span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.joins.length} заходов</small>
+      <small>${sourceStatus}</small>
       ${status}
     </button>`;
-  }).join("") || `<div class="emptyState">Нет игроков</div>`;
+  }).join("") || `<div class="emptyState">${state.ownerSource === "group" ? "Нажмите «Обновить», чтобы загрузить участников группы" : "Нет игроков"}</div>`;
+  if (state.ownerSource === "group" && state.groupManagementRequests.length) {
+    const first = state.groupMembers.length ? state.groupMembersOffset + 1 : 0;
+    const last = state.groupMembersOffset + state.groupMembers.length;
+    const totalLabel = state.groupMembersQuery ? ` из ${state.groupMembersTotal}` : "";
+    listHtml += `<div class="ownerGroupPager">
+      <button type="button" data-group-page="previous" ${state.groupMembersOffset <= 0 ? "disabled" : ""}>←</button>
+      <span>${first}–${last}${totalLabel}</span>
+      <button type="button" data-group-page="next" ${state.groupMembersHasMore ? "" : "disabled"}>→</button>
+    </div>`;
+  }
   if (ownerPlayerList._renderedHtml !== listHtml) {
     const scrollTop = ownerPlayerList.scrollTop;
     ownerPlayerList.innerHTML = listHtml;
@@ -2175,6 +2333,7 @@ function renderOwnerTools() {
     state.ownerSelectedUserId = "";
   }
   if (isEditingAdminPlayer(state.ownerSelectedUserId)) return;
+  if (document.activeElement?.matches("[data-group-manager-notes]")) return;
   const cardHtml = ownerPlayerCardHtml(state.ownerSelectedUserId);
   if (ownerPlayerCard._renderedHtml !== cardHtml) {
     const scrollTop = ownerPlayerCard.scrollTop;
@@ -2196,6 +2355,78 @@ async function loadModerationRequests({ silent = false } = {}) {
     state.moderationRequestsInFlight = false;
     if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
   }
+}
+
+function applyGroupManagementResults() {
+  const succeeded = state.groupManagementRequests
+    .filter((request) => request.status === "succeeded")
+    .slice()
+    .reverse();
+  const latestList = [...succeeded].reverse().find((request) => request.action === "list_members");
+  let members = latestList?.result?.members
+    ? latestList.result.members.slice()
+    : state.groupMembers.slice();
+  const latestListTime = latestList ? new Date(latestList.createdAt).valueOf() : 0;
+  for (const request of succeeded.filter((item) => new Date(item.createdAt).valueOf() >= latestListTime)) {
+    const member = request.result?.member;
+    if (request.action === "kick_member") {
+      members = members.filter((item) => item.userId !== request.targetUserId);
+    } else if (member?.userId) {
+      const index = members.findIndex((item) => item.userId === member.userId);
+      if (index === -1) members.push(member);
+      else members[index] = member;
+    }
+  }
+  const withRoles = [...succeeded].reverse().find((request) => Array.isArray(request.result?.roles));
+  state.groupMembers = members;
+  state.groupRoles = withRoles?.result?.roles || state.groupRoles;
+  state.groupMembersTotal = Number(latestList?.result?.total ?? state.groupMembersTotal);
+  state.groupMembersOffset = Number(latestList?.result?.offset ?? state.groupMembersOffset);
+  state.groupMembersLimit = Number(latestList?.result?.limit ?? state.groupMembersLimit);
+  state.groupMembersQuery = String(latestList?.result?.query ?? state.groupMembersQuery);
+  state.groupMembersHasMore = Boolean(latestList?.result?.hasMore);
+}
+
+async function loadGroupManagementRequests({ silent = false } = {}) {
+  if (!hasOwnerAccess() || state.groupManagementRequestsInFlight) return;
+  state.groupManagementRequestsInFlight = true;
+  try {
+    state.groupManagementRequests = await window.clientApi.listGroupManagementRequests();
+    applyGroupManagementResults();
+  } catch (error) {
+    if (!silent) setRuntimeStatus(groupManagementError(error), true);
+  } finally {
+    state.groupManagementRequestsInFlight = false;
+    if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
+  }
+}
+
+async function submitGroupManagement(request, successMessage) {
+  const queued = await window.clientApi.requestGroupManagement(request);
+  state.groupManagementRequests.unshift(queued);
+  renderOwnerTools();
+  setRuntimeStatus(successMessage || "Операция добавлена в служебную очередь.");
+}
+
+async function requestOwnerGroupMembers() {
+  const value = ownerPlayerSearch?.value.trim() || "";
+  const userId = vrchatUserIdFromInput(value);
+  if (userId) {
+    await submitGroupManagement({
+      action: "get_member",
+      targetUserId: userId,
+      targetDisplayName: userId
+    }, "Проверка участника добавлена в очередь.");
+    state.ownerSelectedUserId = userId;
+    return;
+  }
+  if (value && value.length < 3) throw new Error("group member search requires at least 3 characters");
+  await submitGroupManagement({
+    action: "list_members",
+    query: value,
+    offset: 0,
+    limit: state.groupMembersLimit
+  }, value ? "Поиск участников добавлен в очередь." : "Загрузка участников добавлена в очередь.");
 }
 
 function filterBuilderEvents(kind, events) {
@@ -3350,6 +3581,10 @@ logoutBtn.addEventListener("click", () => {
     clearTeamScope();
     state.license = null;
     state.moderationRequests = [];
+    state.groupManagementRequests = [];
+    state.groupMembers = [];
+    state.groupRoles = [];
+    state.ownerSelectedUserId = "";
     stopModerationTimer();
     syncOwnerAccess();
     state.currentPlaySessionId = "";
@@ -3874,6 +4109,7 @@ function startModerationTimer() {
   if (moderationTimer || !hasOwnerAccess()) return;
   moderationTimer = setInterval(() => {
     loadModerationRequests({ silent: true }).catch(() => {});
+    loadGroupManagementRequests({ silent: true }).catch(() => {});
   }, 10000);
 }
 
@@ -3896,6 +4132,7 @@ tabs.forEach((tab) => {
     if (target === "owner") {
       renderOwnerTools();
       loadModerationRequests({ silent: true }).catch(() => {});
+      loadGroupManagementRequests({ silent: true }).catch(() => {});
       startModerationTimer();
     } else {
       stopModerationTimer();
@@ -4079,7 +4316,39 @@ ownerPlayerSearch?.addEventListener("input", () => {
   renderOwnerTools();
 });
 
+ownerSourceSelect?.addEventListener("change", () => {
+  state.ownerSource = ownerSourceSelect.value === "logs" ? "logs" : "group";
+  state.ownerSelectedUserId = "";
+  renderOwnerTools();
+});
+
+ownerGroupSearchBtn?.addEventListener("click", () => {
+  state.ownerSource = "group";
+  if (ownerSourceSelect) ownerSourceSelect.value = "group";
+  runButton(ownerGroupSearchBtn, requestOwnerGroupMembers)
+    .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+});
+
+ownerPlayerSearch?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  ownerGroupSearchBtn?.click();
+});
+
 ownerPlayerList?.addEventListener("click", (event) => {
+  const pageButton = event.target.closest("[data-group-page]");
+  if (pageButton) {
+    const direction = pageButton.dataset.groupPage === "previous" ? -1 : 1;
+    const offset = Math.max(0, state.groupMembersOffset + direction * state.groupMembersLimit);
+    runButton(pageButton, () => submitGroupManagement({
+      action: "list_members",
+      query: state.groupMembersQuery,
+      offset,
+      limit: state.groupMembersLimit
+    }, "Страница участников добавлена в очередь."))
+      .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+    return;
+  }
   const item = event.target.closest("[data-owner-user-id]");
   if (!item) return;
   state.ownerSelectedUserId = item.dataset.ownerUserId;
@@ -4106,6 +4375,64 @@ ownerPlayerCard?.addEventListener("click", (event) => {
   const editor = event.target.closest("[data-owner-player]");
   if (!editor) return;
   const userId = editor.dataset.ownerPlayer;
+  const member = groupMemberById(userId);
+  const memberName = member?.displayName || userId;
+  if (event.target.closest("[data-group-member-check]")) {
+    runButton(event.target.closest("[data-group-member-check]"), () => submitGroupManagement({
+      action: "get_member",
+      targetUserId: userId,
+      targetDisplayName: memberName
+    }, "Повторная проверка членства добавлена в очередь."))
+      .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+    return;
+  }
+  const notesButton = event.target.closest("[data-group-member-notes-save]");
+  if (notesButton) {
+    const managerNotes = editor.querySelector("[data-group-manager-notes]")?.value || "";
+    if (!window.confirm(`Сохранить заметки управляющих для ${memberName}?`)) return;
+    runButton(notesButton, () => submitGroupManagement({
+      action: "update_member",
+      targetUserId: userId,
+      targetDisplayName: memberName,
+      managerNotes
+    }, "Сохранение заметок добавлено в очередь."))
+      .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+    return;
+  }
+  const addRoleButton = event.target.closest("[data-group-role-add]");
+  const removeRoleButton = event.target.closest("[data-group-role-remove]");
+  const roleButton = addRoleButton || removeRoleButton;
+  if (roleButton) {
+    const roleId = addRoleButton?.dataset.groupRoleAdd || removeRoleButton?.dataset.groupRoleRemove;
+    const roleName = roleButton.dataset.groupRoleName || roleId;
+    const action = addRoleButton ? "add_role" : "remove_role";
+    const verb = addRoleButton ? "выдать" : "отозвать";
+    if (!window.confirm(`${verb === "выдать" ? "Выдать" : "Отозвать"} роль «${roleName}» у ${memberName}? Проверьте профиль перед подтверждением.`)) {
+      return;
+    }
+    runButton(roleButton, () => submitGroupManagement({
+      action,
+      targetUserId: userId,
+      targetDisplayName: memberName,
+      roleId,
+      roleName
+    }, `Операция «${verb} ${roleName}» добавлена в очередь.`))
+      .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+    return;
+  }
+  const kickButton = event.target.closest("[data-group-member-kick]");
+  if (kickButton) {
+    if (!window.confirm(`Исключить ${memberName} из VRChat-группы? Пользователь сможет вступить снова, если настройки группы это разрешают.`)) {
+      return;
+    }
+    runButton(kickButton, () => submitGroupManagement({
+      action: "kick_member",
+      targetUserId: userId,
+      targetDisplayName: memberName
+    }, "Исключение участника добавлено в очередь."))
+      .catch((error) => setRuntimeStatus(groupManagementError(error), true));
+    return;
+  }
   if (event.target.closest("[data-copy-owner-incident]")) {
     window.clientApi.writeClipboardText(ownerIncidentReport(userId))
       .then(() => setRuntimeStatus("Карточка инцидента скопирована."))
@@ -4128,7 +4455,13 @@ ownerPlayerCard?.addEventListener("click", (event) => {
 });
 
 refreshModerationBtn?.addEventListener("click", () => {
-  runButton(refreshModerationBtn, () => loadModerationRequests()).catch(() => {});
+  runButton(refreshModerationBtn, async () => {
+    await Promise.all([
+      loadModerationRequests(),
+      loadGroupManagementRequests()
+    ]);
+    if (state.ownerSource === "group") await requestOwnerGroupMembers();
+  }).catch((error) => setRuntimeStatus(groupManagementError(error), true));
 });
 
 function renderActiveAdminPlayerCard() {

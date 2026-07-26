@@ -772,6 +772,36 @@ ipcMain.handle("moderation:retry-group-ban-request", async (_event, requestId) =
   return payload.request;
 });
 
+ipcMain.handle("group-management:request", async (_event, request) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/group-management/requests", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    action: request?.action,
+    query: request?.query,
+    offset: request?.offset,
+    limit: request?.limit,
+    targetUserId: request?.targetUserId,
+    targetDisplayName: request?.targetDisplayName,
+    roleId: request?.roleId,
+    roleName: request?.roleName,
+    managerNotes: request?.managerNotes
+  });
+  return payload.request;
+});
+
+ipcMain.handle("group-management:list-requests", async () => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/group-management/requests/list", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    limit: 200
+  });
+  return payload.requests ?? [];
+});
+
 ipcMain.handle("player-notes:history", async (_event, userId) => {
   const settings = await readSettings();
   const hwid = await getHardwareId();

@@ -153,6 +153,23 @@ test("owner moderation dashboard uses IPC for retries, reports, and watch state"
   assert.match(main, /\/moderation\/ban-requests\/\$\{encodeURIComponent\(safeRequestId\)\}\/retry/u);
 });
 
+test("owner group management stays behind IPC and requires explicit confirmations", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(renderer, /requestGroupManagement/u);
+  assert.match(renderer, /data-group-role-add/u);
+  assert.match(renderer, /data-group-role-remove/u);
+  assert.match(renderer, /data-group-member-notes-save/u);
+  assert.match(renderer, /data-group-member-kick/u);
+  assert.match(renderer, /window\.confirm\(`Исключить/u);
+  assert.match(preload, /group-management:request/u);
+  assert.match(preload, /group-management:list-requests/u);
+  assert.match(main, /\/group-management\/requests/u);
+  assert.doesNotMatch(renderer, /api\.vrchat\.cloud/u);
+});
+
 test("public client does not expose the internal moderation bot name", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
   const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");

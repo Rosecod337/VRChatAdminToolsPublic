@@ -170,7 +170,12 @@
                 <p id="ownerGroupLabel" class="ownerGroupLabel">VRChat-группа не настроена</p>
               </div>
               <div class="adminHeaderActions">
-                <input id="ownerPlayerSearch" class="searchInput" type="search" placeholder="Поиск игрока...">
+                <select id="ownerSourceSelect" aria-label="Источник списка игроков">
+                  <option value="group">Участники группы</option>
+                  <option value="logs">Игроки из логов</option>
+                </select>
+                <input id="ownerPlayerSearch" class="searchInput" type="search" placeholder="Имя, User ID или ссылка VRChat">
+                <button id="ownerGroupSearchBtn">Найти</button>
                 <button id="refreshModerationBtn">Обновить</button>
               </div>
             </div>
