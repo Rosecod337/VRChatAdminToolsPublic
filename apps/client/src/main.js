@@ -180,7 +180,9 @@ async function apiRequest(route, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
+    const error = new Error(payload.error || `HTTP ${response.status}`);
+    error.retryAfterSeconds = Number(payload.retryAfterSeconds || response.headers.get("retry-after") || 0);
+    throw error;
   }
   return payload;
 }
@@ -744,7 +746,11 @@ ipcMain.handle("moderation:request-group-ban", async (_event, request) => {
     evidenceUrl: request?.evidenceUrl,
     durationMinutes: request?.durationMinutes ?? null
   });
-  return payload.request;
+  return {
+    ...payload.request,
+    deduplicated: payload.deduplicated === true,
+    retryAfterSeconds: Number(payload.retryAfterSeconds || 0)
+  };
 });
 
 ipcMain.handle("moderation:list-group-ban-requests", async () => {

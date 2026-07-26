@@ -157,6 +157,8 @@ test("owner group management stays behind IPC and requires explicit confirmation
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
   const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/styles.css"), "utf8");
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
 
   assert.match(renderer, /requestGroupManagement/u);
   assert.match(renderer, /data-group-role-add/u);
@@ -167,6 +169,10 @@ test("owner group management stays behind IPC and requires explicit confirmation
   assert.match(preload, /group-management:request/u);
   assert.match(preload, /group-management:list-requests/u);
   assert.match(main, /\/group-management\/requests/u);
+  assert.match(styles, /\.ownerPane \.paneHeader\s*\{[^}]*height:\s*auto/isu);
+  assert.match(styles, /\.ownerPane \.adminHeaderActions\s*\{[^}]*grid-template-columns:/isu);
+  assert.match(renderer, /ownerSource:\s*"logs"/u);
+  assert.match(markup, /<option value="logs" selected>Игроки из логов<\/option>/u);
   assert.doesNotMatch(renderer, /api\.vrchat\.cloud/u);
 });
 
