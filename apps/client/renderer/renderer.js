@@ -125,7 +125,7 @@ const state = {
   adminSearch: "",
   selectedUserId: "",
   ownerSearch: "",
-  ownerSource: "group",
+  ownerSource: "logs",
   ownerSelectedUserId: "",
   moderationRequests: [],
   moderationRequestsInFlight: false,
@@ -419,6 +419,13 @@ function moderationRequestError(error) {
 
 function groupManagementError(error) {
   const code = error?.message || String(error || "");
+  const retryAfterSeconds = Math.max(0, Number(error?.retryAfterSeconds || 0));
+  if (code === "group_management_cooldown") {
+    return `Подождите ${retryAfterSeconds || 15} сек. перед повтором этой операции.`;
+  }
+  if (code === "group_management_request_active") {
+    return "Такая операция уже находится в очереди. Дождитесь её завершения.";
+  }
   const messages = {
     group_management_permission_required: "У этого ключа нет доступа к управлению группой.",
     moderation_group_not_configured: "Для этого ключа не настроена VRChat-группа.",
@@ -2403,9 +2410,17 @@ async function loadGroupManagementRequests({ silent = false } = {}) {
 
 async function submitGroupManagement(request, successMessage) {
   const queued = await window.clientApi.requestGroupManagement(request);
-  state.groupManagementRequests.unshift(queued);
+  const existingIndex = state.groupManagementRequests.findIndex((item) => item.id === queued.id);
+  if (existingIndex >= 0) state.groupManagementRequests[existingIndex] = queued;
+  else state.groupManagementRequests.unshift(queued);
   renderOwnerTools();
-  setRuntimeStatus(successMessage || "Операция добавлена в служебную очередь.");
+  setRuntimeStatus(
+    queued.deduplicated
+      ? `Такая операция уже выполняется. Повторный запрос не отправлен${
+        queued.retryAfterSeconds ? `; подождите примерно ${queued.retryAfterSeconds} сек.` : "."
+      }`
+      : successMessage || "Операция добавлена в служебную очередь."
+  );
 }
 
 async function requestOwnerGroupMembers() {

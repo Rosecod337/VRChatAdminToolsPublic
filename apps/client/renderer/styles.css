@@ -1192,14 +1192,34 @@ h2 {
   gap: 12px;
 }
 
+.ownerPane .paneHeader {
+  height: auto;
+  min-height: 52px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.ownerPane .paneHeader > div:first-child {
+  flex: 0 1 310px;
+  min-width: 180px;
+}
+
 .ownerPane .adminHeaderActions {
+  flex: 1 1 600px;
   min-width: 0;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: minmax(150px, 180px) minmax(220px, 1fr) auto auto;
+  align-items: center;
+  justify-content: stretch;
 }
 
 .ownerPane .adminHeaderActions select {
-  max-width: 190px;
+  width: 100%;
+  max-width: none;
+}
+
+.ownerPane .adminHeaderActions button {
+  white-space: nowrap;
 }
 
 .ownerGroupMemberPanel {
