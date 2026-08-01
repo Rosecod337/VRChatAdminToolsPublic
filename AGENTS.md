@@ -8,7 +8,8 @@ Do not reread unchanged files during one task. Before editing, state the smalles
 
 ## Project Boundaries
 
-- `apps/client/`: public Electron client (`src/` main/preload; `renderer/` UI).
+- `apps/client/`: Stable Electron client and shared trusted desktop core (`src/` main/preload; `renderer/` UI).
+- `apps/client-beta/`: separately installed Beta client with a shell-neutral renderer using the same preload contract.
 - `apps/admin/`: private license-management Electron app.
 - `server-template/`: neutral Express/PostgreSQL API for self-hosting.
 - `packages/parser/`: shared VRChat log parser and event contracts.

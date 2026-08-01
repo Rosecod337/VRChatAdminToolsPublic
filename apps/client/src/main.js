@@ -27,6 +27,18 @@ const CURRENT_SERVER_URL = String(
 ).trim().replace(/\/+$/u, "");
 const RETIRED_SERVER_URLS = new Set();
 const AUTO_UPDATES_ENABLED = bundledConfig.autoUpdates === true;
+
+function isBetaClient() {
+  return process.env.VRCHAT_CLIENT_VARIANT === "beta" || /\bbeta\b/iu.test(app.getName());
+}
+
+function clientRendererPath() {
+  const developmentOverride = String(process.env.VRCHAT_CLIENT_RENDERER_DIR || "").trim();
+  if (!app.isPackaged && developmentOverride) {
+    return path.join(path.resolve(developmentOverride), "index.html");
+  }
+  return path.join(__dirname, "..", "renderer", "index.html");
+}
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   "discord.gg",
   "github.com",
@@ -266,14 +278,14 @@ function scheduleAlwaysOnTopReapply() {
 }
 
 function createWindow() {
-  const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
+  const rendererPath = clientRendererPath();
   const rendererUrl = pathToFileURL(rendererPath).toString();
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
     minWidth: 980,
     minHeight: 660,
-    title: "VRChat Log Analyzer",
+    title: isBetaClient() ? "VRChat Admin Tools Beta" : "VRChat Log Analyzer",
     backgroundColor: "#111111",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -374,7 +386,7 @@ async function startHeartbeat() {
 }
 
 function setupAutoUpdater() {
-  if (!app.isPackaged || !AUTO_UPDATES_ENABLED) return;
+  if (!app.isPackaged || !AUTO_UPDATES_ENABLED || isBetaClient()) return;
 
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoDownload = true;

@@ -3,23 +3,31 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { listPackage } from "@electron/asar";
 import JavaScriptObfuscator from "javascript-obfuscator";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const appName = process.argv[2];
 
-if (!["admin", "client"].includes(appName)) {
-  console.error("Usage: node scripts/build-electron.mjs <admin|client>");
+if (!["admin", "client", "client-beta"].includes(appName)) {
+  console.error("Usage: node scripts/build-electron.mjs <admin|client|client-beta>");
   process.exit(1);
 }
 
-const appDir = path.join(root, "apps", appName);
+const appDir = path.join(root, "apps", appName === "client-beta" ? "client" : appName);
 const stageDir = path.join(root, ".build", appName);
+const packagedClientDependencies = new Set();
 
 assertCodeSigningConfiguration();
 await fs.rm(stageDir, { recursive: true, force: true });
 await copyDir(appDir, stageDir, (name) => name !== "node_modules");
+
+if (appName === "client-beta") {
+  await fs.rm(path.join(stageDir, "renderer"), { recursive: true, force: true });
+  await copyDir(path.join(root, "apps", "client-beta", "renderer"), path.join(stageDir, "renderer"));
+  await fs.copyFile(path.join(root, "apps", "client-beta", "package.json"), path.join(stageDir, "package.json"));
+}
 
 const packagePath = path.join(stageDir, "package.json");
 const packageJson = JSON.parse(await fs.readFile(packagePath, "utf8"));
@@ -28,20 +36,19 @@ if (process.env.BUILD_OUTPUT_DIR) {
   packageJson.build.directories ??= {};
   packageJson.build.directories.output = path.resolve(root, process.env.BUILD_OUTPUT_DIR);
 }
-packageJson.dependencies = {};
 await fs.writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
 
-if (appName === "client") {
+if (appName === "client" || appName === "client-beta") {
   const parserSource = path.join(root, "packages", "parser");
   const parserTarget = path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser");
   await copyDir(parserSource, parserTarget);
+  packagedClientDependencies.add("@vrchat-log-suite/parser");
 
   // Copy electron-updater and all its transitive dependencies.
   // electron-updater установлен в apps/client/node_modules, а не в root
   const seen = new Set();
   async function copyWithDeps(pkgName, searchPaths = []) {
     if (seen.has(pkgName)) return;
-    seen.add(pkgName);
 
     // Ищем пакет в нескольких местах
     const possiblePaths = [
@@ -59,8 +66,10 @@ if (appName === "client") {
       }
     }
 
-    if (!src) return;
+    if (!src) throw new Error(`Required client dependency is missing: ${pkgName}`);
 
+    seen.add(pkgName);
+    packagedClientDependencies.add(pkgName);
     await copyDir(src, path.join(stageDir, "node_modules", pkgName));
     const pkgJsonPath = path.join(src, "package.json");
     const pkgJson = await fs.readFile(pkgJsonPath, "utf8").then(JSON.parse).catch(() => ({}));
@@ -73,12 +82,16 @@ if (appName === "client") {
 
 if (process.env.OBFUSCATE_BUILD === "true") {
   await obfuscate(path.join(stageDir, "src"));
-  if (appName === "client") {
+  if (appName === "client" || appName === "client-beta") {
     await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
   }
 }
 
 run(process.execPath, [path.join(root, "node_modules", "electron-builder", "cli.js"), "--projectDir", stageDir]);
+
+if (appName === "client" || appName === "client-beta") {
+  await verifyPackagedClientDependencies(packageJson, packagedClientDependencies);
+}
 
 if (appName === "client" && packageJson.build?.publish) {
   await verifyLatestYml(packageJson);
@@ -226,6 +239,21 @@ async function verifyLatestYml(packageJson) {
   if (actualSha512 !== expectedSha512) {
     throw new Error(`latest.yml sha512 does not match installer: ${installerName}`);
   }
+}
+
+async function verifyPackagedClientDependencies(packageJson, dependencyNames) {
+  const outputDir = path.resolve(stageDir, packageJson.build?.directories?.output || "dist");
+  const archivePath = path.join(outputDir, "win-unpacked", "resources", "app.asar");
+  const entries = new Set(listPackage(archivePath, {}).map((entry) => entry.replace(/\\/gu, "/")));
+
+  for (const dependencyName of dependencyNames) {
+    const packageEntry = `/node_modules/${dependencyName}/package.json`;
+    if (!entries.has(packageEntry)) {
+      throw new Error(`Packaged client dependency is missing from app.asar: ${dependencyName}`);
+    }
+  }
+
+  console.log(`Verified ${dependencyNames.size} packaged client dependencies.`);
 }
 
 function assertCodeSigningConfiguration() {

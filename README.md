@@ -1,8 +1,9 @@
 # VRChat Admin Tools
 
-Открытый исходный код двух Windows-приложений для администраторов VRChat-сообществ:
+Открытый исходный код Windows-приложений для администраторов VRChat-сообществ:
 
 - **VRChat Log Analyzer** читает локальные `output_log_*.txt`, показывает события текущей сессии, заметки, историю, диагностику и результаты Crash Risk Analyzer.
+- **VRChat Admin Tools Beta** устанавливается отдельно и постепенно переносит возможности Stable в новый интерфейс.
 - **VRChat Key Admin** управляет лицензиями собственного сервера.
 
 Репозиторий также содержит нейтральный `server-template` для самостоятельного размещения. Он создаёт новую пустую базу PostgreSQL и не содержит production-конфигурацию, ключи, базу данных или закрытые сервисы проекта.
@@ -25,6 +26,7 @@ Copy-Item .env.example .env
 npm run server:dev
 npm run admin:dev
 npm run client:dev
+npm run client-beta:dev
 ```
 
 Перед запуском сервера укажите в `.env` собственный `DATABASE_URL`, а также разные случайные значения для `LICENSE_PEPPER` и `ADMIN_TOKEN`. Не используйте значения из примера в рабочей среде.
@@ -35,6 +37,7 @@ npm run client:dev
 
 ```powershell
 npm run build:client
+npm run build:client-beta
 npm run build:admin
 ```
 
@@ -43,6 +46,7 @@ npm run build:admin
 ## Структура
 
 - `apps/client/` - пользовательское Electron-приложение.
+- `apps/client-beta/` - отдельный Beta-клиент с новым интерфейсом.
 - `apps/admin/` - Electron-приложение управления ключами.
 - `server-template/` - совместимый Express/PostgreSQL backend для собственного сервера без закрытой службы Owner.
 - `packages/parser/` - парсер локальных логов VRChat.

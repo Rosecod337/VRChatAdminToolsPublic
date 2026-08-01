@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>VRChat Admin Tools Beta</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <section class="activationView" data-activation-view>
+    <form class="activationCard" data-activation-form>
+      <div class="betaLogo" aria-hidden="true">V</div>
+      <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta хранит свои настройки отдельно.</p></div>
+      <label>
+        <span>Ключ доступа <small>тот же, что в Stable</small></span>
+        <input name="licenseKey" type="password" autocomplete="off" required placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
+        <small>Введите обычный ключ VRChat Admin Tools, который вы получили при покупке или от администратора.</small>
+      </label>
+      <label>
+        <span>Имя автора заметок <small>только для нового ключа</small></span>
+        <input name="authorAlias" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
+        <small>Публичная подпись рядом с вашими командными заметками и отметками. Если имя уже задавали в Stable, оставьте поле пустым.</small>
+      </label>
+      <label>VRChat cookie <small>необязательно</small><input name="vrchatAuthCookie" type="password" autocomplete="off" placeholder="auth=..."></label>
+      <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
+      <button class="primaryButton" type="submit">Войти в Beta</button>
+      <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
+    </form>
+  </section>
+
+  <div class="appShell" data-app-view hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brandMark">V</span><div><strong>VRChat Admin Tools</strong><em>Beta · 0.1</em></div></div>
+      <nav aria-label="Разделы Beta">
+        <button class="navItem active" type="button" data-view-button="session"><span>01</span>Сессия</button>
+        <button class="navItem" type="button" data-view-button="insights"><span>02</span>Мой VRChat</button>
+        <button class="navItem" type="button" data-view-button="admin"><span>03</span>Admin Tools</button>
+        <button class="navItem" type="button" data-view-button="crash"><span>04</span>Crash Analyzer</button>
+        <button class="navItem" type="button" data-view-button="builder"><span>05</span>Builder Beta</button>
+      </nav>
+      <div class="sidebarNote"><i></i><span>Beta развивается отдельно и не заменяет Stable.</span></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspaceHeader">
+        <div><span class="eyebrow" data-page-eyebrow>Текущая сессия</span><h1 data-page-title>Живая сессия</h1></div>
+        <div class="headerActions">
+          <button type="button" data-action="choose">Выбрать лог</button>
+          <button class="primaryButton" type="button" data-action="start">Start</button>
+          <button type="button" data-action="stop" disabled>Stop</button>
+          <button type="button" data-action="logout">Выйти</button>
+        </div>
+      </header>
+
+      <div class="sessionStrip"><span class="connectionDot"></span><strong data-runtime-status>Готово к запуску</strong><code data-file-path>Лог ещё не выбран</code><span data-event-count>0 событий</span></div>
+
+      <section class="viewPanel active" data-view="session">
+        <div class="metricGrid">
+          <article><span>Онлайн</span><strong data-metric="online">0</strong><em>сейчас в мире</em></article>
+          <article><span>Пик</span><strong data-metric="peak">0</strong><em>за сессию</em></article>
+          <article><span>Игроков</span><strong data-metric="unique">0</strong><em>уникальных</em></article>
+          <article><span>Мир</span><strong class="worldMetric" data-metric="world">—</strong><em>последний из лога</em></article>
+        </div>
+        <div class="sessionGrid">
+          <article class="panel"><header><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><span data-feed-count>0 записей</span></header><div class="eventFeed" data-event-feed><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
+          <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки рядом</h2></div></header><div class="playerList" data-player-list><p class="emptyState">Пока никого нет.</p></div></article>
+        </div>
+      </section>
+
+      <section class="viewPanel" data-view="insights" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Личная история</span><h2>Мой VRChat</h2></div><button type="button" data-action="refresh-insights">Обновить</button></div>
+        <div class="metricGrid compact"><article><span>Сессий</span><strong data-insight="sessions">—</strong></article><article><span>Времени</span><strong data-insight="duration">—</strong></article><article><span>Миров</span><strong data-insight="worlds">—</strong></article><article><span>Встреч</span><strong data-insight="players">—</strong></article></div>
+        <article class="panel listPanel"><header><h2>Последние сессии</h2></header><div data-session-list><p class="emptyState">История загрузится после входа.</p></div></article>
+      </section>
+
+      <section class="viewPanel" data-view="admin" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Командная работа</span><h2>Admin Tools</h2></div><button type="button" data-action="refresh-admin">Обновить</button></div>
+        <div class="adminLayout"><article class="panel listPanel"><header><h2>Сохранённые игроки</h2></header><div data-note-list><p class="emptyState">Заметки ещё не загружены.</p></div></article><article class="panel adminPreview"><span class="profileAvatar">N</span><h2>Выберите игрока</h2><p>Редактор карточки появится на следующем этапе переноса. Beta пока безопасно показывает существующие данные только для чтения.</p></article></div>
+      </section>
+
+      <section class="viewPanel" data-view="crash" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Осторожный анализ</span><h2>Crash Analyzer</h2></div><button type="button" data-action="refresh-crash">Проверить</button></div>
+        <div class="crashNotice"><strong>Это не доказательство.</strong><p>Beta показывает состояние процесса и лога, но не назначает виновного. Подробный перенос анализа будет подключён после проверки новой ленты событий.</p></div>
+        <div class="metricGrid compact"><article><span>VRChat</span><strong data-crash="process">—</strong></article><article><span>Лог</span><strong data-crash="log">—</strong></article><article><span>Обновлён</span><strong class="smallMetric" data-crash="updated">—</strong></article></div>
+      </section>
+
+      <section class="viewPanel" data-view="builder" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Новый конструктор</span><h2>Builder Beta</h2></div><div class="segmented"><button class="active" type="button" data-layout="grid">Grid</button><button type="button" data-layout="rows">Rows</button></div></div>
+        <div class="betaBuilder" data-builder><article class="panel"><header><h2>События</h2><span>Перетаскивание позже</span></header><div class="miniRows"><span>Nova вошёл<em>сейчас</em></span><span>Mira сменила аватар<em>2 мин</em></span></div></article><article class="panel"><header><h2>Игроки рядом</h2><span>Компактный блок</span></header><div class="miniRows"><span>Nova · watch<em>онлайн</em></span><span>Mira · ok<em>онлайн</em></span></div></article><article class="panel wide"><header><h2>Admin Tools</h2><span>Следующий этап переноса</span></header><div class="builderPlaceholder">Здесь появится полноценная карточка игрока без перегруженного старого экрана.</div></article></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

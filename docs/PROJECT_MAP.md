@@ -2,11 +2,12 @@
 
 ## Назначение
 
-Репозиторий содержит два Electron-приложения VRChat Admin Tools, общий парсер локальных логов и нейтральный серверный шаблон для самостоятельного размещения.
+Репозиторий содержит Stable, отдельный Beta-клиент, приложение управления ключами, общий парсер локальных логов и нейтральный серверный шаблон для самостоятельного размещения.
 
 ## Точки запуска
 
 - Клиент: `apps/client/src/main.js`, команда `npm run client:dev`.
+- Beta-клиент: `apps/client-beta/src/main.js`, команда `npm run client-beta:dev`.
 - Админское приложение: `apps/admin/src/main.js`, команда `npm run admin:dev`.
 - Сервер-шаблон: `server-template/src/index.js`, команда `npm run server:dev`.
 - Парсер: `packages/parser/index.js`.
@@ -16,6 +17,7 @@
 | Компонент | Основной файл | Связанные файлы |
 | --- | --- | --- |
 | Electron lifecycle, IPC и обновления клиента | `apps/client/src/main.js` | `preload.js`, `security.js` |
+| Отдельный Beta-интерфейс поверх общего desktop core | `apps/client-beta/src/main.js` | `renderer/index.html`, `renderer/app.js`, `renderer/styles.css` |
 | Чтение и анализ VRChat-логов | `apps/client/src/log-tailer.js` | `packages/parser/index.js` |
 | Интерфейс, диагностика, заметки, архив и условная вкладка Owner | `apps/client/renderer/renderer.js` | `index.html`, `styles.css` |
 | Управление ключами | `apps/admin/src/main.js` | `apps/admin/renderer/` |
@@ -37,6 +39,7 @@
 ```powershell
 npm test
 npm run build:client
+npm run build:client-beta
 npm run build:admin
 ```
 

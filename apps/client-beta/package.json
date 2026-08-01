@@ -1,0 +1,48 @@
+{
+  "name": "vrchat-admin-tools-beta",
+  "productName": "VRChat Admin Tools Beta",
+  "version": "0.1.0-beta.3",
+  "main": "src/main.js",
+  "private": true,
+  "description": "Separate beta client for the next VRChat Admin Tools interface.",
+  "author": {
+    "name": "MUTNIY.CORP"
+  },
+  "copyright": "Copyright © 2026 MUTNIY.CORP",
+  "dependencies": {
+    "@vrchat-log-suite/parser": "0.1.0",
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "com.vrchatadmintools.beta",
+    "productName": "VRChat Admin Tools Beta",
+    "electronVersion": "42.3.3",
+    "asar": true,
+    "icon": "../../logo.ico",
+    "asarUnpack": [
+      "node_modules/@vrchat-log-suite/parser/**/*"
+    ],
+    "artifactName": "VRChat-Admin-Tools-Beta-${version}.${ext}",
+    "directories": {
+      "output": "../../release/client-beta"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "icon": "../../logo.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
