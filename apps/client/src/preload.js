@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("clientApi", {
   getSettings: () => ipcRenderer.invoke("client:get-settings"),
+  importStableSettings: () => ipcRenderer.invoke("client:import-stable-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("client:save-settings", settings),
   getVrchatCurrentUser: () => ipcRenderer.invoke("vrchat:current-user"),
   getVrchatCurrentInstance: () => ipcRenderer.invoke("vrchat:current-instance"),

@@ -13,6 +13,7 @@ const {
   normalizeTrustedServerUrl,
   requireAllowedExternalHttpsUrl
 } = require("./security");
+const { importStableSettings } = require("./stable-settings-import");
 const { VrchatUserResolver } = require("./vrchat-api");
 
 let bundledConfig = {};
@@ -84,6 +85,15 @@ function isVrchatRunning() {
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
+}
+
+async function importStableSettingsForBeta({ force = false } = {}) {
+  if (!isBetaClient()) return { imported: false, reason: "not_beta_client" };
+  return importStableSettings({
+    appDataPath: app.getPath("appData"),
+    targetSettingsPath: settingsPath(),
+    force
+  });
 }
 
 function canEncryptSettings() {
@@ -452,6 +462,7 @@ function formatUpdaterError(error) {
 }
 
 app.whenReady().then(async () => {
+  await importStableSettingsForBeta().catch(() => {});
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   createWindow();
@@ -489,6 +500,8 @@ ipcMain.handle("client:get-settings", async () => {
     license: settings.license
   };
 });
+
+ipcMain.handle("client:import-stable-settings", () => importStableSettingsForBeta({ force: true }));
 
 ipcMain.handle("client:save-settings", async (_event, settings) => {
   const oldSettings = await readSettings();
@@ -564,11 +577,12 @@ ipcMain.handle("client:validate", validateCurrentSession);
 ipcMain.handle("client:logout", async () => {
   const settings = await readSettings();
   await endCurrentPlaySession().catch(() => {});
-  if (settings.sessionToken) {
+  const preserveStableSession = isBetaClient() && settings.importedStableSession === true;
+  if (settings.sessionToken && !preserveStableSession) {
     const hwid = await getHardwareId();
     await apiPost("/auth/logout", { sessionToken: settings.sessionToken, hwid }).catch(() => {});
   }
-  await writeSettings({ ...settings, sessionToken: "", license: null });
+  await writeSettings({ ...settings, sessionToken: "", license: null, importedStableSession: false });
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = null;
   await tailer.stop();

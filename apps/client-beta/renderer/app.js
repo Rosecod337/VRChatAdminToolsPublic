@@ -5,6 +5,9 @@ const api = window.clientApi || (previewMode ? createPreviewApi() : null);
 const activationView = document.querySelector("[data-activation-view]");
 const activationForm = document.querySelector("[data-activation-form]");
 const activationStatus = document.querySelector("[data-activation-status]");
+const authorAliasField = document.querySelector("[data-author-alias-field]");
+const authorAliasInput = activationForm?.elements.namedItem("authorAlias");
+const importStableButton = document.querySelector("[data-import-stable]");
 const appView = document.querySelector("[data-app-view]");
 const runtimeStatus = document.querySelector("[data-runtime-status]");
 const filePathLabel = document.querySelector("[data-file-path]");
@@ -49,9 +52,7 @@ function setActivationStatus(message, error = false) {
   activationStatus.classList.toggle("error", error);
 }
 
-function formatActivationError(error) {
-  const code = String(error?.message || "");
-  const messages = {
+const ACTIVATION_ERROR_MESSAGES = Object.freeze({
     invalid_license: "Ключ не найден. Введите тот же ключ, который используется в Stable.",
     license_blocked: "Этот ключ заблокирован.",
     license_expired: "Срок действия ключа истёк.",
@@ -62,13 +63,29 @@ function formatActivationError(error) {
     author_alias_mixed_scripts: "Не смешивайте кириллицу и латиницу в имени автора.",
     author_alias_reserved: "Это имя зарезервировано. Выберите другое.",
     author_alias_taken: "Это имя уже используется другим ключом."
-  };
-  return messages[code] || code || "Не удалось активировать лицензию.";
+});
+
+function activationErrorCode(error) {
+  const message = String(error?.message || error || "");
+  return Object.keys(ACTIVATION_ERROR_MESSAGES).find((code) => message.includes(code)) || message;
+}
+
+function formatActivationError(error) {
+  const code = activationErrorCode(error);
+  return ACTIVATION_ERROR_MESSAGES[code] || code || "Не удалось активировать лицензию.";
+}
+
+function setAuthorAliasRequested(requested) {
+  if (!authorAliasField || !authorAliasInput) return;
+  authorAliasField.hidden = !requested;
+  authorAliasInput.required = requested;
+  if (!requested) authorAliasInput.value = "";
 }
 
 function showActivation(message = "Введите данные лицензии.", error = false) {
   appView.hidden = true;
   activationView.hidden = false;
+  setAuthorAliasRequested(false);
   setActivationStatus(message, error);
 }
 
@@ -90,6 +107,7 @@ function createPreviewApi() {
   ];
   return {
     getSettings: async () => ({ hasSession: true, serverUrl: "https://api.example.invalid", license: { authorAlias: "Beta Preview" } }),
+    importStableSettings: async () => ({ imported: true, reason: "stable_settings_imported" }),
     validate: async () => ({ ok: true }),
     activate: async () => ({ ok: true }),
     logout: async () => ({ ok: true }),
@@ -401,11 +419,40 @@ activationForm.addEventListener("submit", async (event) => {
       rememberMe: form.get("rememberMe") === "on"
     });
     activationForm.reset();
+    setAuthorAliasRequested(false);
     await showApp();
   } catch (error) {
+    const code = activationErrorCode(error);
+    if (code.startsWith("author_alias_")) {
+      setAuthorAliasRequested(true);
+      authorAliasInput?.focus();
+    }
     setActivationStatus(formatActivationError(error), true);
   } finally {
     submit.disabled = false;
+  }
+});
+
+importStableButton?.addEventListener("click", async () => {
+  importStableButton.disabled = true;
+  setActivationStatus("Копируем сохранённый вход из Stable…");
+  try {
+    const result = await api.importStableSettings();
+    if (!result?.imported) {
+      const message = result?.reason === "stable_session_not_found"
+        ? "В Stable не найден сохранённый вход. Введите обычный ключ вручную."
+        : "Не удалось перенести вход из Stable.";
+      setActivationStatus(message, true);
+      return;
+    }
+    state.settings = await api.getSettings();
+    if (!state.settings.hasSession) throw new Error("Сохранённая сессия Stable недоступна.");
+    await api.validate();
+    await showApp();
+  } catch (error) {
+    setActivationStatus(error?.message || "Не удалось проверить вход из Stable.", true);
+  } finally {
+    importStableButton.disabled = false;
   }
 });
 

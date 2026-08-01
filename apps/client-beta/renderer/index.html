@@ -12,20 +12,21 @@
   <section class="activationView" data-activation-view>
     <form class="activationCard" data-activation-form>
       <div class="betaLogo" aria-hidden="true">V</div>
-      <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta хранит свои настройки отдельно.</p></div>
+      <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta использует отдельную копию настроек и не изменяет Stable.</p></div>
       <label>
         <span>Ключ доступа <small>тот же, что в Stable</small></span>
         <input name="licenseKey" type="password" autocomplete="off" required placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
         <small>Введите обычный ключ VRChat Admin Tools, который вы получили при покупке или от администратора.</small>
       </label>
-      <label>
+      <label data-author-alias-field hidden>
         <span>Имя автора заметок <small>только для нового ключа</small></span>
         <input name="authorAlias" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
-        <small>Публичная подпись рядом с вашими командными заметками и отметками. Если имя уже задавали в Stable, оставьте поле пустым.</small>
+        <small>Публичная подпись рядом с вашими командными заметками и отметками. Она запрашивается один раз.</small>
       </label>
       <label>VRChat cookie <small>необязательно</small><input name="vrchatAuthCookie" type="password" autocomplete="off" placeholder="auth=..."></label>
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
       <button class="primaryButton" type="submit">Войти в Beta</button>
+      <button type="button" data-import-stable>Использовать вход из Stable</button>
       <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
     </form>
   </section>

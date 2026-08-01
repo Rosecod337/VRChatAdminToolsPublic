@@ -17,6 +17,7 @@
 | Компонент | Основной файл | Связанные файлы |
 | --- | --- | --- |
 | Electron lifecycle, IPC и обновления клиента | `apps/client/src/main.js` | `preload.js`, `security.js` |
+| Однократный импорт сохранённой сессии Stable в отдельные настройки Beta | `apps/client/src/stable-settings-import.js` | `main.js`, `preload.js`, `tests/client-beta.test.js` |
 | Отдельный Beta-интерфейс поверх общего desktop core | `apps/client-beta/src/main.js` | `renderer/index.html`, `renderer/app.js`, `renderer/styles.css` |
 | Чтение и анализ VRChat-логов | `apps/client/src/log-tailer.js` | `packages/parser/index.js` |
 | Интерфейс, диагностика, заметки, архив и условная вкладка Owner | `apps/client/renderer/renderer.js` | `index.html`, `styles.css` |
