@@ -6,6 +6,8 @@ const appView = document.querySelector("#appView");
 const activationForm = document.querySelector("#activationForm");
 const activationStatus = document.querySelector("#activationStatus");
 const licenseKey = document.querySelector("#licenseKey");
+const activationAuthorField = document.querySelector("#activationAuthorField");
+const activationAuthorAlias = document.querySelector("#activationAuthorAlias");
 const vrchatAuthCookie = document.querySelector("#vrchatAuthCookie");
 const rememberMe = document.querySelector("#rememberMe");
 const checkVrchatBtn = document.querySelector("#checkVrchatBtn");
@@ -33,7 +35,13 @@ const historySearch = document.querySelector("#historySearch");
 const historyDate = document.querySelector("#historyDate");
 const historyState = document.querySelector("#historyState");
 const historyResetBtn = document.querySelector("#historyResetBtn");
+const myVrchatPeriod = document.querySelector("#myVrchatPeriod");
+const refreshMyVrchatBtn = document.querySelector("#refreshMyVrchatBtn");
+const copyMyVrchatBtn = document.querySelector("#copyMyVrchatBtn");
+const myVrchatContent = document.querySelector("#myVrchatContent");
 const adminPlayerSearch = document.querySelector("#adminPlayerSearch");
+const adminOnlineFilter = document.querySelector("#adminOnlineFilter");
+const adminReadTodayPlayersBtn = document.querySelector("#adminReadTodayPlayersBtn");
 const adminPlayerList = document.querySelector("#adminPlayerList");
 const adminPlayerCard = document.querySelector("#adminPlayerCard");
 const copyAdminSnapshotBtn = document.querySelector("#copyAdminSnapshotBtn");
@@ -43,6 +51,8 @@ const ownerGroupLabel = document.querySelector("#ownerGroupLabel");
 const ownerSourceSelect = document.querySelector("#ownerSourceSelect");
 const ownerPlayerSearch = document.querySelector("#ownerPlayerSearch");
 const ownerGroupSearchBtn = document.querySelector("#ownerGroupSearchBtn");
+const ownerOnlineFilter = document.querySelector("#ownerOnlineFilter");
+const ownerReadTodayPlayersBtn = document.querySelector("#ownerReadTodayPlayersBtn");
 const ownerPlayerList = document.querySelector("#ownerPlayerList");
 const ownerPlayerCard = document.querySelector("#ownerPlayerCard");
 const refreshModerationBtn = document.querySelector("#refreshModerationBtn");
@@ -58,6 +68,16 @@ const banReasonTemplate = document.querySelector("#banReasonTemplate");
 const banRequestCloseBtn = document.querySelector("#banRequestCloseBtn");
 const banRequestCancelBtn = document.querySelector("#banRequestCancelBtn");
 const banRequestSubmitBtn = document.querySelector("#banRequestSubmitBtn");
+const banRequestDialogTitle = banRequestForm?.querySelector("header h2");
+const banRequestDialogNotice = banRequestForm?.querySelector(".moderationDialogNotice");
+const banRequestModeField = banRequestForm?.querySelector(".moderationMode");
+const banReasonTemplateField = banReasonTemplate?.closest("label");
+const playerActionDialog = document.querySelector("#playerActionDialog");
+const playerActionName = document.querySelector("#playerActionName");
+const playerActionUserId = document.querySelector("#playerActionUserId");
+const playerActionCloseBtn = document.querySelector("#playerActionCloseBtn");
+const playerActionOwnerBtn = document.querySelector("#playerActionOwnerBtn");
+const playerActionProfileBtn = document.querySelector("#playerActionProfileBtn");
 const crashStatusBadge = document.querySelector("#crashStatusBadge");
 const crashToggleBtn = document.querySelector("#crashToggleBtn");
 const captureLagBtn = document.querySelector("#captureLagBtn");
@@ -94,6 +114,8 @@ const CRASH_BUFFER_SAVE_DELAY_MS = 500;
 const RESUME_REFRESH_DELAY_MS = 120;
 const WINDOW_OPACITY_MIN_PERCENT = 40;
 const WINDOW_OPACITY_MAX_PERCENT = 100;
+const PLAYER_LIST_PAGE_SIZE = 100;
+const BUILDER_PLAYER_LIMIT = 250;
 const ACTIVE_MODERATION_STATUSES = new Set(["pending", "dispatching", "awaiting_review", "processing"]);
 const MODERATION_REASON_TEMPLATES = {
   "crash-avatar": "Использование аватара, вызывающего критические лаги или сбой VRChat.",
@@ -115,6 +137,7 @@ const state = {
   events: [],
   eventIds: new Set(),
   playerEventIndex: null,
+  historicalPlayerSummaries: null,
   renderTimer: null,
   renderDeferred: false,
   renderSuspended: false,
@@ -123,10 +146,15 @@ const state = {
   profiles: new Map(),
   search: { players: "", avatars: "" },
   adminSearch: "",
+  adminOnlineFilter: localStorage.getItem("adminOnlineFilter") === "online" ? "online" : "all",
+  adminPlayerPage: 0,
   selectedUserId: "",
   ownerSearch: "",
+  ownerOnlineFilter: localStorage.getItem("ownerOnlineFilter") === "online" ? "online" : "all",
+  ownerPlayerPage: 0,
   ownerSource: "logs",
   ownerSelectedUserId: "",
+  playerActionTarget: null,
   moderationRequests: [],
   moderationRequestsInFlight: false,
   groupManagementRequests: [],
@@ -140,11 +168,14 @@ const state = {
   groupMembersQuery: "",
   groupMembersHasMore: false,
   banRequestTarget: null,
+  moderationRequestAction: "ban",
   license: null,
   teamId: "",
   teamScopeVersion: 0,
   playerNotesReady: false,
   playerNotes: {},
+  knownPlayers: {},
+  knownPlayersSaveTimer: null,
   noteSaveTimers: new Map(),
   notePollTimer: null,
   noteSyncInFlight: false,
@@ -222,6 +253,32 @@ function setActivationStatus(text, isError = false) {
   activationStatus.style.color = isError ? "#ffb1a8" : "";
 }
 
+const ACTIVATION_ERROR_MESSAGES = Object.freeze({
+    author_alias_required: "Для этого ключа укажите имя автора заметок.",
+    author_alias_length: "Имя автора должно содержать от 3 до 24 символов.",
+    author_alias_invalid_characters: "В имени автора разрешены буквы, цифры, пробел, точка, дефис и подчёркивание.",
+    author_alias_mixed_scripts: "Не смешивайте кириллицу и латиницу в имени автора.",
+    author_alias_reserved: "Это имя автора зарезервировано. Выберите другое.",
+    author_alias_taken: "Это имя автора уже используется другим ключом."
+});
+
+function activationErrorCode(error) {
+  const message = String(error?.message || error || "");
+  return Object.keys(ACTIVATION_ERROR_MESSAGES).find((code) => message.includes(code)) || message;
+}
+
+function formatActivationError(error) {
+  const code = activationErrorCode(error);
+  return ACTIVATION_ERROR_MESSAGES[code] || code || "Не удалось активировать ключ";
+}
+
+function setAuthorAliasRequested(requested) {
+  if (!activationAuthorField || !activationAuthorAlias) return;
+  activationAuthorField.hidden = !requested;
+  activationAuthorAlias.required = requested;
+  if (!requested) activationAuthorAlias.value = "";
+}
+
 function formatVrchatAuthError(error) {
   const message = error?.message || String(error || "");
   if (/VRChat API HTTP 401|HTTP 401/u.test(message)) {
@@ -261,6 +318,7 @@ function showActivation() {
   appView.hidden = true;
   activationView.hidden = false;
   shell.hidden = false;
+  setAuthorAliasRequested(false);
 }
 
 function escapeHtml(value) {
@@ -345,6 +403,74 @@ function normalizedPlayerName(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizedSeenAt(value) {
+  const time = new Date(value || "").valueOf();
+  return Number.isFinite(time) ? new Date(time).toISOString() : "";
+}
+
+function normalizeKnownPlayer(value, userId) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    userId,
+    displayName: String(source.displayName || source.display_name || "").trim(),
+    firstSeenAt: normalizedSeenAt(source.firstSeenAt || source.first_seen_at),
+    lastSeenAt: normalizedSeenAt(source.lastSeenAt || source.last_seen_at)
+  };
+}
+
+function trimKnownPlayers(limit = 10000) {
+  const entries = Object.entries(state.knownPlayers);
+  if (entries.length <= limit) return;
+  entries.sort((left, right) => (
+    new Date(right[1]?.lastSeenAt || 0).valueOf() - new Date(left[1]?.lastSeenAt || 0).valueOf()
+  ));
+  state.knownPlayers = Object.fromEntries(entries.slice(0, limit));
+  invalidateHistoricalPlayerSummaries();
+}
+
+function cacheKnownPlayers() {
+  if (state.knownPlayersSaveTimer) clearTimeout(state.knownPlayersSaveTimer);
+  state.knownPlayersSaveTimer = null;
+  trimKnownPlayers();
+  saveTeamJson("knownPlayers", state.knownPlayers);
+}
+
+function queueKnownPlayersCache() {
+  if (state.knownPlayersSaveTimer) return;
+  state.knownPlayersSaveTimer = setTimeout(cacheKnownPlayers, 300);
+}
+
+function rememberKnownPlayer(value, options = {}) {
+  const userId = String(value?.userId || "").trim();
+  if (!userId.startsWith("usr_")) return false;
+  const current = normalizeKnownPlayer(state.knownPlayers[userId], userId);
+  const incomingSeenAt = normalizedSeenAt(value.lastSeenAt || value.timestamp || value.firstSeenAt) || new Date().toISOString();
+  const incomingFirstSeenAt = normalizedSeenAt(value.firstSeenAt || value.timestamp) || incomingSeenAt;
+  const currentLastMs = new Date(current.lastSeenAt || 0).valueOf();
+  const incomingLastMs = new Date(incomingSeenAt).valueOf();
+  const incomingName = String(value.displayName || value.playerName || "").trim();
+  const next = {
+    userId,
+    displayName: incomingName && (!current.displayName || incomingLastMs >= currentLastMs)
+      ? incomingName
+      : current.displayName,
+    firstSeenAt: !current.firstSeenAt || new Date(incomingFirstSeenAt).valueOf() < new Date(current.firstSeenAt).valueOf()
+      ? incomingFirstSeenAt
+      : current.firstSeenAt,
+    lastSeenAt: !current.lastSeenAt || incomingLastMs >= currentLastMs ? incomingSeenAt : current.lastSeenAt
+  };
+  const changed = JSON.stringify(next) !== JSON.stringify(current);
+  if (!changed) return false;
+  state.knownPlayers[userId] = next;
+  if (options.invalidateHistory !== false) invalidateHistoricalPlayerSummaries();
+  if (options.cache !== false) queueKnownPlayersCache();
+  return true;
+}
+
+function invalidateHistoricalPlayerSummaries() {
+  state.historicalPlayerSummaries = null;
+}
+
 function invalidatePlayerEventIndex() {
   state.playerEventIndex = null;
 }
@@ -364,16 +490,21 @@ function playerEventIndex() {
   }
 
   const byUserId = new Map([...userIds].map((userId) => [userId, []]));
-  for (const event of state.events) {
+  const currentByUserId = new Map([...userIds].map((userId) => [userId, []]));
+  const currentWorldStart = currentWorldStartIndex(state.events);
+  for (let index = 0; index < state.events.length; index += 1) {
+    const event = state.events[index];
     let userId = event.userId || "";
     if (!userId) {
       const owners = ownersByName.get(normalizedPlayerName(event.playerName));
       if (owners?.size === 1) userId = owners.values().next().value;
     }
-    if (userId && byUserId.has(userId)) byUserId.get(userId).push(event);
+    if (!userId || !byUserId.has(userId)) continue;
+    byUserId.get(userId).push(event);
+    if (index >= currentWorldStart) currentByUserId.get(userId).push(event);
   }
 
-  state.playerEventIndex = { byUserId, userIds };
+  state.playerEventIndex = { byUserId, currentByUserId, userIds };
   return state.playerEventIndex;
 }
 
@@ -393,14 +524,30 @@ function playerRecord(userId) {
   return state.playerNotes[userId];
 }
 
+function playerRecordView(userId) {
+  return normalizePlayerNote(state.playerNotes[userId]);
+}
+
 function currentAdminIdentity() {
   const license = state.license || {};
   const key = String(license.keyPrefix || license.id || "").trim();
-  const label = String(license.label || key || "").trim();
+  const authorAlias = String(license.authorAlias || "").trim();
+  const legacyLabel = String(license.label || "").trim();
+  const legacyPaymentLabel = /^(?:yookassa|payment)\s+order\s+#\d+$/iu.test(legacyLabel);
+  const label = authorAlias || (!legacyPaymentLabel ? legacyLabel : "") || key;
   return {
     key: key.slice(0, 80),
     label: label.slice(0, 120)
   };
+}
+
+function formatAuthorIdentity(labelValue, keyValue) {
+  const label = String(labelValue || "").trim();
+  const key = String(keyValue || "").trim();
+  if (!label && !key) return "Неизвестный администратор";
+  if (!key || label === key) return label || key;
+  const suffix = key.endsWith("…") || key.endsWith("...") ? "" : "…";
+  return `${label || "Администратор"} · ${key}${suffix}`;
 }
 
 function moderationRequestError(error) {
@@ -433,6 +580,19 @@ function groupManagementError(error) {
     "group member search requires at least 3 characters": "Для поиска по имени введите не менее трёх символов.",
     "targetUserId must be a VRChat user id": "Укажите корректный VRChat User ID или ссылку на профиль.",
     "roleId must be a VRChat group role id": "VRChat вернул некорректный идентификатор роли."
+  };
+  return messages[code] || code;
+}
+
+function globalPublicationError(error) {
+  const code = error?.message || String(error || "");
+  if (code === "global_publication_cooldown") {
+    const retryAfterSeconds = Math.max(1, Number(error?.retryAfterSeconds || 60));
+    return `Подождите ${retryAfterSeconds} сек. перед следующей общей публикацией.`;
+  }
+  const messages = {
+    global_publication_permission_required: "У этого ключа нет отдельного права на общую публикацию.",
+    global_publication_daily_limit: "Суточный лимит общих публикаций для этой команды исчерпан."
   };
   return messages[code] || code;
 }
@@ -473,10 +633,30 @@ function syncModerationDurationLimits() {
   if (value > limits.max) banRequestDuration.value = String(limits.max);
 }
 
-function openBanRequestDialog(userId) {
+function syncModerationRequestDialog() {
+  const isUnban = state.moderationRequestAction === "unban";
+  if (banRequestDialogTitle) {
+    banRequestDialogTitle.textContent = isUnban ? "Разбанить в группе" : "Забанить в группе";
+  }
+  if (banRequestDialogNotice) {
+    banRequestDialogNotice.textContent = isUnban
+      ? "Разбан будет передан службе модерации без ручного подтверждения. Проверьте профиль игрока и укажите причину перед отправкой."
+      : "Действие будет передано службе модерации без ручного подтверждения. Проверьте игрока, срок и причину перед отправкой.";
+  }
+  if (banRequestSubmitBtn) {
+    banRequestSubmitBtn.textContent = isUnban ? "Выполнить разбан" : "Выполнить бан";
+  }
+  if (banRequestModeField) banRequestModeField.hidden = isUnban;
+  if (banReasonTemplateField) banReasonTemplateField.hidden = isUnban;
+  const temporary = banRequestForm?.querySelector('input[name="banDurationMode"]:checked')?.value === "temporary";
+  if (banRequestDurationField) banRequestDurationField.hidden = isUnban || !temporary;
+}
+
+function openBanRequestDialog(userId, action = "ban") {
   if (!banRequestDialog || !state.license?.canRequestGroupBan) return;
   const summary = buildPlayerSummary(userId);
   const groupMember = groupMemberById(userId);
+  state.moderationRequestAction = action === "unban" ? "unban" : "ban";
   state.banRequestTarget = {
     userId,
     displayName: groupMember?.displayName || summary.name || userId
@@ -490,7 +670,7 @@ function openBanRequestDialog(userId) {
   syncModerationDurationLimits();
   const permanent = banRequestForm?.querySelector('input[name="banDurationMode"][value="permanent"]');
   if (permanent) permanent.checked = true;
-  if (banRequestDurationField) banRequestDurationField.hidden = true;
+  syncModerationRequestDialog();
   banRequestDialog.showModal();
   banRequestReason.focus();
 }
@@ -498,10 +678,35 @@ function openBanRequestDialog(userId) {
 function closeBanRequestDialog() {
   if (banRequestDialog?.open) banRequestDialog.close();
   state.banRequestTarget = null;
+  state.moderationRequestAction = "ban";
+}
+
+function canRequestOwnerBans() {
+  return Boolean(state.license?.canRequestGroupBan);
+}
+
+function canViewGroupMembers() {
+  return Boolean(state.license?.canViewGroupMembers);
+}
+
+function canManageGroupRoles() {
+  return Boolean(state.license?.canManageGroupRoles);
+}
+
+function canKickGroupMembers() {
+  return Boolean(state.license?.canKickGroupMembers);
+}
+
+function canPublishGlobalNotes() {
+  return Boolean(state.license?.canPublishGlobalNotes);
+}
+
+function hasGroupManagementAccess() {
+  return canViewGroupMembers() || canManageGroupRoles() || canKickGroupMembers();
 }
 
 function hasOwnerAccess() {
-  return Boolean(state.license?.ownerAccess ?? state.license?.canRequestGroupBan) &&
+  return (canRequestOwnerBans() || hasGroupManagementAccess()) &&
     Boolean(state.license?.moderationGroupId);
 }
 
@@ -513,6 +718,15 @@ function syncOwnerAccess() {
       ? state.license.moderationGroupId
       : "VRChat-группа не настроена";
   }
+  if (ownerSourceSelect) {
+    const groupOption = ownerSourceSelect.querySelector('option[value="group"]');
+    if (groupOption) groupOption.disabled = !canViewGroupMembers();
+    if (!canViewGroupMembers() && state.ownerSource === "group") {
+      state.ownerSource = "logs";
+      ownerSourceSelect.value = "logs";
+    }
+  }
+  if (ownerGroupSearchBtn) ownerGroupSearchBtn.disabled = !canViewGroupMembers();
   if (!enabled && activePaneName() === "owner") {
     document.querySelector('.tab[data-tab="admin"]')?.click();
   }
@@ -534,6 +748,7 @@ function touchPlayerRecord(record) {
   record.updatedAt = new Date().toISOString();
   if (admin.key) record.updatedByKey = admin.key;
   if (admin.label) record.updatedByLabel = admin.label;
+  invalidateHistoricalPlayerSummaries();
 }
 
 function formatDateTime(value) {
@@ -586,12 +801,15 @@ function setTeamScope(license, options = {}) {
   if (options.migrateLegacy) migrateLegacyTeamCache(teamId);
   if (state.teamId === teamId) return false;
 
+  if (state.teamId) cacheKnownPlayers();
   clearPendingTeamSaveTimers();
   state.teamScopeVersion += 1;
   state.teamId = teamId;
   state.avatarNameResolveInFlight.clear();
   state.avatarCandidateResults.clear();
   state.playerNotes = loadTeamJson("playerNotes", {});
+  state.knownPlayers = loadTeamJson("knownPlayers", {});
+  invalidateHistoricalPlayerSummaries();
   state.playerNoteOutbox = loadTeamJson("playerNoteOutbox", {});
   state.avatarCatalog = loadTeamJson("avatarCatalog", {});
   state.avatarCatalogOutbox = loadTeamJson("avatarCatalogOutbox", {});
@@ -610,12 +828,15 @@ function setTeamScope(license, options = {}) {
 }
 
 function clearTeamScope() {
+  if (state.teamId) cacheKnownPlayers();
   clearPendingTeamSaveTimers();
   state.teamScopeVersion += 1;
   state.teamId = "";
   state.avatarNameResolveInFlight.clear();
   state.avatarCandidateResults.clear();
   state.playerNotes = {};
+  state.knownPlayers = {};
+  invalidateHistoricalPlayerSummaries();
   state.playerNoteOutbox = {};
   state.avatarCatalog = {};
   state.avatarCatalogOutbox = {};
@@ -665,13 +886,17 @@ function cachePlayerNoteOutbox() {
 
 function importServerPlayerNotes(notes) {
   const next = { ...state.playerNotes };
+  let summariesChanged = false;
   for (const row of notes || []) {
     const userId = row.user_id || row.userId;
     if (!userId) continue;
     if (state.noteSaveTimers.has(userId) || state.playerNoteOutbox[userId] || isEditingAdminPlayer(userId)) continue;
-    next[userId] = normalizePlayerNote(row, next[userId]);
+    const normalized = normalizePlayerNote(row, next[userId]);
+    if (JSON.stringify(normalized) !== JSON.stringify(next[userId])) summariesChanged = true;
+    next[userId] = normalized;
   }
   state.playerNotes = next;
+  if (summariesChanged) invalidateHistoricalPlayerSummaries();
   state.playerNotesReady = true;
   cachePlayerNotes();
   if (activePaneName() === "admin" && !isEditingAdminPlayer()) renderWhenVisible(renderAdminTools);
@@ -795,6 +1020,9 @@ async function loadPlayerNoteHistory(userId, options = {}) {
 }
 
 async function publishGlobalPlayerNote(userId) {
+  if (!canPublishGlobalNotes()) {
+    throw new Error("global_publication_permission_required");
+  }
   const record = playerRecord(userId);
   const saved = await window.clientApi.saveGlobalPlayerNote({
     userId,
@@ -812,6 +1040,9 @@ async function publishGlobalPlayerNote(userId) {
 }
 
 async function removeGlobalPlayerNote(userId) {
+  if (!canPublishGlobalNotes()) {
+    throw new Error("global_publication_permission_required");
+  }
   await window.clientApi.removeGlobalPlayerNote(userId);
   state.globalPlayerNotes[userId] = globalReportsForPlayer(userId)
     .filter((row) => row.sourceTeamId !== state.teamId);
@@ -884,6 +1115,9 @@ function ownGlobalAvatarReport(avatarId) {
 }
 
 async function publishGlobalAvatarNote(avatarKey) {
+  if (!canPublishGlobalNotes()) {
+    throw new Error("global_publication_permission_required");
+  }
   const record = normalizeAvatarNote(state.avatarNotes[avatarKey]);
   const confirmedKey = avatarIdNoteKey(record.avatarId);
   if (!confirmedKey || confirmedKey !== avatarKey) {
@@ -903,6 +1137,9 @@ async function publishGlobalAvatarNote(avatarKey) {
 }
 
 async function removeGlobalAvatarNote(avatarId) {
+  if (!canPublishGlobalNotes()) {
+    throw new Error("global_publication_permission_required");
+  }
   const key = avatarIdNoteKey(avatarId);
   if (!key) throw new Error("Подтверждённый Avatar ID не найден");
   await window.clientApi.removeGlobalAvatarNote(avatarId);
@@ -1553,7 +1790,9 @@ function eventsForUser(userId) {
 
 function buildPlayerSummary(userId) {
   const events = eventsForUser(userId);
+  const currentEvents = playerEventIndex().currentByUserId.get(userId) || [];
   const playerEvents = events.filter((event) => event.type === "player-joined" || event.type === "player-left");
+  const currentPlayerEvents = currentEvents.filter((event) => event.type === "player-joined" || event.type === "player-left");
   const joins = playerEvents.filter((event) => event.type === "player-joined");
   const leaves = playerEvents.filter((event) => event.type === "player-left");
   const avatars = events.filter((event) => (
@@ -1562,16 +1801,24 @@ function buildPlayerSummary(userId) {
     (event.avatarName || event.avatarId)
   ));
   const last = playerEvents[playerEvents.length - 1];
+  const currentLast = currentPlayerEvents[currentPlayerEvents.length - 1];
   const firstJoin = joins[0];
+  const known = normalizeKnownPlayer(state.knownPlayers[userId], userId);
+  const savedName = String(state.playerNotes[userId]?.displayName || "").trim();
+  const eventName = firstJoin?.playerName || last?.playerName || "";
+  const eventTime = new Date(last?.timestamp || last?.capturedAt || 0).valueOf();
+  const knownTime = new Date(known.lastSeenAt || 0).valueOf();
   return {
     userId,
-    name: playerLabel(userId, firstJoin?.playerName || last?.playerName),
+    name: playerLabel(userId, eventName || known.displayName || savedName),
     joins,
     leaves,
     avatars,
     firstJoin,
     last,
-    online: last?.type === "player-joined"
+    lastActivityAt: Math.max(Number.isFinite(eventTime) ? eventTime : 0, Number.isFinite(knownTime) ? knownTime : 0),
+    historicalOnly: playerEvents.length === 0,
+    online: currentLast?.type === "player-joined"
   };
 }
 
@@ -1583,9 +1830,55 @@ function isEditingAdminPlayer(userId = state.selectedUserId) {
 
 function profileButton(event) {
   if (!event.userId) return "<span></span>";
-  const profile = state.profiles.get(event.userId);
-  const url = profile?.profileUrl || `https://vrchat.com/home/user/${encodeURIComponent(event.userId)}`;
-  return `<button class="eventAction" data-url="${escapeHtml(url)}">Профиль</button>`;
+  return playerProfileButton(event.userId, event.playerName || displayName(event));
+}
+
+function playerProfileUrl(userId) {
+  const profile = state.profiles.get(userId);
+  return profile?.profileUrl || `https://vrchat.com/home/user/${encodeURIComponent(userId)}`;
+}
+
+function playerProfileButton(userId, displayNameValue = "", options = {}) {
+  if (!userId) return "";
+  const label = options.label || (hasOwnerAccess() && activePaneName() !== "owner" ? "Действия" : "Профиль");
+  const className = options.className || "eventAction";
+  return `<button type="button" class="${escapeHtml(className)}" data-player-profile-user-id="${escapeHtml(userId)}" data-player-profile-name="${escapeHtml(displayNameValue || userId)}">${escapeHtml(label)}</button>`;
+}
+
+function closePlayerActionDialog() {
+  state.playerActionTarget = null;
+  if (playerActionDialog?.open) playerActionDialog.close();
+}
+
+function openPlayerAction(userId, displayNameValue = "") {
+  if (!userId) return;
+  if (!hasOwnerAccess() || activePaneName() === "owner" || !playerActionDialog?.showModal) {
+    window.clientApi.openExternal(playerProfileUrl(userId));
+    return;
+  }
+  state.playerActionTarget = {
+    userId,
+    displayName: displayNameValue || buildPlayerSummary(userId).name || userId
+  };
+  if (playerActionName) playerActionName.textContent = state.playerActionTarget.displayName;
+  if (playerActionUserId) playerActionUserId.textContent = userId;
+  playerActionDialog.showModal();
+}
+
+function openPlayerInOwner(userId, displayNameValue = "") {
+  if (!hasOwnerAccess() || !userId) return;
+  rememberKnownPlayer({
+    userId,
+    displayName: displayNameValue,
+    lastSeenAt: state.knownPlayers[userId]?.lastSeenAt || new Date().toISOString()
+  });
+  state.ownerSource = "logs";
+  state.ownerSelectedUserId = userId;
+  if (ownerSourceSelect) ownerSourceSelect.value = "logs";
+  closePlayerActionDialog();
+  ownerTabButton?.click();
+  renderOwnerTools();
+  loadPlayerNoteHistory(userId, { silent: true }).catch(() => {});
 }
 
 function avatarButton(event) {
@@ -1641,7 +1934,7 @@ function adminAvatarGlobalReportsHtml(avatarId) {
   return `<div class="adminAvatarGlobalReports">
     ${reports.map((report) => `<div>
       <span class="eventAvatarBadge eventAvatarBadge--${escapeHtml(report.status)}">${escapeHtml(report.status)}</span>
-      <strong>${escapeHtml(report.updatedByLabel || "Неизвестный администратор")}</strong>
+      <strong>${escapeHtml(formatAuthorIdentity(report.updatedByLabel, report.updatedByKey))}</strong>
       <small>${escapeHtml(formatDateTime(report.updatedAt))}</small>
       ${report.note ? `<p>${escapeHtml(report.note)}</p>` : ""}
     </div>`).join("")}
@@ -1693,11 +1986,11 @@ function adminAvatarRow(event) {
         <span>Заметка об аватаре</span>
         <textarea data-admin-avatar-note-text spellcheck="false" placeholder="Почему аватар отмечен...">${escapeHtml(record.note)}</textarea>
       </label>
-      <div class="adminAvatarShareActions">
+      ${canPublishGlobalNotes() ? `<div class="adminAvatarShareActions">
         <span>${avatarId ? "Публикация будет видна всем лицензированным командам." : "Нужен подтверждённый Avatar ID; совпадения только по имени не публикуются."}</span>
         <button type="button" data-publish-global-avatar-note${avatarId ? "" : " disabled"}>${ownReport ? "Обновить общую" : "Опубликовать всем"}</button>
         ${ownReport ? `<button type="button" data-remove-global-avatar-note>Убрать общую</button>` : ""}
-      </div>
+      </div>` : ""}
       ${adminAvatarGlobalReportsHtml(avatarId)}
     </div>` : ""}
   </article>`;
@@ -1826,13 +2119,89 @@ function renderWhenVisible(renderTask) {
   renderTask();
 }
 
-function playerSummaries() {
-  return [...playerEventIndex().userIds].map(buildPlayerSummary).sort((a, b) => {
-    const aWatch = playerRecord(a.userId).status !== "ok" ? 1 : 0;
-    const bWatch = playerRecord(b.userId).status !== "ok" ? 1 : 0;
-    if (aWatch !== bWatch) return bWatch - aWatch;
-    return a.name.localeCompare(b.name, "ru");
-  });
+function comparePlayerSummaries(a, b) {
+  if (a.online !== b.online) return a.online ? -1 : 1;
+  const aWatch = state.playerNotes[a.userId]?.status !== "ok" && state.playerNotes[a.userId]?.status ? 1 : 0;
+  const bWatch = state.playerNotes[b.userId]?.status !== "ok" && state.playerNotes[b.userId]?.status ? 1 : 0;
+  if (aWatch !== bWatch) return bWatch - aWatch;
+  if (a.lastActivityAt !== b.lastActivityAt) return b.lastActivityAt - a.lastActivityAt;
+  return a.name.localeCompare(b.name, "ru");
+}
+
+function historicalPlayerSummary(userId) {
+  const known = normalizeKnownPlayer(state.knownPlayers[userId], userId);
+  const savedName = String(state.playerNotes[userId]?.displayName || "").trim();
+  const knownTime = new Date(known.lastSeenAt || 0).valueOf();
+  return {
+    userId,
+    name: playerLabel(userId, known.displayName || savedName),
+    joins: [],
+    leaves: [],
+    avatars: [],
+    firstJoin: null,
+    last: null,
+    lastActivityAt: Number.isFinite(knownTime) ? knownTime : 0,
+    historicalOnly: true,
+    online: false
+  };
+}
+
+function historicalPlayerSummaryList() {
+  if (state.historicalPlayerSummaries) return state.historicalPlayerSummaries;
+  const userIds = new Set([...Object.keys(state.knownPlayers), ...Object.keys(state.playerNotes)]);
+  state.historicalPlayerSummaries = [...userIds]
+    .filter((userId) => userId.startsWith("usr_"))
+    .map(historicalPlayerSummary)
+    .sort(comparePlayerSummaries);
+  return state.historicalPlayerSummaries;
+}
+
+function mergePlayerSummaries(left, right, limit = Infinity) {
+  const merged = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (merged.length < limit && (leftIndex < left.length || rightIndex < right.length)) {
+    if (rightIndex >= right.length || (
+      leftIndex < left.length && comparePlayerSummaries(left[leftIndex], right[rightIndex]) <= 0
+    )) {
+      merged.push(left[leftIndex]);
+      leftIndex += 1;
+    } else {
+      merged.push(right[rightIndex]);
+      rightIndex += 1;
+    }
+  }
+  return merged;
+}
+
+function livePlayerSummaries() {
+  return [...playerEventIndex().userIds]
+    .filter((userId) => userId.startsWith("usr_"))
+    .map(buildPlayerSummary)
+    .sort(comparePlayerSummaries);
+}
+
+function playerSummaries(limit = Infinity) {
+  const live = livePlayerSummaries();
+  const liveIds = playerEventIndex().userIds;
+  const historical = historicalPlayerSummaryList().filter((summary) => !liveIds.has(summary.userId));
+  return mergePlayerSummaries(live, historical, limit);
+}
+
+function pagedPlayerSummaries(summaries, requestedPage) {
+  const pageCount = Math.max(1, Math.ceil(summaries.length / PLAYER_LIST_PAGE_SIZE));
+  const page = Math.min(Math.max(0, requestedPage), pageCount - 1);
+  const start = page * PLAYER_LIST_PAGE_SIZE;
+  return { page, pageCount, rows: summaries.slice(start, start + PLAYER_LIST_PAGE_SIZE) };
+}
+
+function playerListPagerHtml(kind, page, pageCount, total) {
+  if (total <= PLAYER_LIST_PAGE_SIZE) return "";
+  return `<div class="playerListPager">
+    <button type="button" data-${kind}-list-page="previous" ${page <= 0 ? "disabled" : ""}>←</button>
+    <span>${page + 1} / ${pageCount} · ${total}</span>
+    <button type="button" data-${kind}-list-page="next" ${page >= pageCount - 1 ? "disabled" : ""}>→</button>
+  </div>`;
 }
 
 function renderAdminTools() {
@@ -1847,26 +2216,32 @@ function renderAdminTools() {
     adminSyncStatus.classList.toggle("adminSyncStatus--synced", syncReady);
   }
   const q = state.adminSearch.toLowerCase();
-  const summaries = playerSummaries().filter((summary) => {
+  const sourceSummaries = state.adminOnlineFilter === "online" ? livePlayerSummaries() : playerSummaries();
+  const summaries = sourceSummaries.filter((summary) => {
+    if (state.adminOnlineFilter === "online" && !summary.online) return false;
     if (!q) return true;
     return summary.name.toLowerCase().includes(q) || summary.userId.toLowerCase().includes(q);
   });
 
-  const playerListHtml = summaries.map((summary) => {
-    const record = playerRecord(summary.userId);
+  const paged = pagedPlayerSummaries(summaries, state.adminPlayerPage);
+  state.adminPlayerPage = paged.page;
+  const playerListHtml = paged.rows.map((summary) => {
+    const record = playerRecordView(summary.userId);
     const active = summary.userId === state.selectedUserId ? " active" : "";
     const statusClass = summary.online ? "adminStatus adminStatus--online" : "adminStatus adminStatus--offline";
     const status = record.status !== "ok" ? `<span class="adminBadge">${escapeHtml(record.status)}</span>` : "";
+    const activity = summary.historicalOnly ? "из истории" : `${summary.joins.length} заходов`;
     return `<button class="adminPlayerItem${active}" data-user-id="${escapeHtml(summary.userId)}">
       <span>${escapeHtml(summary.name)}</span>
-      <small><span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.joins.length} заходов</small>
+      <small><span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${activity}</small>
       ${status}
     </button>`;
   }).join("") || `<div class="emptyState">Нет игроков</div>`;
-  if (adminPlayerList._renderedHtml !== playerListHtml) {
+  const listHtml = playerListHtml + playerListPagerHtml("admin", paged.page, paged.pageCount, summaries.length);
+  if (adminPlayerList._renderedHtml !== listHtml) {
     const previousScrollTop = adminPlayerList.scrollTop;
-    adminPlayerList.innerHTML = playerListHtml;
-    adminPlayerList._renderedHtml = playerListHtml;
+    adminPlayerList.innerHTML = listHtml;
+    adminPlayerList._renderedHtml = listHtml;
     adminPlayerList.scrollTop = previousScrollTop;
   }
 
@@ -1884,7 +2259,7 @@ function adminGlobalReportsHtml(userId) {
   }
   return reports.map((report) => `<article class="adminGlobalReport">
     <header>
-      <strong>${escapeHtml(report.updatedByLabel || "Неизвестный администратор")}</strong>
+      <strong>${escapeHtml(formatAuthorIdentity(report.updatedByLabel, report.updatedByKey))}</strong>
       <span>${escapeHtml(formatDateTime(report.updatedAt))}</span>
     </header>
     <span class="adminBadge">${escapeHtml(report.status)}</span>
@@ -1906,7 +2281,10 @@ function adminNoteHistoryHtml(userId) {
     const canRestore = row.visibility !== "global" || scopeId === state.teamId;
     return `<article class="adminHistoryRow">
       <header>
-        <strong>${escapeHtml(row.updated_by_label || row.updatedByLabel || "Неизвестный администратор")}</strong>
+        <strong>${escapeHtml(formatAuthorIdentity(
+          row.updated_by_label || row.updatedByLabel,
+          row.updated_by_key || row.updatedByKey
+        ))}</strong>
         <span>${escapeHtml(formatDateTime(row.updated_at || row.updatedAt))}${canRestore ? ` · <button type="button" data-restore-note-history="${escapeHtml(String(row.id))}">Вернуть</button>` : ""}</span>
       </header>
       <span>${escapeHtml(visibility)} · ${escapeHtml(oldStatus)} → ${escapeHtml(nextStatus)}</span>
@@ -1921,8 +2299,6 @@ function adminPlayerCardHtml(userId, options = {}) {
   const { showClose = false } = options;
   const summary = buildPlayerSummary(userId);
   const record = playerRecord(userId);
-  const profile = state.profiles.get(userId);
-  const profileUrl = profile?.profileUrl || `https://vrchat.com/home/user/${encodeURIComponent(userId)}`;
   const lastAvatars = recentAvatarUses(summary.avatars).slice(-5).reverse();
   const recent = eventsForUser(userId).slice(-10).reverse();
   const updatedByLabel = record.updatedByLabel || "-";
@@ -1937,7 +2313,7 @@ function adminPlayerCardHtml(userId, options = {}) {
         <p>${escapeHtml(userId)}</p>
       </div>
       <div class="adminCardActions">
-        <button class="eventAction" data-url="${escapeHtml(profileUrl)}">Профиль</button>
+        ${playerProfileButton(userId, summary.name)}
         ${showClose ? `<button type="button" class="adminCardClose" data-clear-admin-selection title="Убрать выбранного игрока" aria-label="Убрать выбранного игрока">×</button>` : ""}
       </div>
     </div>
@@ -1962,11 +2338,11 @@ function adminPlayerCardHtml(userId, options = {}) {
       <div><span>Ключ</span><strong>${escapeHtml(updatedByKey)}</strong></div>
       <div><span>Обновлено</span><strong>${escapeHtml(updatedAt)}</strong></div>
     </div>
-    <div class="adminShareActions">
+    ${canPublishGlobalNotes() ? `<div class="adminShareActions">
       <p>Общая публикация видна всем командам. Автор и время изменения сохраняются.</p>
       <button type="button" data-publish-global-note>${ownReport ? "Обновить общую" : "Опубликовать всем"}</button>
       ${ownReport ? `<button type="button" data-remove-global-note>Убрать общую</button>` : ""}
-    </div>
+    </div>` : ""}
     <div class="adminSection">
       <h3>Общие сообщения команд</h3>
       ${adminGlobalReportsHtml(userId)}
@@ -2003,6 +2379,7 @@ function moderationStatusLabel(status) {
     processing: "Выполняется",
     succeeded: "Выполнено",
     expired: "Срок завершён",
+    revoked: "Разбанен",
     failed: "Ошибка",
     rejected: "Отклонено",
     cancelled: "Отменено",
@@ -2010,12 +2387,22 @@ function moderationStatusLabel(status) {
   }[status] || status || "Неизвестно";
 }
 
+function moderationAction(request) {
+  return request?.action === "unban" ? "unban" : "ban";
+}
+
+function moderationActionLabel(request) {
+  return moderationAction(request) === "unban" ? "Разбан" : "Бан";
+}
+
 function moderationDurationLabel(request) {
-  if (!request.durationMinutes) return "Бессрочно";
+  const actionLabel = moderationActionLabel(request);
+  if (moderationAction(request) === "unban") return actionLabel;
+  if (!request.durationMinutes) return `${actionLabel} · бессрочно`;
   const minutes = Number(request.durationMinutes);
-  if (minutes < 60) return `${minutes} мин.`;
-  if (minutes < 1440) return `${minutes / 60} ч.`;
-  return `${minutes / 1440} дн.`;
+  if (minutes < 60) return `${actionLabel} · ${minutes} мин.`;
+  if (minutes < 1440) return `${actionLabel} · ${minutes / 60} ч.`;
+  return `${actionLabel} · ${minutes / 1440} дн.`;
 }
 
 function moderationRemainingLabel(request) {
@@ -2034,7 +2421,7 @@ function confirmedModerationCount(userId) {
   return Math.max(
     0,
     ...requests.map((request) => Number(request.repeatCount || 0)),
-    requests.filter((request) => ["succeeded", "expired"].includes(request.status)).length
+    requests.filter((request) => ["succeeded", "expired", "revoked"].includes(request.status)).length
   );
 }
 
@@ -2067,7 +2454,7 @@ function ownerQueueRowsHtml(requests, emptyText) {
     <article class="ownerCompactRow">
       <div>
         <strong>${escapeHtml(request.targetDisplayName || request.targetUserId)}</strong>
-        <small>${escapeHtml(request.reason || "Причина не указана")}</small>
+        <small>${escapeHtml(moderationActionLabel(request))} · ${escapeHtml(request.reason || "Причина не указана")}</small>
       </div>
       <div>
         <strong class="moderationStatus--${escapeHtml(request.status)}">${escapeHtml(moderationStatusLabel(request.status))}</strong>
@@ -2127,9 +2514,10 @@ function ownerGroupMemberHtml(userId) {
       class="ownerRoleButton${role.isManagementRole ? " ownerRoleButton--management" : ""}"
       data-group-role-${action}="${escapeHtml(role.id)}"
       data-group-role-name="${escapeHtml(role.name)}"
+      ${canManageGroupRoles() ? "" : "disabled"}
     >
       <strong>${escapeHtml(role.name)}</strong>
-      <small>${role.isManagementRole ? "Управляющая роль" : "Роль группы"}</small>
+      <small>${canManageGroupRoles() ? (role.isManagementRole ? "Управляющая роль" : "Роль группы") : "Только просмотр"}</small>
     </button>
   `).join("");
   const availableRoles = state.groupRoles.filter((role) => !assigned.has(role.id));
@@ -2141,7 +2529,7 @@ function ownerGroupMemberHtml(userId) {
         <p>${escapeHtml(member.displayName || userId)} · ${escapeHtml(member.membershipStatus || "member")}</p>
       </div>
       <div class="adminCardActions">
-        <button type="button" class="eventAction" data-url="https://vrchat.com/home/user/${escapeHtml(userId)}">Открыть профиль</button>
+        ${playerProfileButton(userId, member.displayName || userId, { label: "Профиль" })}
         <button type="button" class="eventAction" data-group-member-check>Проверить снова</button>
       </div>
     </div>
@@ -2160,22 +2548,25 @@ function ownerGroupMemberHtml(userId) {
       <textarea data-group-manager-notes maxlength="1000">${escapeHtml(member.managerNotes || "")}</textarea>
     </label>
     <button type="button" class="eventAction" data-group-member-notes-save>Сохранить заметки</button>
-    <p class="ownerWarning">Назначение управляющей роли даёт права внутри VRChat. Перед подтверждением повторно проверьте профиль игрока.</p>
-    <button type="button" class="eventAction eventAction--danger" data-group-member-kick>Исключить из группы</button>
+    ${canManageGroupRoles() ? `<p class="ownerWarning">Назначение управляющей роли даёт права внутри VRChat. Перед подтверждением повторно проверьте профиль игрока.</p>` : ""}
+    ${canKickGroupMembers() ? `<button type="button" class="eventAction eventAction--danger" data-group-member-kick>Исключить из группы</button>` : ""}
   </section>`;
 }
 
 function ownerOverviewHtml() {
   const queue = state.moderationRequests.filter((request) => ACTIVE_MODERATION_STATUSES.has(request.status));
   const activeTemporary = state.moderationRequests.filter((request) => (
-    request.status === "succeeded" && request.durationMinutes && request.banExpiresAt
+    moderationAction(request) === "ban" &&
+    request.status === "succeeded" &&
+    request.durationMinutes &&
+    request.banExpiresAt
   ));
   const watched = Object.entries(state.playerNotes)
     .filter(([, record]) => record?.status === "watch")
     .sort(([, a], [, b]) => String(a.displayName || "").localeCompare(String(b.displayName || ""), "ru"));
   const failed = state.moderationRequests.filter((request) => request.status === "failed").length;
   return `<div class="ownerActionPanel ownerOverview">
-    <div class="ownerSummaryGrid">
+    ${canRequestOwnerBans() ? `<div class="ownerSummaryGrid">
       <div><strong>${queue.length}</strong><span>В очереди</span></div>
       <div><strong>${activeTemporary.length}</strong><span>Временные баны</span></div>
       <div><strong>${watched.length}</strong><span>Под наблюдением</span></div>
@@ -2188,21 +2579,21 @@ function ownerOverviewHtml() {
     <section class="adminSection">
       <h3>Очередь операций</h3>
       ${ownerQueueRowsHtml(queue, "Очередь пуста")}
-    </section>
+    </section>` : ""}
     <section class="adminSection">
       <h3>Наблюдение</h3>
       ${watched.length ? `<div class="ownerWatchList">${watched.map(([userId, record]) => `
         <span><strong>${escapeHtml(record.displayName || userId)}</strong><small>${escapeHtml(userId)}</small></span>
       `).join("")}</div>` : `<div class="emptyState">Список наблюдения пуст</div>`}
     </section>
-    <section class="adminSection">
+    ${canRequestOwnerBans() ? `<section class="adminSection">
       <h3>Журнал модерации команды</h3>
       ${moderationHistoryHtml("", 50)}
-    </section>
-    <section class="adminSection">
+    </section>` : ""}
+    ${hasGroupManagementAccess() ? `<section class="adminSection">
       <h3>Операции управления VRChat-группой</h3>
       ${groupManagementHistoryHtml()}
-    </section>
+    </section>` : ""}
   </div>`;
 }
 
@@ -2259,8 +2650,8 @@ function ownerPlayerCardHtml(userId) {
   if (!userId) return ownerOverviewHtml();
   const watched = playerRecord(userId).status === "watch";
   return `<div class="ownerActionPanel" data-owner-player="${escapeHtml(userId)}">
-    ${ownerGroupMemberHtml(userId)}
-    <section class="ownerModerationPanel">
+    ${canViewGroupMembers() ? ownerGroupMemberHtml(userId) : ""}
+    ${canRequestOwnerBans() ? `<section class="ownerModerationPanel">
       <div class="adminCardHeader">
         <div>
           <h2>Управление баном</h2>
@@ -2269,6 +2660,7 @@ function ownerPlayerCardHtml(userId) {
         <div class="adminCardActions">
           <button class="eventAction" data-owner-watch>${watched ? "Убрать наблюдение" : "Наблюдать"}</button>
           <button class="eventAction eventAction--danger" data-owner-ban>Забанить</button>
+          <button class="eventAction eventAction--success" data-owner-unban>Разбанить</button>
           <button type="button" class="adminCardClose" data-clear-owner-selection title="Убрать выбранного игрока" aria-label="Убрать выбранного игрока">×</button>
         </div>
       </div>
@@ -2277,7 +2669,7 @@ function ownerPlayerCardHtml(userId) {
         <h3>Операции с игроком · подтверждено ранее: ${confirmedModerationCount(userId)}</h3>
         ${moderationHistoryHtml(userId)}
       </div>
-    </section>
+    </section>` : ""}
     ${ownerIncidentHtml(userId)}
     ${adminPlayerCardHtml(userId)}
   </div>`;
@@ -2287,32 +2679,43 @@ function renderOwnerTools() {
   if (!ownerPlayerList || !ownerPlayerCard || !hasOwnerAccess()) return;
   if (ownerGroupLabel) ownerGroupLabel.textContent = state.license.moderationGroupId;
   const query = state.ownerSearch.toLowerCase();
+  const loggedPlayers = state.ownerSource === "group" || state.ownerOnlineFilter === "online"
+    ? livePlayerSummaries()
+    : playerSummaries();
+  const loggedByUserId = new Map(loggedPlayers.map((summary) => [summary.userId, summary]));
   const summaries = state.ownerSource === "group"
     ? state.groupMembers
-      .map((member) => ({
-        name: member.displayName || member.userId,
-        userId: member.userId,
-        online: false,
-        joins: [],
-        membershipStatus: member.membershipStatus || "member"
-      }))
+      .map((member) => {
+        const logged = loggedByUserId.get(member.userId);
+        return {
+          name: member.displayName || logged?.name || member.userId,
+          userId: member.userId,
+          online: Boolean(logged?.online),
+          joins: logged?.joins || [],
+          lastActivityAt: logged?.lastActivityAt || 0,
+          membershipStatus: member.membershipStatus || "member"
+        };
+      })
       .filter((summary) => (
-        !query ||
-        summary.name.toLowerCase().includes(query) ||
-        summary.userId.toLowerCase().includes(query)
+        (state.ownerOnlineFilter !== "online" || summary.online) &&
+        (!query || summary.name.toLowerCase().includes(query) || summary.userId.toLowerCase().includes(query))
       ))
-    : playerSummaries().filter((summary) => (
-      !query ||
-      summary.name.toLowerCase().includes(query) ||
-      summary.userId.toLowerCase().includes(query)
+      .sort(comparePlayerSummaries)
+    : loggedPlayers.filter((summary) => (
+      (state.ownerOnlineFilter !== "online" || summary.online) &&
+      (!query || summary.name.toLowerCase().includes(query) || summary.userId.toLowerCase().includes(query))
     ));
-  let listHtml = summaries.map((summary) => {
-    const record = playerRecord(summary.userId);
+  const paged = state.ownerSource === "logs"
+    ? pagedPlayerSummaries(summaries, state.ownerPlayerPage)
+    : { page: 0, pageCount: 1, rows: summaries };
+  state.ownerPlayerPage = paged.page;
+  let listHtml = paged.rows.map((summary) => {
+    const record = playerRecordView(summary.userId);
     const active = summary.userId === state.ownerSelectedUserId ? " active" : "";
     const statusClass = summary.online ? "adminStatus adminStatus--online" : "adminStatus adminStatus--offline";
     const sourceStatus = state.ownerSource === "group"
-      ? escapeHtml(summary.membershipStatus)
-      : `<span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.joins.length} заходов`;
+      ? `<span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${escapeHtml(summary.membershipStatus)}`
+      : `<span class="${statusClass}">${summary.online ? "в сети" : "не в сети"}</span> · ${summary.historicalOnly ? "из истории" : `${summary.joins.length} заходов`}`;
     const status = record.status !== "ok" ? `<span class="adminBadge">${escapeHtml(record.status)}</span>` : "";
     return `<button class="adminPlayerItem${active}" data-owner-user-id="${escapeHtml(summary.userId)}">
       <span>${escapeHtml(summary.name)}</span>
@@ -2320,6 +2723,9 @@ function renderOwnerTools() {
       ${status}
     </button>`;
   }).join("") || `<div class="emptyState">${state.ownerSource === "group" ? "Нажмите «Обновить», чтобы загрузить участников группы" : "Нет игроков"}</div>`;
+  if (state.ownerSource === "logs") {
+    listHtml += playerListPagerHtml("owner", paged.page, paged.pageCount, summaries.length);
+  }
   if (state.ownerSource === "group" && state.groupManagementRequests.length) {
     const first = state.groupMembers.length ? state.groupMembersOffset + 1 : 0;
     const last = state.groupMembersOffset + state.groupMembers.length;
@@ -2351,7 +2757,7 @@ function renderOwnerTools() {
 }
 
 async function loadModerationRequests({ silent = false } = {}) {
-  if (!hasOwnerAccess() || state.moderationRequestsInFlight) return;
+  if (!canRequestOwnerBans() || state.moderationRequestsInFlight) return;
   state.moderationRequestsInFlight = true;
   if (activePaneName() === "owner") renderWhenVisible(renderOwnerTools);
   try {
@@ -2395,7 +2801,7 @@ function applyGroupManagementResults() {
 }
 
 async function loadGroupManagementRequests({ silent = false } = {}) {
-  if (!hasOwnerAccess() || state.groupManagementRequestsInFlight) return;
+  if (!hasGroupManagementAccess() || state.groupManagementRequestsInFlight) return;
   state.groupManagementRequestsInFlight = true;
   try {
     state.groupManagementRequests = await window.clientApi.listGroupManagementRequests();
@@ -2424,6 +2830,7 @@ async function submitGroupManagement(request, successMessage) {
 }
 
 async function requestOwnerGroupMembers() {
+  if (!canViewGroupMembers()) throw new Error("group_management_permission_required");
   const value = ownerPlayerSearch?.value.trim() || "";
   const userId = vrchatUserIdFromInput(value);
   if (userId) {
@@ -2514,9 +2921,18 @@ const BUILDER_TITLES = {
   admin: "Admin Tools"
 };
 
+function builderPlayerSummaries() {
+  const summaries = playerSummaries(BUILDER_PLAYER_LIMIT);
+  const userId = state.builderAdminUserId;
+  if (!userId || summaries.some((summary) => summary.userId === userId)) return summaries;
+  if (playerEventIndex().userIds.has(userId)) summaries.push(buildPlayerSummary(userId));
+  else if (state.knownPlayers[userId] || state.playerNotes[userId]) summaries.push(historicalPlayerSummary(userId));
+  return summaries;
+}
+
 function builderParts(parts = partitionEvents()) {
   if (!state.builderVisible.includes("admin")) return parts;
-  return { ...parts, admin: playerSummaries() };
+  return { ...parts, admin: builderPlayerSummaries() };
 }
 
 function setBuilderScrollableHtml(element, html) {
@@ -2542,7 +2958,7 @@ function renderBuilderAdminBlock(block, summaries) {
 
   const select = block.querySelector("[data-builder-admin-user]");
   const options = `<option value="">Выберите игрока...</option>${summaries.map((summary) => {
-    const record = playerRecord(summary.userId);
+    const record = playerRecordView(summary.userId);
     const prefix = summary.online ? "В сети" : "Не в сети";
     const marker = record.status === "ok" ? "" : ` [${record.status}]`;
     return `<option value="${escapeHtml(summary.userId)}">${escapeHtml(`${prefix} — ${summary.name}${marker}`)}</option>`;
@@ -2626,7 +3042,7 @@ function renderBuilder(parts = partitionEvents(), { force = false } = {}) {
 function updateBuilderBlock(kind, sourceEvents = null) {
   const block = builderGrid.querySelector(`.builderBlock[data-kind="${kind}"]`);
   if (!block) return;
-  const events = sourceEvents || (kind === "admin" ? playerSummaries() : partitionEvents()[kind]);
+  const events = sourceEvents || (kind === "admin" ? builderPlayerSummaries() : partitionEvents()[kind]);
   if (!events) return;
   if (kind === "admin") {
     const countEl = block.querySelector(".builderDragHandle span");
@@ -2727,6 +3143,7 @@ function addEvent(event) {
   if (!event?.id || state.eventIds.has(event.id)) return;
   state.eventIds.add(event.id);
   state.events.push(event);
+  if (event.userId) rememberKnownPlayer(event, { invalidateHistory: false });
   state.lastEventAt = new Date().toISOString();
   invalidatePlayerEventIndex();
   rememberCrashEvent(event);
@@ -2738,6 +3155,10 @@ function addEvent(event) {
     const removed = state.events.splice(0, state.events.length - 5000);
     for (const oldEvent of removed) state.eventIds.delete(oldEvent.id);
     invalidatePlayerEventIndex();
+    const remainingUserIds = playerEventIndex().userIds;
+    if (removed.some((oldEvent) => oldEvent.userId && !remainingUserIds.has(oldEvent.userId))) {
+      invalidateHistoricalPlayerSummaries();
+    }
   }
   scheduleRender();
 }
@@ -2764,6 +3185,7 @@ function resetEvents(options = {}) {
   state.lastEventAt = "";
   state.eventIds.clear();
   invalidatePlayerEventIndex();
+  invalidateHistoricalPlayerSummaries();
   if (state.renderTimer) clearTimeout(state.renderTimer);
   state.renderTimer = null;
   state.renderDeferred = false;
@@ -2934,10 +3356,10 @@ function buildDiscordSnapshot() {
   const peakOnline = serverSnapshot
     ? Math.max(onlineNow, ...currentServerSamples(serverSnapshot).map((sample) => sample.nUsers))
     : Math.max(playerStats.peakOnline, onlineNow);
-  const watch = playerSummaries().filter((summary) => playerRecord(summary.userId).status !== "ok");
+  const watch = playerSummaries().filter((summary) => playerRecordView(summary.userId).status !== "ok");
   const online = playerStats.online.slice(-25).map((event) => `• ${displayName(event)}`).join("\n") || "нет данных";
   const watchText = watch.slice(0, 10).map((summary) => {
-    const record = playerRecord(summary.userId);
+    const record = playerRecordView(summary.userId);
     return `• ${summary.name} — ${record.status}${record.note ? ` (${record.note})` : ""}`;
   }).join("\n") || "нет";
 
@@ -3324,7 +3746,9 @@ function crashSuspectHtml(candidate, index) {
       <b>#${index + 1} ${escapeHtml(candidate.risk)} риск</b>
       <span>${escapeHtml(candidate.score)}</span>
     </div>
-    <div class="crashSuspectWho">${escapeHtml(who)}</div>
+    <div class="crashSuspectWho">${candidate.userId
+      ? playerProfileButton(candidate.userId, who, { label: who, className: "crashPlayerLink" })
+      : escapeHtml(who)}</div>
     <div class="crashSuspectAvatar">${statusBadge}<span>${escapeHtml(avatar)}</span></div>
     <small>${escapeHtml(reasons)}</small>
     ${crashAvatarNoteControl(candidate)}
@@ -3418,6 +3842,7 @@ activationForm.addEventListener("submit", (event) => {
     const payload = await window.clientApi.activate({
       serverUrl: settings.serverUrl,
       licenseKey: licenseKey.value,
+      authorAlias: activationAuthorAlias?.value || "",
       vrchatAuthCookie: cookie,
       rememberMe: Boolean(rememberMe?.checked)
     });
@@ -3426,6 +3851,7 @@ activationForm.addEventListener("submit", (event) => {
     setStoredCookieState(willHaveStoredCookie);
     setTeamScope(state.license);
     licenseKey.value = "";
+    setAuthorAliasRequested(false);
     setRuntimeStatus(`Session active until ${new Date(payload.expiresAt).toLocaleString("ru-RU")}`);
     showApp();
     startPlayerNotesPolling();
@@ -3437,7 +3863,14 @@ activationForm.addEventListener("submit", (event) => {
     await loadAvatarNotes({ silent: true, pushLocal: true });
     await loadGlobalAvatarNotes({ force: true, silent: true });
     await refreshServerSnapshot({ silent: true });
-  }).catch((error) => setActivationStatus(error.message, true));
+  }).catch((error) => {
+    const code = activationErrorCode(error);
+    if (code.startsWith("author_alias_")) {
+      setAuthorAliasRequested(true);
+      activationAuthorAlias?.focus();
+    }
+    setActivationStatus(formatActivationError(error), true);
+  });
 });
 
 vrchatAuthCookie.addEventListener("input", () => {
@@ -3471,6 +3904,23 @@ communityBtn?.addEventListener("click", () => {
   runButton(communityBtn, () => window.clientApi.openExternal("https://discord.gg/wXFuzxEbfC"))
     .catch((error) => setRuntimeStatus(error.message, true));
 });
+
+async function importTodayPlayers() {
+  const result = await window.clientApi.readTodayPlayers();
+  let changed = 0;
+  for (const player of result?.players || []) {
+    if (rememberKnownPlayer(player, { cache: false })) changed += 1;
+  }
+  if (changed > 0) cacheKnownPlayers();
+  state.adminPlayerPage = 0;
+  state.ownerPlayerPage = 0;
+  renderAdminTools();
+  if (hasOwnerAccess()) renderOwnerTools();
+  const playerCount = Array.isArray(result?.players) ? result.players.length : 0;
+  const fileCount = Number(result?.fileCount || 0);
+  setRuntimeStatus(`За сегодня найдено ${playerCount} игроков в ${fileCount} логах. Каталог сохранён на этом ПК.`);
+  return result;
+}
 
 chooseFileBtn.addEventListener("click", () => {
   runButton(chooseFileBtn, async () => {
@@ -3628,11 +4078,24 @@ function currentWorldEvent(events = state.events) {
   return [...events].reverse().find((event) => isWorldEvent(event)) || null;
 }
 
+function currentWorldStartIndex(events = state.events) {
+  let latestWorldIndex = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (!isWorldEvent(events[index])) continue;
+    latestWorldIndex = index;
+    break;
+  }
+  if (latestWorldIndex < 0) return 0;
+  for (let index = latestWorldIndex; index >= 0; index -= 1) {
+    if (events[index]?.type === "world-entering") return index;
+    if (index < latestWorldIndex && events[index]?.type === "world-joined") break;
+  }
+  return latestWorldIndex;
+}
+
 function currentWorldEvents() {
   // A new world transition is a safer boundary than carrying users from the prior instance.
-  const world = currentWorldEvent();
-  const worldIdx = world ? state.events.indexOf(world) : 0;
-  return state.events.slice(worldIdx);
+  return state.events.slice(currentWorldStartIndex());
 }
 
 function computePlayerStats(events) {
@@ -3888,11 +4351,10 @@ function renderDashboard() {
         const profile = e.userId ? state.profiles.get(e.userId) : null;
         const name = profile?.displayName || e.playerName || e.userId || "-";
         const time = e.timestamp ? new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(e.timestamp)) : "";
-        const url = profile?.profileUrl || (e.userId ? `https://vrchat.com/home/user/${encodeURIComponent(e.userId)}` : null);
         return `<div class="dashRecentRow">
           <span class="dashRecentName">${escapeHtml(name)}</span>
           <span class="dashRecentTime">${escapeHtml(time)}</span>
-          ${url ? `<button class="eventAction" data-url="${escapeHtml(url)}">Profile</button>` : ""}
+          ${e.userId ? playerProfileButton(e.userId, name) : ""}
         </div>`;
       }).join("")}
     `;
@@ -3904,7 +4366,7 @@ function renderDashboard() {
 function currentPlaySessionStats() {
   const parts = partitionEvents();
   const worldEvents = currentWorldEvents();
-  const playerStats = computePlayerStats(worldEvents);
+  const playerStats = computePlayerStats(state.events);
   const worldEvent = currentWorldEvent(worldEvents);
   const players = [...playerStats.uniqueJoins.entries()].slice(0, 250).map(([userId, event]) => ({
     userId,
@@ -3993,6 +4455,79 @@ function localDateValue(value) {
   return `${year}-${month}-${day}`;
 }
 
+function selectedMyVrchatDays() {
+  return myVrchatPeriod?.value === "all" ? null : Number(myVrchatPeriod?.value || 30);
+}
+
+function myVrchatPeriodLabel() {
+  return String(myVrchatPeriod?.selectedOptions?.[0]?.textContent || "30 дней").toLowerCase();
+}
+
+function currentMyVrchatInsights() {
+  return window.myVrchatInsights.buildMyVrchatInsights(
+    withLiveSessionStats(state.historySessions),
+    { days: selectedMyVrchatDays() }
+  );
+}
+
+function renderMyVrchat() {
+  if (!myVrchatContent) return;
+  const insights = currentMyVrchatInsights();
+  if (insights.sessionCount === 0) {
+    myVrchatContent.innerHTML = `<div class="emptyState">За выбранный период сохранённых сессий нет</div>`;
+    return;
+  }
+
+  const recurringPlayers = insights.topPlayers.filter((player) => player.sessions > 1).slice(0, 6);
+  const recurringHtml = recurringPlayers.length > 0
+    ? recurringPlayers.map((player) => `
+      <button class="myVrchatEncounter" data-url="https://vrchat.com/home/user/${encodeURIComponent(player.userId)}">
+        <span>${escapeHtml(player.displayName || player.userId)}</span>
+        <strong>${player.sessions} ${player.sessions === 2 ? "встречи" : "встреч"}</strong>
+      </button>`).join("")
+    : `<div class="emptyState">Повторных встреч пока нет</div>`;
+  const worldsHtml = insights.topWorlds.length > 0
+    ? insights.topWorlds.map((world) => `
+      <div class="myVrchatWorldRow">
+        <span>${escapeHtml(world.worldName)}</span>
+        <strong>${world.sessions}</strong>
+      </div>`).join("")
+    : `<div class="emptyState">Миры пока не записаны</div>`;
+
+  myVrchatContent.innerHTML = `
+    <div class="myVrchatStats">
+      <div><strong>${insights.sessionCount}</strong><span>Сессий</span></div>
+      <div><strong>${escapeHtml(window.myVrchatInsights.formatInsightDuration(insights.totalDurationMs))}</strong><span>В VRChat</span></div>
+      <div><strong>${insights.worldCount}</strong><span>Миров</span></div>
+      <div><strong>${insights.uniquePlayerCount}</strong><span>Уникальных игроков</span></div>
+      <div><strong>${insights.recurringPlayerCount}</strong><span>Повторных встреч</span></div>
+      <div><strong>${insights.totalEncounters}</strong><span>Всего встреч в сессиях</span></div>
+    </div>
+    <div class="myVrchatColumns">
+      <section class="myVrchatCard">
+        <header><h3>Чаще встречались</h3><span>Открывает профиль VRChat</span></header>
+        <div class="myVrchatEncounterList">${recurringHtml}</div>
+      </section>
+      <section class="myVrchatCard">
+        <header><h3>Чаще записанные миры</h3><span>По сохранённым сессиям</span></header>
+        <div class="myVrchatWorldList">${worldsHtml}</div>
+      </section>
+    </div>
+    <p class="myVrchatPrivacy">Статистика строится только по последним 200 сессиям этой лицензии на текущем устройстве. Она не читает друзей, голос или личные сообщения VRChat.</p>`;
+}
+
+async function loadMyVrchat() {
+  if (!myVrchatContent) return;
+  myVrchatContent.innerHTML = `<div class="emptyState">Собираем статистику...</div>`;
+  try {
+    await syncCurrentPlaySession({ force: true });
+    state.historySessions = await window.clientApi.listPlaySessions();
+    renderMyVrchat();
+  } catch (error) {
+    myVrchatContent.innerHTML = `<div class="emptyState" style="color:#ffb1a8">${escapeHtml(error.message)}</div>`;
+  }
+}
+
 function filteredHistorySessions(sessions) {
   const query = state.historyFilters.search.trim().toLowerCase();
   return withLiveSessionStats(sessions).filter((session) => {
@@ -4016,7 +4551,13 @@ function historyPlayersHtml(session) {
   return `<details class="historyPlayers">
     <summary>Участники сессии: ${players.length}</summary>
     <div class="historyPlayerList">
-      ${players.map((player) => `<span><b title="${escapeHtml(player.userId || "")}">${escapeHtml(player.displayName || player.userId || "Неизвестный игрок")}</b><em>${escapeHtml(player.status || "ok")}</em></span>`).join("")}
+      ${players.map((player) => {
+        const name = player.displayName || player.userId || "Неизвестный игрок";
+        const action = player.userId
+          ? playerProfileButton(player.userId, name, { label: name, className: "historyPlayerLink" })
+          : `<b>${escapeHtml(name)}</b>`;
+        return `<span title="${escapeHtml(player.userId || "")}">${action}<em>${escapeHtml(player.status || "ok")}</em></span>`;
+      }).join("")}
     </div>
   </details>`;
 }
@@ -4069,6 +4610,20 @@ async function loadHistory() {
 }
 
 refreshHistoryBtn.addEventListener("click", () => loadHistory());
+
+refreshMyVrchatBtn?.addEventListener("click", () => {
+  runButton(refreshMyVrchatBtn, loadMyVrchat).catch((error) => setRuntimeStatus(error.message, true));
+});
+
+myVrchatPeriod?.addEventListener("change", () => renderMyVrchat());
+
+copyMyVrchatBtn?.addEventListener("click", () => {
+  runButton(copyMyVrchatBtn, async () => {
+    const recap = window.myVrchatInsights.buildMyVrchatRecap(currentMyVrchatInsights(), myVrchatPeriodLabel());
+    await window.clientApi.writeClipboardText(recap);
+    setRuntimeStatus("Итог «Мой VRChat» скопирован");
+  }).catch((error) => setRuntimeStatus(error.message, true));
+});
 
 historySearch?.addEventListener("input", () => {
   state.historyFilters.search = historySearch.value;
@@ -4139,6 +4694,7 @@ tabs.forEach((tab) => {
     tabs.forEach((item) => item.classList.toggle("active", item === tab));
     panes.forEach((pane) => pane.classList.toggle("active", pane.dataset.pane === target));
     if (target === "history") loadHistory();
+    if (target === "insights") loadMyVrchat();
     if (target === "admin") {
       loadGlobalPlayerNotes({ force: true, silent: true }).catch(() => {});
       loadGlobalAvatarNotes({ force: true, silent: true }).catch(() => {});
@@ -4302,17 +4858,58 @@ builderGrid.addEventListener("drop", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const playerButton = event.target.closest("button[data-player-profile-user-id]");
+  if (playerButton) {
+    openPlayerAction(playerButton.dataset.playerProfileUserId, playerButton.dataset.playerProfileName);
+    return;
+  }
   const button = event.target.closest("button[data-url]");
   if (!button) return;
   window.clientApi.openExternal(button.dataset.url);
 });
 
+playerActionCloseBtn?.addEventListener("click", closePlayerActionDialog);
+playerActionDialog?.addEventListener("close", () => {
+  state.playerActionTarget = null;
+});
+playerActionOwnerBtn?.addEventListener("click", () => {
+  const target = state.playerActionTarget;
+  if (!target) return;
+  openPlayerInOwner(target.userId, target.displayName);
+});
+playerActionProfileBtn?.addEventListener("click", () => {
+  const target = state.playerActionTarget;
+  if (!target) return;
+  window.clientApi.openExternal(playerProfileUrl(target.userId));
+  closePlayerActionDialog();
+});
+
 adminPlayerSearch?.addEventListener("input", () => {
   state.adminSearch = adminPlayerSearch.value;
+  state.adminPlayerPage = 0;
   renderAdminTools();
 });
 
+adminOnlineFilter?.addEventListener("change", () => {
+  state.adminOnlineFilter = adminOnlineFilter.value === "online" ? "online" : "all";
+  state.adminPlayerPage = 0;
+  localStorage.setItem("adminOnlineFilter", state.adminOnlineFilter);
+  renderAdminTools();
+});
+
+adminReadTodayPlayersBtn?.addEventListener("click", () => {
+  runButton(adminReadTodayPlayersBtn, importTodayPlayers)
+    .catch((error) => setRuntimeStatus(error.message, true));
+});
+
 adminPlayerList?.addEventListener("click", (event) => {
+  const pageButton = event.target.closest("[data-admin-list-page]");
+  if (pageButton) {
+    state.adminPlayerPage += pageButton.dataset.adminListPage === "previous" ? -1 : 1;
+    renderAdminTools();
+    adminPlayerList.scrollTop = 0;
+    return;
+  }
   const item = event.target.closest("[data-user-id]");
   if (!item) return;
   state.selectedUserId = item.dataset.userId;
@@ -4328,16 +4925,38 @@ adminPlayerCard?.addEventListener("click", (event) => {
 
 ownerPlayerSearch?.addEventListener("input", () => {
   state.ownerSearch = ownerPlayerSearch.value;
+  state.ownerPlayerPage = 0;
   renderOwnerTools();
 });
 
+ownerOnlineFilter?.addEventListener("change", () => {
+  state.ownerOnlineFilter = ownerOnlineFilter.value === "online" ? "online" : "all";
+  state.ownerPlayerPage = 0;
+  localStorage.setItem("ownerOnlineFilter", state.ownerOnlineFilter);
+  renderOwnerTools();
+});
+
+ownerReadTodayPlayersBtn?.addEventListener("click", () => {
+  runButton(ownerReadTodayPlayersBtn, async () => {
+    await importTodayPlayers();
+    state.ownerSource = "logs";
+    if (ownerSourceSelect) ownerSourceSelect.value = "logs";
+    renderOwnerTools();
+  }).catch((error) => setRuntimeStatus(error.message, true));
+});
+
 ownerSourceSelect?.addEventListener("change", () => {
+  if (ownerSourceSelect.value === "group" && !canViewGroupMembers()) {
+    ownerSourceSelect.value = "logs";
+  }
   state.ownerSource = ownerSourceSelect.value === "logs" ? "logs" : "group";
+  state.ownerPlayerPage = 0;
   state.ownerSelectedUserId = "";
   renderOwnerTools();
 });
 
 ownerGroupSearchBtn?.addEventListener("click", () => {
+  if (!canViewGroupMembers()) return;
   state.ownerSource = "group";
   if (ownerSourceSelect) ownerSourceSelect.value = "group";
   runButton(ownerGroupSearchBtn, requestOwnerGroupMembers)
@@ -4351,6 +4970,13 @@ ownerPlayerSearch?.addEventListener("keydown", (event) => {
 });
 
 ownerPlayerList?.addEventListener("click", (event) => {
+  const localPageButton = event.target.closest("[data-owner-list-page]");
+  if (localPageButton) {
+    state.ownerPlayerPage += localPageButton.dataset.ownerListPage === "previous" ? -1 : 1;
+    renderOwnerTools();
+    ownerPlayerList.scrollTop = 0;
+    return;
+  }
   const pageButton = event.target.closest("[data-group-page]");
   if (pageButton) {
     const direction = pageButton.dataset.groupPage === "previous" ? -1 : 1;
@@ -4466,7 +5092,11 @@ ownerPlayerCard?.addEventListener("click", (event) => {
     }).catch((error) => setRuntimeStatus(error.message, true));
     return;
   }
-  if (event.target.closest("[data-owner-ban]")) openBanRequestDialog(userId);
+  if (event.target.closest("[data-owner-ban]")) {
+    openBanRequestDialog(userId, "ban");
+    return;
+  }
+  if (event.target.closest("[data-owner-unban]")) openBanRequestDialog(userId, "unban");
 });
 
 refreshModerationBtn?.addEventListener("click", () => {
@@ -4503,7 +5133,7 @@ function handleAdminPlayerCardClick(event) {
         renderActiveAdminPlayerCard();
         renderCrashAnalyzer();
       })
-      .catch((error) => setRuntimeStatus(error.message, true));
+      .catch((error) => setRuntimeStatus(globalPublicationError(error), true));
     return;
   }
   const removeAvatarButton = event.target.closest("[data-remove-global-avatar-note]");
@@ -4515,7 +5145,7 @@ function handleAdminPlayerCardClick(event) {
         renderActiveAdminPlayerCard();
         renderCrashAnalyzer();
       })
-      .catch((error) => setRuntimeStatus(error.message, true));
+      .catch((error) => setRuntimeStatus(globalPublicationError(error), true));
     return;
   }
   const restoreButton = event.target.closest("[data-restore-note-history]");
@@ -4533,7 +5163,7 @@ function handleAdminPlayerCardClick(event) {
     if (!confirmed) return;
     runButton(publishButton, () => publishGlobalPlayerNote(userId))
       .then(() => renderActiveAdminPlayerCard())
-      .catch((error) => setRuntimeStatus(error.message, true));
+      .catch((error) => setRuntimeStatus(globalPublicationError(error), true));
     return;
   }
   const removeButton = event.target.closest("[data-remove-global-note]");
@@ -4542,7 +5172,7 @@ function handleAdminPlayerCardClick(event) {
     if (!confirmed) return;
     runButton(removeButton, () => removeGlobalPlayerNote(userId))
       .then(() => renderActiveAdminPlayerCard())
-      .catch((error) => setRuntimeStatus(error.message, true));
+      .catch((error) => setRuntimeStatus(globalPublicationError(error), true));
   }
 }
 
@@ -4553,17 +5183,28 @@ banRequestForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const target = state.banRequestTarget;
   if (!target) return;
-  const temporary = banRequestForm.querySelector('input[name="banDurationMode"]:checked')?.value === "temporary";
+  const action = state.moderationRequestAction;
+  const temporary = action === "ban" &&
+    banRequestForm.querySelector('input[name="banDurationMode"]:checked')?.value === "temporary";
   runButton(banRequestSubmitBtn, async () => {
-    await window.clientApi.requestGroupBan({
+    const request = {
       targetUserId: target.userId,
       targetDisplayName: target.displayName,
       reason: banRequestReason.value.trim(),
-      evidenceUrl: banRequestEvidence.value.trim(),
-      durationMinutes: temporary ? moderationDurationMinutes() : null
-    });
+      evidenceUrl: banRequestEvidence.value.trim()
+    };
+    if (action === "unban") {
+      await window.clientApi.requestGroupUnban(request);
+    } else {
+      await window.clientApi.requestGroupBan({
+        ...request,
+        durationMinutes: temporary ? moderationDurationMinutes() : null
+      });
+    }
     closeBanRequestDialog();
-    setRuntimeStatus("Операция передана службе модерации.");
+    setRuntimeStatus(action === "unban"
+      ? "Запрос на разбан передан службе модерации."
+      : "Запрос на бан передан службе модерации.");
     await loadModerationRequests({ silent: true });
     renderOwnerTools();
   }).catch((error) => setRuntimeStatus(moderationRequestError(error), true));
@@ -4571,7 +5212,7 @@ banRequestForm?.addEventListener("submit", (event) => {
 
 banRequestForm?.querySelectorAll('input[name="banDurationMode"]').forEach((input) => {
   input.addEventListener("change", () => {
-    if (banRequestDurationField) banRequestDurationField.hidden = input.value !== "temporary" || !input.checked;
+    syncModerationRequestDialog();
   });
 });
 
@@ -4589,6 +5230,7 @@ banRequestCloseBtn?.addEventListener("click", closeBanRequestDialog);
 banRequestCancelBtn?.addEventListener("click", closeBanRequestDialog);
 banRequestDialog?.addEventListener("cancel", () => {
   state.banRequestTarget = null;
+  state.moderationRequestAction = "ban";
 });
 
 if (notifyMarkedPlayers) {
@@ -4747,6 +5389,11 @@ window.clientApi.onAuthStatus((status) => {
 
 window.clientApi.onUserResolved((profile) => {
   state.profiles.set(profile.userId, profile);
+  rememberKnownPlayer({
+    userId: profile.userId,
+    displayName: profile.displayName,
+    lastSeenAt: state.knownPlayers[profile.userId]?.lastSeenAt || new Date().toISOString()
+  });
   scheduleRender();
 });
 
@@ -4807,12 +5454,17 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) scheduleResumeRefresh();
 });
 
-window.addEventListener("beforeunload", saveCrashEventBuffer);
+window.addEventListener("beforeunload", () => {
+  saveCrashEventBuffer();
+  cacheKnownPlayers();
+});
 
 // Инициализация
 
 async function init() {
   migrateBuilderState();
+  if (adminOnlineFilter) adminOnlineFilter.value = state.adminOnlineFilter;
+  if (ownerOnlineFilter) ownerOnlineFilter.value = state.ownerOnlineFilter;
   const runtimeConfiguration = window.clientApi.getRuntimeConfig
     ? await window.clientApi.getRuntimeConfig().catch(() => null)
     : null;

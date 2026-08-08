@@ -145,6 +145,18 @@ ipcMain.handle("admin:create", (_event, body) =>
 ipcMain.handle("admin:update", (_event, id, body) =>
   apiRequest(`/admin/licenses/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body || {}) })
 );
+ipcMain.handle("admin:reset-devices", (_event, id) =>
+  apiRequest(`/admin/licenses/${encodeURIComponent(id)}/reset-devices`, { method: "POST", body: "{}" })
+);
+ipcMain.handle("admin:reissue", (_event, id) =>
+  apiRequest(`/admin/licenses/${encodeURIComponent(id)}/reissue`, { method: "POST", body: "{}" })
+);
+ipcMain.handle("admin:extend", (_event, id, days) =>
+  apiRequest(`/admin/licenses/${encodeURIComponent(id)}/extend`, {
+    method: "POST",
+    body: JSON.stringify({ days })
+  })
+);
 ipcMain.handle("admin:revoke", (_event, id) =>
   apiRequest(`/admin/licenses/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" })
 );

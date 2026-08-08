@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const readline = require("node:readline");
 
 let parser;
 try {
@@ -87,6 +88,61 @@ function uniqueLogEntries(entries) {
     result.push(entry);
   }
   return result;
+}
+
+function eventSeenAt(event, fallbackMs) {
+  const value = new Date(event?.timestamp || "").valueOf();
+  return new Date(Number.isFinite(value) ? value : fallbackMs).toISOString();
+}
+
+async function scanPlayersFromLogFiles(logEntries, options = {}) {
+  const maxPlayers = clampInt(options.maxPlayers ?? 10000, 1, 20000);
+  const selectedLogs = uniqueLogEntries(logEntries || []).sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const players = new Map();
+  const analysisParser = typeof parser.createParser === "function" ? parser.createParser() : parser;
+  let playerEventCount = 0;
+
+  for (const log of selectedLogs) {
+    const lines = readline.createInterface({
+      input: fs.createReadStream(log.fullPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    for await (const line of lines) {
+      const event = analysisParser.parseLine(line);
+      if (!event || !["player-joined", "player-left"].includes(event.type) || !event.userId) continue;
+      const userId = String(event.userId).trim();
+      if (!userId || (!players.has(userId) && players.size >= maxPlayers)) continue;
+      const current = players.get(userId) || {
+        userId,
+        displayName: "",
+        firstSeenAt: "",
+        lastSeenAt: ""
+      };
+      const seenAt = eventSeenAt(event, log.mtimeMs);
+      current.displayName = String(event.playerName || "").trim() || current.displayName || userId;
+      current.firstSeenAt = current.firstSeenAt || seenAt;
+      current.lastSeenAt = seenAt;
+      players.set(userId, current);
+      playerEventCount += 1;
+    }
+  }
+
+  return {
+    players: [...players.values()].sort((left, right) => (
+      new Date(right.lastSeenAt).valueOf() - new Date(left.lastSeenAt).valueOf() ||
+      left.displayName.localeCompare(right.displayName, "ru")
+    )),
+    fileCount: selectedLogs.length,
+    playerEventCount
+  };
+}
+
+async function readTodayPlayers(directory = defaultLogDirectory(), options = {}) {
+  const maxFiles = options.maxFiles === undefined
+    ? Number.MAX_SAFE_INTEGER
+    : clampInt(options.maxFiles, 1, 1000);
+  const logs = await findTodayLogFiles(directory, maxFiles, options.referenceDate || new Date());
+  return scanPlayersFromLogFiles(logs, options);
 }
 
 class LogTailer extends EventEmitter {
@@ -386,5 +442,7 @@ module.exports = {
   findRecentLogFiles,
   findTodayLogFiles,
   findLatestLogFile,
-  findCurrentInstanceStartIndex
+  findCurrentInstanceStartIndex,
+  readTodayPlayers,
+  scanPlayersFromLogFiles
 };

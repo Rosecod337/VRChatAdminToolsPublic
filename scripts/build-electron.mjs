@@ -10,8 +10,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const appName = process.argv[2];
 
-if (!["admin", "client", "client-beta"].includes(appName)) {
-  console.error("Usage: node scripts/build-electron.mjs <admin|client|client-beta>");
+if (!["admin", "client", "client-beta", "server-manager"].includes(appName)) {
+  console.error("Usage: node scripts/build-electron.mjs <admin|client|client-beta|server-manager>");
   process.exit(1);
 }
 
@@ -27,6 +27,16 @@ if (appName === "client-beta") {
   await fs.rm(path.join(stageDir, "renderer"), { recursive: true, force: true });
   await copyDir(path.join(root, "apps", "client-beta", "renderer"), path.join(stageDir, "renderer"));
   await fs.copyFile(path.join(root, "apps", "client-beta", "package.json"), path.join(stageDir, "package.json"));
+}
+
+if (appName === "server-manager") {
+  const bundleTarget = path.join(stageDir, "server-bundle");
+  await copyDir(path.join(root, "deploy", "local-server"), bundleTarget);
+  await copyDir(path.join(root, "apps", "server", "src"), path.join(bundleTarget, "server", "src"));
+  await fs.copyFile(
+    path.join(root, "apps", "server", "package.json"),
+    path.join(bundleTarget, "server", "package.json")
+  );
 }
 
 const packagePath = path.join(stageDir, "package.json");
@@ -80,11 +90,12 @@ if (appName === "client" || appName === "client-beta") {
   await copyWithDeps("electron-updater");
 }
 
-if (process.env.OBFUSCATE_BUILD === "true") {
-  await obfuscate(path.join(stageDir, "src"));
-  if (appName === "client" || appName === "client-beta") {
-    await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
-  }
+await obfuscate(path.join(stageDir, "src"));
+if (appName === "server-manager") {
+  await obfuscate(path.join(stageDir, "server-bundle", "server", "src"));
+}
+if (appName === "client" || appName === "client-beta") {
+  await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
 }
 
 run(process.execPath, [path.join(root, "node_modules", "electron-builder", "cli.js"), "--projectDir", stageDir]);
@@ -93,7 +104,7 @@ if (appName === "client" || appName === "client-beta") {
   await verifyPackagedClientDependencies(packageJson, packagedClientDependencies);
 }
 
-if (appName === "client" && packageJson.build?.publish) {
+if (appName === "client") {
   await verifyLatestYml(packageJson);
 }
 

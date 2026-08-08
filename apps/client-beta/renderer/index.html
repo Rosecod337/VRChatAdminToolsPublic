@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
   <title>VRChat Admin Tools Beta</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="admin-notes.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -33,7 +34,7 @@
 
   <div class="appShell" data-app-view hidden>
     <aside class="sidebar">
-      <div class="brand"><span class="brandMark">V</span><div><strong>VRChat Admin Tools</strong><em>Beta · 0.1</em></div></div>
+      <div class="brand"><span class="brandMark">V</span><div><strong>VRChat Admin Tools</strong><em data-app-version>Beta</em></div></div>
       <nav aria-label="Разделы Beta">
         <button class="navItem active" type="button" data-view-button="session"><span>01</span>Сессия</button>
         <button class="navItem" type="button" data-view-button="insights"><span>02</span>Мой VRChat</button>
@@ -49,8 +50,8 @@
         <div><span class="eyebrow" data-page-eyebrow>Текущая сессия</span><h1 data-page-title>Живая сессия</h1></div>
         <div class="headerActions">
           <button type="button" data-action="choose">Выбрать лог</button>
-          <button class="primaryButton" type="button" data-action="start">Start</button>
-          <button type="button" data-action="stop" disabled>Stop</button>
+          <button class="primaryButton" type="button" data-action="start">Запустить</button>
+          <button type="button" data-action="stop" disabled>Остановить</button>
           <button type="button" data-action="logout">Выйти</button>
         </div>
       </header>
@@ -77,8 +78,15 @@
       </section>
 
       <section class="viewPanel" data-view="admin" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">Командная работа</span><h2>Admin Tools</h2></div><button type="button" data-action="refresh-admin">Обновить</button></div>
-        <div class="adminLayout"><article class="panel listPanel"><header><h2>Сохранённые игроки</h2></header><div data-note-list><p class="emptyState">Заметки ещё не загружены.</p></div></article><article class="panel adminPreview"><span class="profileAvatar">N</span><h2>Выберите игрока</h2><p>Редактор карточки появится на следующем этапе переноса. Beta пока безопасно показывает существующие данные только для чтения.</p></article></div>
+        <div class="adminLayout">
+          <article class="panel listPanel adminListPanel">
+            <header><h2>Сохранённые игроки</h2><div class="panelHeaderActions"><span data-note-count>—</span><button type="button" data-action="refresh-admin">Обновить</button></div></header>
+            <div data-note-list><p class="emptyState">Заметки ещё не загружены.</p></div>
+          </article>
+          <article class="panel adminPreview" data-admin-card aria-live="polite">
+            <span class="profileAvatar">N</span><h2>Выберите игрока</h2><p>Откройте сохранённого игрока слева, чтобы изменить командную метку или заметку.</p>
+          </article>
+        </div>
       </section>
 
       <section class="viewPanel" data-view="crash" hidden>

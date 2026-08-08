@@ -1,12 +1,11 @@
 {
   "name": "vrchat-key-admin",
   "productName": "VRChat Key Admin",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "main": "src/main.js",
   "private": true,
   "description": "Windows GUI admin panel for VRChat Log Suite license keys.",
-  "author": "VRChat Admin Tools contributors",
-  "license": "AGPL-3.0-only",
+  "author": "VRChat Log Suite",
   "build": {
     "appId": "com.vrchatlogsuite.admin",
     "productName": "VRChat Key Admin",

@@ -25,6 +25,8 @@ async function migrate(pool) {
       team_id TEXT,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       max_devices INTEGER NOT NULL DEFAULT 1 CHECK (max_devices > 0),
+      validity_days INTEGER CHECK (validity_days IS NULL OR validity_days BETWEEN 1 AND 3650),
+      activated_at TIMESTAMPTZ,
       expires_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -58,7 +60,48 @@ async function migrate(pool) {
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
     ALTER TABLE licenses ADD COLUMN IF NOT EXISTS team_id TEXT;
+    ALTER TABLE licenses ADD COLUMN IF NOT EXISTS validity_days INTEGER;
+    ALTER TABLE licenses ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;
+    ALTER TABLE licenses DROP CONSTRAINT IF EXISTS licenses_validity_days_check;
+    ALTER TABLE licenses ADD CONSTRAINT licenses_validity_days_check
+      CHECK (validity_days IS NULL OR validity_days BETWEEN 1 AND 3650);
     UPDATE licenses SET team_id = id WHERE team_id IS NULL OR team_id = '';
+
+    UPDATE licenses l
+    SET activated_at = COALESCE(
+        (SELECT MIN(d.first_seen_at) FROM license_devices d WHERE d.license_id = l.id),
+        l.last_seen_at,
+        l.created_at
+      ),
+      validity_days = COALESCE(
+        l.validity_days,
+        CASE WHEN l.expires_at IS NOT NULL THEN LEAST(
+          3650,
+          GREATEST(
+            1,
+            CEIL(EXTRACT(EPOCH FROM (l.expires_at - l.created_at)) / 86400.0)::INTEGER
+          )
+        ) END
+      )
+    WHERE l.activated_at IS NULL
+      AND (
+        l.last_seen_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM license_devices d WHERE d.license_id = l.id)
+      );
+
+    UPDATE licenses l
+    SET validity_days = LEAST(
+        3650,
+        GREATEST(
+          1,
+          CEIL(EXTRACT(EPOCH FROM (l.expires_at - l.created_at)) / 86400.0)::INTEGER
+        )
+      ),
+      expires_at = NULL
+    WHERE l.activated_at IS NULL
+      AND l.expires_at IS NOT NULL
+      AND l.last_seen_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM license_devices d WHERE d.license_id = l.id);
 
     CREATE TABLE IF NOT EXISTS play_sessions (
       id TEXT PRIMARY KEY,

@@ -19,6 +19,13 @@
             </span>
             <input id="licenseKey" type="password" spellcheck="false" autocomplete="off" placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
           </label>
+          <label id="activationAuthorField" hidden>
+            <span class="fieldLabel">
+              Имя автора заметок
+              <button class="helpTip" type="button" aria-label="Подсказка об имени автора" title="Для нового ручного ключа имя задаётся один раз при первой активации. Если имя уже было назначено при покупке или раньше, поле можно оставить пустым.">?</button>
+            </span>
+            <input id="activationAuthorAlias" type="text" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
+          </label>
           <label>
             <span class="fieldLabel">
               VRChat account session cookie
@@ -73,6 +80,7 @@
           <button class="tab active" data-tab="players">Заход / Выход</button>
           <button class="tab" data-tab="avatars">Аватары</button>
           <button class="tab" data-tab="dashboard">Дашборд</button>
+          <button class="tab" data-tab="insights">Мой VRChat</button>
           <button class="tab" data-tab="admin">Admin Tools</button>
           <button id="ownerTabButton" class="tab" data-tab="owner" hidden>Owner</button>
           <button class="tab" data-tab="crash">Crash Analyzer</button>
@@ -146,12 +154,39 @@
             <div id="dashRecentList" class="dashRecentList"></div>
           </section>
 
+          <section class="tabPane myVrchatPane" data-pane="insights">
+            <div class="paneHeader">
+              <div>
+                <h2>Мой VRChat</h2>
+                <p class="myVrchatSubtitle">Личная статистика по сохранённым сессиям этого устройства</p>
+              </div>
+              <div class="adminHeaderActions">
+                <select id="myVrchatPeriod" aria-label="Период личной статистики">
+                  <option value="7">7 дней</option>
+                  <option value="30" selected>30 дней</option>
+                  <option value="90">90 дней</option>
+                  <option value="all">Вся история</option>
+                </select>
+                <button id="refreshMyVrchatBtn">Обновить</button>
+                <button id="copyMyVrchatBtn">Копировать итог</button>
+              </div>
+            </div>
+            <div id="myVrchatContent" class="myVrchatContent">
+              <div class="emptyState">Откройте раздел, чтобы собрать личную статистику</div>
+            </div>
+          </section>
+
           <section class="tabPane adminPane" data-pane="admin">
             <div class="paneHeader">
               <h2>Admin Tools</h2>
               <div class="adminHeaderActions">
                 <span id="adminSyncStatus" class="adminSyncStatus" title="Используются данные, сохранённые на этом устройстве.">Локальный кэш</span>
                 <input id="adminPlayerSearch" class="searchInput" type="search" placeholder="Поиск игрока...">
+                <select id="adminOnlineFilter" aria-label="Фильтр игроков по онлайну">
+                  <option value="all">Все</option>
+                  <option value="online">Только онлайн</option>
+                </select>
+                <button id="adminReadTodayPlayersBtn" type="button">Игроки за сегодня</button>
                 <button id="copyAdminSnapshotBtn">Копировать снимок</button>
               </div>
             </div>
@@ -176,6 +211,11 @@
                 </select>
                 <input id="ownerPlayerSearch" class="searchInput" type="search" placeholder="Имя, User ID или ссылка VRChat">
                 <button id="ownerGroupSearchBtn">Найти</button>
+                <select id="ownerOnlineFilter" aria-label="Фильтр игроков по онлайну">
+                  <option value="all">Все</option>
+                  <option value="online">Только онлайн</option>
+                </select>
+                <button id="ownerReadTodayPlayersBtn" type="button">Игроки за сегодня</button>
                 <button id="refreshModerationBtn">Обновить</button>
               </div>
             </div>
@@ -335,7 +375,24 @@
       </form>
     </dialog>
 
+    <dialog id="playerActionDialog" class="moderationDialog playerActionDialog">
+      <form class="moderationDialogForm">
+        <header>
+          <div>
+            <h2 id="playerActionName">Игрок</h2>
+            <p id="playerActionUserId">usr_...</p>
+          </div>
+          <button id="playerActionCloseBtn" type="button" class="iconButton" title="Закрыть" aria-label="Закрыть">×</button>
+        </header>
+        <div class="playerActionChoices">
+          <button id="playerActionOwnerBtn" type="button" class="primaryAction">Открыть в Owner</button>
+          <button id="playerActionProfileBtn" type="button">Открыть профиль VRChat</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="recent-avatar-uses.js"></script>
+    <script src="my-vrchat-insights.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

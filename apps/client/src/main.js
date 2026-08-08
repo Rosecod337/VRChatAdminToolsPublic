@@ -7,27 +7,20 @@ const { execFile } = require("node:child_process");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, safeStorage, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { getHardwareId } = require("./hwid");
-const { LogTailer, defaultLogDirectory, findLatestLogFile } = require("./log-tailer");
+const { LogTailer, defaultLogDirectory, findLatestLogFile, readTodayPlayers } = require("./log-tailer");
 const {
   isVrchatLogPath,
-  normalizeTrustedServerUrl,
   requireAllowedExternalHttpsUrl
 } = require("./security");
+const { RuntimeConfigManager } = require("./runtime-config");
 const { importStableSettings } = require("./stable-settings-import");
 const { VrchatUserResolver } = require("./vrchat-api");
 
-let bundledConfig = {};
-try {
-  bundledConfig = require("../config.json");
-} catch {
-  bundledConfig = {};
-}
-
-const CURRENT_SERVER_URL = String(
-  process.env.VRCHAT_ADMIN_API_URL || bundledConfig.serverUrl || "http://localhost:8080"
-).trim().replace(/\/+$/u, "");
-const RETIRED_SERVER_URLS = new Set();
-const AUTO_UPDATES_ENABLED = bundledConfig.autoUpdates === true;
+const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
+const RETIRED_SERVER_URLS = new Set([
+  "https://web-production-a9b1cd.up.railway.app",
+  "https://web-production-a54bb.up.railway.app"
+]);
 
 function isBetaClient() {
   return process.env.VRCHAT_CLIENT_VARIANT === "beta" || /\bbeta\b/iu.test(app.getName());
@@ -40,6 +33,16 @@ function clientRendererPath() {
   }
   return path.join(__dirname, "..", "renderer", "index.html");
 }
+const RUNTIME_CONFIG_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAN7T6ncA2GWB9OpL4UdZcRuNZ5jk0tfSjK7DQ8lI1GHM=
+-----END PUBLIC KEY-----`;
+const RUNTIME_CONFIG_SOURCES = [
+  "https://raw.githubusercontent.com/Rosecod337/VRChatAdminToolsPublic/main/runtime-config.json",
+  {
+    url: "https://api.github.com/repos/Rosecod337/VRChatAdminToolsPublic/contents/runtime-config.json?ref=main",
+    headers: { accept: "application/vnd.github.raw+json" }
+  }
+];
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   "discord.gg",
   "github.com",
@@ -58,6 +61,8 @@ const DEFAULT_SETTINGS = {
 
 let mainWindow;
 let heartbeatTimer;
+let runtimeConfigTimer;
+let initialRuntimeConfigRefresh;
 let currentPlaySessionId = null;
 let playSessionFinalization = null;
 let quitFinalizationStarted = false;
@@ -71,8 +76,15 @@ const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) =>
 const approvedLogFiles = new Set();
 const notificationTimes = new Map();
 const API_TIMEOUT_MS = 20_000;
+const RUNTIME_CONFIG_REFRESH_MS = 10 * 60 * 1000;
 const MIN_WINDOW_OPACITY = 0.4;
 let preferredWindowOpacity = 1;
+const runtimeConfig = new RuntimeConfigManager({
+  builtInApiBaseUrl: CURRENT_SERVER_URL,
+  publicKeyPem: RUNTIME_CONFIG_PUBLIC_KEY,
+  sources: RUNTIME_CONFIG_SOURCES,
+  timeoutMs: 5000
+});
 
 function isVrchatRunning() {
   if (process.platform !== "win32") return Promise.resolve(false);
@@ -114,7 +126,9 @@ function decryptSetting(value) {
 }
 
 function normalizeServerUrl(value) {
-  return normalizeTrustedServerUrl(value, CURRENT_SERVER_URL, RETIRED_SERVER_URLS);
+  const normalized = String(value || "").trim().replace(/\/+$/u, "");
+  if (RETIRED_SERVER_URLS.has(normalized)) return runtimeConfig.getApiBaseUrl();
+  return runtimeConfig.normalizeApiUrl(normalized);
 }
 
 function hydrateSettings(rawSettings = {}) {
@@ -192,8 +206,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
 }
 
 async function apiRequest(route, options = {}) {
-  const settings = await readSettings();
-  const response = await fetchWithTimeout(`${settings.serverUrl}${route}`, {
+  if (initialRuntimeConfigRefresh) await initialRuntimeConfigRefresh.catch(() => {});
+  const response = await fetchWithTimeout(`${runtimeConfig.getApiBaseUrl()}${route}`, {
     ...options,
     headers: {
       "content-type": "application/json",
@@ -207,6 +221,16 @@ async function apiRequest(route, options = {}) {
     throw error;
   }
   return payload;
+}
+
+async function refreshRuntimeConfig() {
+  const result = await runtimeConfig.refresh();
+  if (result.changed) {
+    const settings = await readSettings();
+    await writeSettings({ ...settings, serverUrl: runtimeConfig.getApiBaseUrl() });
+  }
+  send("runtime-config:updated", runtimeConfig.getPublicState());
+  return result;
 }
 
 function apiPost(route, body) {
@@ -380,11 +404,7 @@ async function startHeartbeat() {
       if (payload.license) {
         await writeSettings({ ...settings, license: payload.license });
       }
-      send("auth:status", {
-        ok: true,
-        message: "Session active",
-        license: payload.license || null
-      });
+      send("auth:status", { ok: true, message: "Session active", license: payload.license || null });
     } catch (error) {
       send("auth:status", { ok: false, message: error.message });
       await endCurrentPlaySession().catch(() => {});
@@ -396,7 +416,7 @@ async function startHeartbeat() {
 }
 
 function setupAutoUpdater() {
-  if (!app.isPackaged || !AUTO_UPDATES_ENABLED || isBetaClient()) return;
+  if (!app.isPackaged || isBetaClient()) return;
 
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoDownload = true;
@@ -463,9 +483,16 @@ function formatUpdaterError(error) {
 
 app.whenReady().then(async () => {
   await importStableSettingsForBeta().catch(() => {});
+  runtimeConfig.setCachePath(path.join(app.getPath("userData"), "runtime-config.json"));
+  await runtimeConfig.loadCache();
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   createWindow();
+  initialRuntimeConfigRefresh = refreshRuntimeConfig();
+  initialRuntimeConfigRefresh.catch(() => {});
+  runtimeConfigTimer = setInterval(() => {
+    refreshRuntimeConfig().catch(() => {});
+  }, RUNTIME_CONFIG_REFRESH_MS);
   startHeartbeat().catch(() => {});
   setupAutoUpdater();
 
@@ -475,6 +502,8 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", async () => {
+  if (runtimeConfigTimer) clearInterval(runtimeConfigTimer);
+  runtimeConfigTimer = null;
   await endCurrentPlaySession().catch(() => {});
   await tailer.stop();
   if (process.platform !== "darwin") app.quit();
@@ -493,6 +522,7 @@ app.on("before-quit", (event) => {
 ipcMain.handle("client:get-settings", async () => {
   const settings = await readSettings();
   return {
+    appVersion: app.getVersion(),
     serverUrl: settings.serverUrl,
     hasVrchatAuthCookie: Boolean(settings.vrchatAuthCookie),
     rememberMe: Boolean(settings.rememberMe),
@@ -523,6 +553,8 @@ ipcMain.handle("vrchat:current-user", async () => {
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   return resolver.fetchCurrentUser();
 });
+
+ipcMain.handle("runtime-config:get", () => runtimeConfig.getPublicState());
 
 ipcMain.handle("vrchat:current-instance", async () => {
   const settings = await readSettings();
@@ -557,6 +589,7 @@ ipcMain.handle("client:activate", async (_event, body) => {
   const hwid = await getHardwareId();
   const payload = await apiPost("/auth/activate", {
     licenseKey: body.licenseKey,
+    authorAlias: body.authorAlias,
     hwid,
     appVersion: app.getVersion(),
     rememberMe: Boolean(body.rememberMe)
@@ -771,6 +804,24 @@ ipcMain.handle("moderation:request-group-ban", async (_event, request) => {
     reason: request?.reason,
     evidenceUrl: request?.evidenceUrl,
     durationMinutes: request?.durationMinutes ?? null
+  });
+  return {
+    ...payload.request,
+    deduplicated: payload.deduplicated === true,
+    retryAfterSeconds: Number(payload.retryAfterSeconds || 0)
+  };
+});
+
+ipcMain.handle("moderation:request-group-unban", async (_event, request) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const payload = await apiPost("/moderation/unban-requests", {
+    sessionToken: settings.sessionToken,
+    hwid,
+    targetUserId: request?.targetUserId,
+    targetDisplayName: request?.targetDisplayName,
+    reason: request?.reason,
+    evidenceUrl: request?.evidenceUrl
   });
   return {
     ...payload.request,
@@ -1104,6 +1155,13 @@ ipcMain.handle("tail:analyze-current-instance", async (_event, options) => {
 ipcMain.handle("tail:latest-file", async () => {
   const filePath = await findLatestLogFile().catch(() => null);
   return { filePath: filePath ? rememberApprovedLogFile(filePath) : null };
+});
+
+ipcMain.handle("tail:read-today-players", async () => {
+  await validateCurrentSession();
+  return readTodayPlayers(defaultLogDirectory(), {
+    maxPlayers: 10000
+  });
 });
 
 ipcMain.handle("tail:choose-file", async () => {

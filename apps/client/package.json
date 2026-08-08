@@ -1,15 +1,14 @@
 {
   "name": "vrchat-log-analyzer",
   "productName": "VRChat Log Analyzer",
-  "version": "1.1.4",
+  "version": "1.1.7",
   "main": "src/main.js",
   "private": true,
-  "description": "Windows-приложение для анализа локальных логов VRChat.",
-  "license": "AGPL-3.0-only",
+  "description": "Windows GUI VRChat log analyzer with server-side activation.",
   "author": {
-    "name": "VRChat Admin Tools contributors"
+    "name": "MUTNIY.CORP"
   },
-  "copyright": "Copyright © 2026 VRChat Admin Tools contributors",
+  "copyright": "Copyright © 2026 MUTNIY.CORP",
   "dependencies": {
     "@vrchat-log-suite/parser": "0.1.0",
     "electron-updater": "^6.3.9"
@@ -31,7 +30,6 @@
       "src/**/*",
       "renderer/**/*",
       "package.json",
-      "config.json",
       "node_modules/**/*"
     ],
     "win": {
@@ -45,6 +43,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Rosecod337",
+      "repo": "VRChatAdminToolsPublic",
+      "releaseType": "release"
     }
   }
 }

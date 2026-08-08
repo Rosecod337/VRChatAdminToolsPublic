@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("clientApi", {
   getSettings: () => ipcRenderer.invoke("client:get-settings"),
   importStableSettings: () => ipcRenderer.invoke("client:import-stable-settings"),
+  getRuntimeConfig: () => ipcRenderer.invoke("runtime-config:get"),
   saveSettings: (settings) => ipcRenderer.invoke("client:save-settings", settings),
   getVrchatCurrentUser: () => ipcRenderer.invoke("vrchat:current-user"),
   getVrchatCurrentInstance: () => ipcRenderer.invoke("vrchat:current-instance"),
@@ -21,6 +22,7 @@ contextBridge.exposeInMainWorld("clientApi", {
   saveGlobalPlayerNote: (note) => ipcRenderer.invoke("global-player-notes:save", note),
   removeGlobalPlayerNote: (userId) => ipcRenderer.invoke("global-player-notes:remove", userId),
   requestGroupBan: (request) => ipcRenderer.invoke("moderation:request-group-ban", request),
+  requestGroupUnban: (request) => ipcRenderer.invoke("moderation:request-group-unban", request),
   listGroupBanRequests: () => ipcRenderer.invoke("moderation:list-group-ban-requests"),
   retryGroupBanRequest: (requestId) => ipcRenderer.invoke("moderation:retry-group-ban-request", requestId),
   requestGroupManagement: (request) => ipcRenderer.invoke("group-management:request", request),
@@ -38,6 +40,7 @@ contextBridge.exposeInMainWorld("clientApi", {
   getCrashStatus: (options) => ipcRenderer.invoke("crash:status", options),
   prepareAnalyzeOptions: (options) => ipcRenderer.invoke("tail:prepare-analysis-options", options),
   analyzeCurrentInstance: (options) => ipcRenderer.invoke("tail:analyze-current-instance", options),
+  readTodayPlayers: () => ipcRenderer.invoke("tail:read-today-players"),
   latestFile: () => ipcRenderer.invoke("tail:latest-file"),
   chooseFile: () => ipcRenderer.invoke("tail:choose-file"),
   writeClipboardText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
@@ -54,5 +57,6 @@ contextBridge.exposeInMainWorld("clientApi", {
   onAnalysisStart: (handler) => ipcRenderer.on("analysis:start", (_event, payload) => handler(payload)),
   onAuthStatus: (handler) => ipcRenderer.on("auth:status", (_event, payload) => handler(payload)),
   onUserResolved: (handler) => ipcRenderer.on("user:resolved", (_event, payload) => handler(payload)),
-  onUpdaterStatus: (handler) => ipcRenderer.on("updater:status", (_event, payload) => handler(payload))
+  onUpdaterStatus: (handler) => ipcRenderer.on("updater:status", (_event, payload) => handler(payload)),
+  onRuntimeConfig: (handler) => ipcRenderer.on("runtime-config:updated", (_event, payload) => handler(payload))
 });

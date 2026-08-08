@@ -21,7 +21,7 @@ const {
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-const VERSION = "1.1.0";
+const VERSION = "1.1.7";
 const SERVER_FEATURES = ["global-player-notes", "global-avatar-notes", "note-history", "session-snapshots"];
 const SOURCE_URL = String(process.env.SOURCE_URL || "").trim();
 const SESSION_TTL_HOURS = Number(process.env.SESSION_TTL_HOURS ?? 24);
@@ -57,6 +57,10 @@ function publicLicense(row) {
     active: row.active,
     maxDevices: row.max_devices,
     devicesUsed: Number(row.devices_used ?? 0),
+    validityDays: row.validity_days === null || row.validity_days === undefined
+      ? null
+      : Number(row.validity_days),
+    activatedAt: row.activated_at,
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -78,6 +82,32 @@ function parseExpiresAt(value) {
     throw error;
   }
   return date.toISOString();
+}
+
+function parseValidityDays(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    const error = new Error("validityDays must be an integer from 1 to 3650");
+    error.status = 400;
+    throw error;
+  }
+  return days;
+}
+
+function validityDaysFromExpiry(value, now = new Date()) {
+  const expiresAt = parseExpiresAt(value);
+  if (!expiresAt) return null;
+  return parseValidityDays(Math.max(1, Math.ceil(
+    (new Date(expiresAt).valueOf() - now.valueOf()) / (24 * 60 * 60 * 1000)
+  )));
+}
+
+function expiryFromActivation(activatedAt, validityDays) {
+  if (!activatedAt || validityDays === null) return null;
+  return new Date(
+    new Date(activatedAt).valueOf() + validityDays * 24 * 60 * 60 * 1000
+  ).toISOString();
 }
 
 function requireText(value, field) {
@@ -298,7 +328,10 @@ async function createLicense(pool, body) {
   const label = String(body.label ?? "").trim();
   const requestedTeamId = normalizeTeamId(body.teamId);
   const maxDevices = validateMaxDevices(body.maxDevices);
-  const expiresAt = parseExpiresAt(body.expiresAt);
+  const validityDays = body.validityDays === undefined
+    ? validityDaysFromExpiry(body.expiresAt)
+    : parseValidityDays(body.validityDays);
+  const expiresAt = null;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const licenseKey = generateLicenseKey();
@@ -309,10 +342,10 @@ async function createLicense(pool, body) {
 
     try {
       const result = await pool.query(
-        `INSERT INTO licenses (id, license_hash, key_prefix, label, team_id, max_devices, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO licenses (id, license_hash, key_prefix, label, team_id, max_devices, validity_days, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *, 0::int AS devices_used, '[]'::json AS devices`,
-        [id, licenseHash, keyPrefix, label, teamId, maxDevices, expiresAt]
+        [id, licenseHash, keyPrefix, label, teamId, maxDevices, validityDays, expiresAt]
       );
       return {
         licenseKey,
@@ -340,16 +373,39 @@ async function updateLicense(pool, id, body) {
   const label = body.label === undefined ? currentLicense.label : String(body.label ?? "").trim();
   const teamId = body.teamId === undefined ? previousTeamId : normalizeTeamId(body.teamId, currentLicense.id);
   const maxDevices = body.maxDevices === undefined ? currentLicense.max_devices : validateMaxDevices(body.maxDevices);
-  const expiresAt = body.expiresAt === undefined ? currentLicense.expires_at : parseExpiresAt(body.expiresAt);
+  let validityDays = currentLicense.validity_days === null || currentLicense.validity_days === undefined
+    ? null
+    : Number(currentLicense.validity_days);
+  let expiresAt = currentLicense.expires_at;
+  if (body.validityDays !== undefined) {
+    validityDays = parseValidityDays(body.validityDays);
+    expiresAt = currentLicense.activated_at
+      ? expiryFromActivation(currentLicense.activated_at, validityDays)
+      : null;
+  } else if (body.expiresAt !== undefined) {
+    if (currentLicense.activated_at) {
+      expiresAt = parseExpiresAt(body.expiresAt);
+      validityDays = expiresAt
+        ? parseValidityDays(Math.min(3650, Math.max(1, Math.ceil(
+          (new Date(expiresAt).valueOf() - new Date(currentLicense.activated_at).valueOf()) /
+            (24 * 60 * 60 * 1000)
+        ))))
+        : null;
+    } else {
+      validityDays = validityDaysFromExpiry(body.expiresAt);
+      expiresAt = null;
+    }
+  }
 
   const result = await pool.query(
     `UPDATE licenses
-     SET active = $2, label = $3, max_devices = $4, expires_at = $5, team_id = $6, updated_at = NOW()
+     SET active = $2, label = $3, max_devices = $4, expires_at = $5, team_id = $6,
+       validity_days = $7, updated_at = NOW()
      WHERE id = $1
      RETURNING *, (
        SELECT COUNT(*)::int FROM license_devices WHERE license_id = licenses.id
      ) AS devices_used, '[]'::json AS devices`,
-    [id, active, label, maxDevices, expiresAt, teamId]
+    [id, active, label, maxDevices, expiresAt, teamId, validityDays]
   );
   await pool.query(
     `WITH moved AS (
@@ -420,6 +476,58 @@ async function updateLicense(pool, id, body) {
   return publicLicense(result.rows[0]);
 }
 
+async function extendLicense(pool, id, days = 30) {
+  const extensionDays = parseValidityDays(days);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query("SELECT * FROM licenses WHERE id = $1 FOR UPDATE", [id]);
+    if (current.rowCount === 0) {
+      const error = new Error("license_not_found");
+      error.status = 404;
+      throw error;
+    }
+    const license = current.rows[0];
+    if (license.validity_days === null || license.validity_days === undefined) {
+      const error = new Error("license_has_no_expiry");
+      error.status = 409;
+      throw error;
+    }
+
+    let validityDays;
+    let expiresAt = null;
+    if (!license.activated_at) {
+      validityDays = parseValidityDays(Number(license.validity_days) + extensionDays);
+    } else {
+      const now = new Date();
+      const currentExpiry = license.expires_at ? new Date(license.expires_at) : now;
+      const base = currentExpiry.valueOf() > now.valueOf() ? currentExpiry : now;
+      expiresAt = new Date(base.valueOf() + extensionDays * 24 * 60 * 60 * 1000).toISOString();
+      validityDays = parseValidityDays(Math.ceil(
+        (new Date(expiresAt).valueOf() - new Date(license.activated_at).valueOf()) /
+          (24 * 60 * 60 * 1000)
+      ));
+    }
+
+    const updated = await client.query(
+      `UPDATE licenses
+       SET validity_days = $2, expires_at = $3, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *, (
+         SELECT COUNT(*)::int FROM license_devices WHERE license_id = licenses.id
+       ) AS devices_used, '[]'::json AS devices`,
+      [id, validityDays, expiresAt]
+    );
+    await client.query("COMMIT");
+    return publicLicense(updated.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createSession(client, license, hwidHash, appVersion, options = {}) {
   const sessionToken = generateSessionToken();
   const sessionHash = hashSessionToken(sessionToken);
@@ -454,7 +562,7 @@ async function activateLicense(pool, body) {
   try {
     await client.query("BEGIN");
     const licenseResult = await client.query("SELECT * FROM licenses WHERE license_hash = $1 FOR UPDATE", [licenseHash]);
-    const license = licenseResult.rows[0];
+    let license = licenseResult.rows[0];
     if (!license) {
       await client.query("ROLLBACK");
       return { status: 401, body: { ok: false, error: "invalid_license" } };
@@ -462,6 +570,21 @@ async function activateLicense(pool, body) {
     if (!license.active) {
       await client.query("ROLLBACK");
       return { status: 403, body: { ok: false, error: "license_blocked" } };
+    }
+    if (!license.activated_at) {
+      const activated = await client.query(
+        `UPDATE licenses
+         SET activated_at = NOW(),
+           expires_at = CASE
+             WHEN validity_days IS NULL THEN NULL
+             ELSE NOW() + (validity_days * INTERVAL '1 day')
+           END,
+           updated_at = NOW()
+         WHERE id = $1 AND activated_at IS NULL
+         RETURNING *`,
+        [license.id]
+      );
+      if (activated.rowCount > 0) license = activated.rows[0];
     }
     if (license.expires_at && new Date(license.expires_at) < new Date()) {
       await client.query("ROLLBACK");
@@ -507,6 +630,10 @@ async function activateLicense(pool, body) {
           keyPrefix: license.key_prefix,
           label: license.label,
           teamId: license.team_id || license.id,
+          validityDays: license.validity_days === null || license.validity_days === undefined
+            ? null
+            : Number(license.validity_days),
+          activatedAt: license.activated_at,
           expiresAt: license.expires_at,
           maxDevices: license.max_devices,
           devicesUsed: Number(devicesUsed.rows[0].count)
@@ -528,7 +655,8 @@ async function validateSession(pool, body) {
   const sessionHash = hashSessionToken(sessionToken);
 
   const result = await pool.query(
-    `SELECT s.*, l.active, l.expires_at AS license_expires_at, l.max_devices, l.key_prefix, l.label, COALESCE(l.team_id, l.id) AS team_id
+    `SELECT s.*, l.active, l.expires_at AS license_expires_at, l.max_devices, l.key_prefix, l.label,
+       l.validity_days, l.activated_at, COALESCE(l.team_id, l.id) AS team_id
      FROM sessions s
      JOIN licenses l ON l.id = s.license_id
      WHERE s.session_hash = $1 AND s.revoked_at IS NULL`,
@@ -578,6 +706,10 @@ async function validateSession(pool, body) {
         keyPrefix: session.key_prefix,
         label: session.label,
         teamId: session.team_id,
+        validityDays: session.validity_days === null || session.validity_days === undefined
+          ? null
+          : Number(session.validity_days),
+        activatedAt: session.activated_at,
         expiresAt: session.license_expires_at,
         maxDevices: session.max_devices
       }
@@ -658,6 +790,15 @@ async function main() {
   app.patch("/admin/licenses/:id", requireAdmin, async (req, res, next) => {
     try {
       const license = await updateLicense(pool, req.params.id, req.body ?? {});
+      res.json({ ok: true, license });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/admin/licenses/:id/extend", requireAdmin, async (req, res, next) => {
+    try {
+      const license = await extendLicense(pool, req.params.id, req.body?.days ?? 30);
       res.json({ ok: true, license });
     } catch (error) {
       next(error);

@@ -1,6 +1,7 @@
 "use strict";
 
 const previewMode = new URLSearchParams(window.location.search).get("preview") === "1";
+const noteTools = window.betaAdminNotes;
 const api = window.clientApi || (previewMode ? createPreviewApi() : null);
 const activationView = document.querySelector("[data-activation-view]");
 const activationForm = document.querySelector("[data-activation-form]");
@@ -16,6 +17,10 @@ const eventFeed = document.querySelector("[data-event-feed]");
 const playerList = document.querySelector("[data-player-list]");
 const pageEyebrow = document.querySelector("[data-page-eyebrow]");
 const pageTitle = document.querySelector("[data-page-title]");
+const appVersionLabel = document.querySelector("[data-app-version]");
+const noteList = document.querySelector("[data-note-list]");
+const noteCount = document.querySelector("[data-note-count]");
+const adminCard = document.querySelector("[data-admin-card]");
 
 const state = {
   settings: null,
@@ -23,7 +28,17 @@ const state = {
   filePath: "",
   running: false,
   startedAt: null,
-  view: "session"
+  view: "session",
+  adminNotes: [],
+  selectedAdminUserId: "",
+  adminHistory: [],
+  adminLoading: false,
+  adminSaving: false,
+  adminHistoryLoading: false,
+  adminListError: "",
+  adminError: "",
+  adminListRequestId: 0,
+  adminHistoryRequestId: 0
 };
 
 const viewTitles = {
@@ -92,6 +107,9 @@ function showActivation(message = "Введите данные лицензии.
 async function showApp() {
   activationView.hidden = true;
   appView.hidden = false;
+  if (appVersionLabel) {
+    appVersionLabel.textContent = state.settings?.appVersion ? `Beta · ${state.settings.appVersion}` : "Beta";
+  }
   const latest = await api.latestFile().catch(() => ({ filePath: "" }));
   if (latest.filePath) setFilePath(latest.filePath);
   setStatus(previewMode ? "Безопасный Chrome preview · вымышленные данные" : "Готово к запуску");
@@ -99,6 +117,16 @@ async function showApp() {
 
 function createPreviewApi() {
   const handlers = { log: [], status: [], error: [] };
+  let previewNotes = [
+    { userId: "usr_demo_nova", displayName: "Nova", status: "watch", note: "Вежливо напомнить правила", updatedAt: "2026-08-01T20:35:00.000Z", updatedByKey: "VRC-PREVIEW", updatedByLabel: "Beta Preview" },
+    { userId: "usr_demo_mira", displayName: "Mira", status: "ok", note: "Проверенный участник", updatedAt: "2026-08-01T20:20:00.000Z", updatedByKey: "VRC-PREVIEW", updatedByLabel: "Beta Preview" }
+  ];
+  const previewHistory = {
+    usr_demo_nova: [
+      { id: "preview-history-1", visibility: "team", previousStatus: "ok", previousNote: "", status: "watch", note: "Вежливо напомнить правила", updatedAt: "2026-08-01T20:35:00.000Z", updatedByKey: "VRC-PREVIEW", updatedByLabel: "Beta Preview" }
+    ],
+    usr_demo_mira: []
+  };
   const sampleEvents = [
     { type: "world-joined", worldName: "Group Public", timestamp: "2026-08-01T21:41:00.000Z" },
     { type: "player-joined", playerName: "Nova", userId: "usr_demo_nova", timestamp: "2026-08-01T21:42:00.000Z" },
@@ -106,7 +134,7 @@ function createPreviewApi() {
     { type: "avatar-changed", playerName: "Mira", userId: "usr_demo_mira", avatarName: "Night Shift", timestamp: "2026-08-01T21:44:00.000Z" }
   ];
   return {
-    getSettings: async () => ({ hasSession: true, serverUrl: "https://api.example.invalid", license: { authorAlias: "Beta Preview" } }),
+    getSettings: async () => ({ appVersion: "0.1.0-beta.5", hasSession: true, serverUrl: "https://api.vrchatadmintools.ru", license: { authorAlias: "Beta Preview" } }),
     importStableSettings: async () => ({ imported: true, reason: "stable_settings_imported" }),
     validate: async () => ({ ok: true }),
     activate: async () => ({ ok: true }),
@@ -126,10 +154,31 @@ function createPreviewApi() {
       { startedAt: "2026-08-01T20:30:00.000Z", endedAt: "2026-08-01T22:00:00.000Z", worldName: "Group Public", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_nova" }, { userId: "usr_demo_mira" }] }) },
       { startedAt: "2026-07-31T18:00:00.000Z", endedAt: "2026-07-31T19:15:00.000Z", worldName: "The Great Pug", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_alex" }] }) }
     ],
-    listPlayerNotes: async () => [
-      { userId: "usr_demo_nova", displayName: "Nova", status: "watch", note: "Вежливо напомнить правила" },
-      { userId: "usr_demo_mira", displayName: "Mira", status: "ok", note: "Проверенный участник" }
-    ],
+    listPlayerNotes: async () => previewNotes.map((row) => ({ ...row })),
+    savePlayerNote: async (payload) => {
+      const previous = previewNotes.find((row) => row.userId === payload.userId) || {};
+      const saved = {
+        ...payload,
+        updatedAt: new Date().toISOString(),
+        updatedByKey: "VRC-PREVIEW",
+        updatedByLabel: "Beta Preview"
+      };
+      previewHistory[payload.userId] = [{
+        id: `preview-history-${Date.now()}`,
+        visibility: "team",
+        previousStatus: previous.status || "ok",
+        previousNote: previous.note || "",
+        status: saved.status,
+        note: saved.note,
+        updatedAt: saved.updatedAt,
+        updatedByKey: saved.updatedByKey,
+        updatedByLabel: saved.updatedByLabel
+      }, ...(previewHistory[payload.userId] || [])];
+      previewNotes = noteTools.mergeSavedNote(previewNotes, saved, previous);
+      return { ...saved };
+    },
+    listPlayerNoteHistory: async (userId) => (previewHistory[userId] || []).map((row) => ({ ...row })),
+    openExternal: async () => ({ ok: true }),
     getCrashStatus: async () => ({ processRunning: true, filePath: "C:\\VRChat\\output_log_preview.txt", logModifiedAt: new Date().toISOString() }),
     onLogEvent: (handler) => handlers.log.push(handler),
     onTailStatus: (handler) => handlers.status.push(handler),
@@ -332,31 +381,264 @@ async function refreshInsights() {
   }
 }
 
+function adminElement(tag, className = "", text = "") {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== "") element.textContent = text;
+  return element;
+}
+
+function adminNote(userId) {
+  return state.adminNotes.find((row) => row.userId === userId) || null;
+}
+
+function adminStatusLabel(status) {
+  return noteTools.STATUS_OPTIONS.find((option) => option.value === status)?.label || status || "Без отметки";
+}
+
+function adminDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? "—" : date.toLocaleString("ru-RU");
+}
+
+function adminAuthor(record) {
+  return record?.updatedByLabel || record?.updatedByKey || "—";
+}
+
+function renderAdminList() {
+  noteList.replaceChildren();
+  noteCount.textContent = state.adminLoading ? "загрузка…" : `${state.adminNotes.length} записей`;
+  if (state.adminLoading && state.adminNotes.length === 0) {
+    noteList.append(emptyMessage("Загружаем командные заметки…"));
+    return;
+  }
+  if (state.adminListError && state.adminNotes.length === 0) {
+    noteList.append(emptyMessage(state.adminListError));
+    return;
+  }
+  for (const note of state.adminNotes.slice(0, 200)) {
+    const row = adminElement("button", "dataRow adminNoteRow");
+    row.type = "button";
+    row.dataset.adminUserId = note.userId;
+    row.classList.toggle("active", note.userId === state.selectedAdminUserId);
+    row.setAttribute("aria-pressed", note.userId === state.selectedAdminUserId ? "true" : "false");
+    const avatar = adminElement("span", "playerAvatar", (note.displayName || note.userId || "?").slice(0, 1).toUpperCase());
+    const copy = adminElement("div");
+    copy.append(
+      adminElement("strong", "", note.displayName || note.userId || "Игрок"),
+      adminElement("span", "", note.note || "Без заметки")
+    );
+    const status = adminElement("span", "adminNoteBadge", adminStatusLabel(note.status));
+    status.dataset.status = note.status;
+    row.append(avatar, copy, status);
+    noteList.append(row);
+  }
+  if (!noteList.children.length) noteList.append(emptyMessage("Командных заметок пока нет."));
+}
+
+function appendAdminMeta(container, label, value) {
+  const item = adminElement("div");
+  item.append(adminElement("span", "", label), adminElement("strong", "", value || "—"));
+  container.append(item);
+}
+
+function renderAdminHistory(container) {
+  const section = adminElement("section", "adminHistory");
+  section.append(adminElement("h3", "", "История изменений"));
+  if (state.adminHistoryLoading) {
+    section.append(emptyMessage("Загружаем историю…"));
+  } else if (state.adminHistory.length === 0) {
+    section.append(emptyMessage("Изменений пока нет."));
+  } else {
+    for (const row of state.adminHistory.slice(0, 12)) {
+      const item = adminElement("article", "adminHistoryRow");
+      const header = adminElement("header");
+      header.append(
+        adminElement("strong", "", adminAuthor(row)),
+        adminElement("time", "", adminDate(row.updatedAt))
+      );
+      const scope = row.visibility === "global" ? "Для всех команд" : "Для команды";
+      const previousStatus = row.previousStatus ? adminStatusLabel(row.previousStatus) : "—";
+      item.append(header, adminElement("span", "adminHistoryChange", `${scope} · ${previousStatus} → ${adminStatusLabel(row.status)}`));
+      if (row.previousNote !== row.note) {
+        item.append(
+          adminElement("p", "", `Было: ${row.previousNote || "без заметки"}`),
+          adminElement("p", "", `Стало: ${row.note || "без заметки"}`)
+        );
+      }
+      section.append(item);
+    }
+  }
+  container.append(section);
+}
+
+function renderAdminCard() {
+  adminCard.replaceChildren();
+  const record = adminNote(state.selectedAdminUserId);
+  if (!record) {
+    adminCard.classList.add("adminPreviewEmpty");
+    adminCard.append(
+      adminElement("span", "profileAvatar", "N"),
+      adminElement("h2", "", "Выберите игрока"),
+      adminElement("p", "", "Откройте сохранённого игрока слева, чтобы изменить командную метку или заметку.")
+    );
+    return;
+  }
+
+  adminCard.classList.remove("adminPreviewEmpty");
+  const content = adminElement("div", "adminCardContent");
+  const header = adminElement("header", "adminCardHeader");
+  const identity = adminElement("div", "adminIdentity");
+  identity.append(
+    adminElement("span", "profileAvatar", (record.displayName || record.userId || "?").slice(0, 1).toUpperCase()),
+    adminElement("div", "", "")
+  );
+  identity.lastElementChild.append(
+    adminElement("h2", "", record.displayName || record.userId || "Игрок"),
+    adminElement("code", "", record.userId)
+  );
+  const actions = adminElement("div", "adminCardActions");
+  const profileButton = adminElement("button", "", "Профиль");
+  profileButton.type = "button";
+  profileButton.dataset.adminProfile = `https://vrchat.com/home/user/${encodeURIComponent(record.userId)}`;
+  const closeButton = adminElement("button", "adminCardClose", "×");
+  closeButton.type = "button";
+  closeButton.dataset.adminClear = "true";
+  closeButton.title = "Убрать выбранного игрока";
+  actions.append(profileButton, closeButton);
+  header.append(identity, actions);
+  content.append(header);
+
+  if (state.adminError) content.append(adminElement("p", "adminError", state.adminError));
+
+  const form = adminElement("form", "adminNoteForm");
+  form.dataset.playerNoteForm = "true";
+  form.dataset.userId = record.userId;
+  const statusField = adminElement("label", "adminField");
+  statusField.append(adminElement("span", "", "Метка"));
+  const select = adminElement("select");
+  select.name = "status";
+  const statusOptions = noteTools.STATUS_OPTIONS.some((option) => option.value === record.status)
+    ? noteTools.STATUS_OPTIONS
+    : [...noteTools.STATUS_OPTIONS, { value: record.status, label: record.status }];
+  for (const option of statusOptions) {
+    const element = adminElement("option", "", option.label);
+    element.value = option.value;
+    element.selected = option.value === record.status;
+    select.append(element);
+  }
+  statusField.append(select);
+  const noteField = adminElement("label", "adminField");
+  noteField.append(adminElement("span", "", "Заметка команды"));
+  const textarea = adminElement("textarea");
+  textarea.name = "note";
+  textarea.maxLength = 2000;
+  textarea.rows = 6;
+  textarea.placeholder = "Заметка для вашей команды…";
+  textarea.value = record.note;
+  noteField.append(textarea);
+  const saveBar = adminElement("div", "adminSaveBar");
+  saveBar.append(adminElement("span", "", state.adminSaving ? "Сохраняем…" : "До 2000 символов"));
+  const saveButton = adminElement("button", "primaryButton", state.adminSaving ? "Сохранение…" : "Сохранить");
+  saveButton.type = "submit";
+  saveButton.disabled = state.adminSaving;
+  saveBar.append(saveButton);
+  form.append(statusField, noteField, saveBar);
+  content.append(form);
+
+  const meta = adminElement("div", "adminMetaGrid");
+  appendAdminMeta(meta, "Изменил", adminAuthor(record));
+  appendAdminMeta(meta, "Ключ", record.updatedByKey || "—");
+  appendAdminMeta(meta, "Обновлено", adminDate(record.updatedAt));
+  content.append(meta);
+  renderAdminHistory(content);
+  adminCard.append(content);
+}
+
+async function loadAdminHistory(userId) {
+  const requestId = ++state.adminHistoryRequestId;
+  state.adminHistoryLoading = true;
+  state.adminHistory = [];
+  renderAdminCard();
+  try {
+    const rows = await api.listPlayerNoteHistory(userId);
+    if (requestId !== state.adminHistoryRequestId || userId !== state.selectedAdminUserId) return;
+    state.adminHistory = (rows || []).map(noteTools.normalizeHistoryRow);
+  } catch (error) {
+    if (requestId !== state.adminHistoryRequestId || userId !== state.selectedAdminUserId) return;
+    state.adminError = error.message || "Не удалось загрузить историю изменений.";
+  } finally {
+    if (requestId === state.adminHistoryRequestId && userId === state.selectedAdminUserId) {
+      state.adminHistoryLoading = false;
+      renderAdminCard();
+    }
+  }
+}
+
+function selectAdminPlayer(userId) {
+  if (!adminNote(userId)) return;
+  state.selectedAdminUserId = userId;
+  state.adminError = "";
+  state.adminHistory = [];
+  renderAdminList();
+  renderAdminCard();
+  void loadAdminHistory(userId);
+}
+
+async function saveAdminNote(form) {
+  if (state.adminSaving) return;
+  const record = adminNote(form.dataset.userId);
+  if (!record) throw new Error("Игрок не найден в текущем списке.");
+  const data = new FormData(form);
+  const payload = noteTools.editorPayload(record, {
+    status: data.get("status"),
+    note: data.get("note")
+  });
+  state.adminNotes = noteTools.mergeSavedNote(state.adminNotes, payload, record);
+  state.adminSaving = true;
+  state.adminError = "";
+  renderAdminList();
+  renderAdminCard();
+  try {
+    const saved = await api.savePlayerNote(payload);
+    state.adminNotes = noteTools.mergeSavedNote(state.adminNotes, saved || payload, payload);
+    setStatus("Командная заметка сохранена");
+    await loadAdminHistory(payload.userId);
+  } catch (error) {
+    state.adminError = error.message || "Не удалось сохранить заметку.";
+    setStatus(state.adminError, true);
+  } finally {
+    state.adminSaving = false;
+    renderAdminList();
+    renderAdminCard();
+  }
+}
+
 async function refreshAdmin() {
-  const list = document.querySelector("[data-note-list]");
-  list.replaceChildren();
+  const requestId = ++state.adminListRequestId;
+  state.adminLoading = true;
+  state.adminListError = "";
+  renderAdminList();
   try {
     const notes = await api.listPlayerNotes();
-    for (const note of notes.slice(0, 100)) {
-      const row = document.createElement("div");
-      row.className = "dataRow";
-      const avatar = document.createElement("span");
-      avatar.className = "playerAvatar";
-      avatar.textContent = String(note.displayName || note.userId || "?").slice(0, 1).toUpperCase();
-      const copy = document.createElement("div");
-      const title = document.createElement("strong");
-      title.textContent = note.displayName || note.userId || "Игрок";
-      const text = document.createElement("span");
-      text.textContent = note.note || "Без заметки";
-      copy.append(title, text);
-      const status = document.createElement("span");
-      status.textContent = note.status || "—";
-      row.append(avatar, copy, status);
-      list.append(row);
+    if (requestId !== state.adminListRequestId) return;
+    state.adminNotes = (notes || []).map(noteTools.normalizeNote).filter((row) => row.userId);
+    if (state.selectedAdminUserId && !adminNote(state.selectedAdminUserId)) {
+      state.selectedAdminUserId = "";
+      state.adminHistory = [];
     }
-    if (!list.children.length) list.append(emptyMessage("Командных заметок пока нет."));
   } catch (error) {
-    list.append(emptyMessage(error.message || "Не удалось загрузить заметки."));
+    if (requestId !== state.adminListRequestId) return;
+    state.adminListError = error.message || "Не удалось загрузить заметки.";
+    setStatus(state.adminListError, true);
+  } finally {
+    if (requestId === state.adminListRequestId) {
+      state.adminLoading = false;
+      renderAdminList();
+      renderAdminCard();
+      if (state.selectedAdminUserId) void loadAdminHistory(state.selectedAdminUserId);
+    }
   }
 }
 
@@ -456,6 +738,17 @@ importStableButton?.addEventListener("click", async () => {
   }
 });
 
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-player-note-form]");
+  if (!form) return;
+  event.preventDefault();
+  saveAdminNote(form).catch((error) => {
+    state.adminError = error.message || "Не удалось сохранить заметку.";
+    setStatus(state.adminError, true);
+    renderAdminCard();
+  });
+});
+
 document.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view-button]");
   if (viewButton) selectView(viewButton.dataset.viewButton);
@@ -464,6 +757,28 @@ document.addEventListener("click", (event) => {
   if (layout) {
     document.querySelectorAll("[data-layout]").forEach((button) => button.classList.toggle("active", button.dataset.layout === layout));
     document.querySelector("[data-builder]").classList.toggle("rows", layout === "rows");
+  }
+
+  const adminUserButton = event.target.closest("[data-admin-user-id]");
+  if (adminUserButton) {
+    selectAdminPlayer(adminUserButton.dataset.adminUserId);
+    return;
+  }
+
+  const profileButton = event.target.closest("[data-admin-profile]");
+  if (profileButton) {
+    api.openExternal(profileButton.dataset.adminProfile).catch((error) => setStatus(error.message || "Не удалось открыть профиль.", true));
+    return;
+  }
+
+  if (event.target.closest("[data-admin-clear]")) {
+    state.selectedAdminUserId = "";
+    state.adminHistoryRequestId += 1;
+    state.adminHistory = [];
+    state.adminError = "";
+    renderAdminList();
+    renderAdminCard();
+    return;
   }
 
   const action = event.target.closest("[data-action]")?.dataset.action;
@@ -495,7 +810,7 @@ api?.onTailStatus((status) => {
 api?.onTailError((error) => setStatus(error?.message || "Ошибка чтения лога", true));
 
 async function initialize() {
-  if (!api) {
+  if (!api || !noteTools) {
     showActivation("Безопасный мост приложения недоступен.", true);
     return;
   }
@@ -513,4 +828,6 @@ async function initialize() {
 }
 
 renderSession();
+renderAdminList();
+renderAdminCard();
 initialize();

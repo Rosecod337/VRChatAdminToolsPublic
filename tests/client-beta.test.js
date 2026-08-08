@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { importStableSettings } = require("../apps/client/src/stable-settings-import");
+const betaAdminNotes = require("../apps/client-beta/renderer/admin-notes");
 
 const root = path.resolve(__dirname, "..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -20,13 +21,14 @@ test("beta client is a separate product that reuses the trusted core", () => {
   assert.match(launcher, /VRCHAT_CLIENT_VARIANT = "beta"/u);
   assert.match(launcher, /client\/src\/main\.js/u);
   assert.match(coreMain, /!app\.isPackaged && developmentOverride/u);
-  assert.match(coreMain, /!AUTO_UPDATES_ENABLED \|\| isBetaClient\(\)/u);
+  assert.match(coreMain, /!app\.isPackaged \|\| isBetaClient\(\)/u);
   assert.match(coreMain, /preserveStableSession = isBetaClient\(\) && settings\.importedStableSession === true/u);
 });
 
 test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   const html = read("apps/client-beta/renderer/index.html");
   const script = read("apps/client-beta/renderer/app.js");
+  const coreMain = read("apps/client/src/main.js");
 
   assert.match(html, /Отдельное приложение · Beta/u);
   assert.match(html, /тот же, что в Stable/u);
@@ -35,13 +37,62 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-import-stable/u);
   assert.match(html, /data-view-button="session"/u);
   assert.match(html, /data-view-button="builder"/u);
+  assert.match(html, /admin-notes\.js/u);
+  assert.match(html, /data-admin-card/u);
+  assert.match(html, /data-app-version/u);
+  assert.match(html, />Запустить</u);
+  assert.match(html, />Остановить</u);
+  assert.doesNotMatch(html, />Start</u);
+  assert.doesNotMatch(html, />Stop</u);
   assert.match(script, /window\.clientApi/u);
   assert.match(script, /author_alias_required/u);
   assert.match(script, /setAuthorAliasRequested\(true\)/u);
   assert.match(script, /api\.importStableSettings\(\)/u);
-  assert.doesNotMatch(script, /api\.vrchatadmintools\.ru/u);
+  assert.match(script, /api\.savePlayerNote\(payload\)/u);
+  assert.match(script, /api\.listPlayerNoteHistory\(userId\)/u);
+  assert.match(script, /adminStatusLabel\(row\.status\)/u);
+  assert.match(coreMain, /appVersion: app\.getVersion\(\)/u);
   assert.doesNotMatch(script, /require\s*\(/u);
   assert.doesNotMatch(script, /ipcRenderer|electron/u);
+});
+
+test("beta player-note helpers normalize server rows and keep one saved record", () => {
+  const normalized = betaAdminNotes.normalizeNote({
+    user_id: " usr_demo_nova ",
+    display_name: " Nova ",
+    status: "watch",
+    note: "  Проверить позже  ",
+    updated_at: "2026-08-01T20:35:00.000Z",
+    updated_by_key: "VRC-PREVIEW",
+    updated_by_label: "Beta Preview"
+  });
+
+  assert.deepEqual(normalized, {
+    userId: "usr_demo_nova",
+    displayName: "Nova",
+    status: "watch",
+    note: "Проверить позже",
+    updatedAt: "2026-08-01T20:35:00.000Z",
+    updatedByKey: "VRC-PREVIEW",
+    updatedByLabel: "Beta Preview"
+  });
+
+  const payload = betaAdminNotes.editorPayload(normalized, { status: "warned", note: "  Новая заметка  " });
+  assert.deepEqual(payload, {
+    userId: "usr_demo_nova",
+    displayName: "Nova",
+    status: "warned",
+    note: "Новая заметка"
+  });
+
+  const merged = betaAdminNotes.mergeSavedNote([
+    normalized,
+    { userId: "usr_demo_mira", displayName: "Mira", status: "ok", note: "" }
+  ], { ...payload, updated_at: "2026-08-01T21:00:00.000Z" }, normalized);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].userId, "usr_demo_nova");
+  assert.equal(merged[0].status, "warned");
+  assert.equal(merged[1].userId, "usr_demo_mira");
 });
 
 test("beta imports a private copy of the Stable session without changing Stable", async (context) => {

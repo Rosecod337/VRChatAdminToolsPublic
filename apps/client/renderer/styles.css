@@ -246,7 +246,6 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .toolbar {
   display: flex;
   gap: 9px;
@@ -272,12 +271,16 @@ h2 {
 
 .tabs {
   display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
   padding: 12px 22px 0;
   background: var(--bg);
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .tab {
+  flex: 0 0 auto;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -630,6 +633,121 @@ h2 {
   }
 }
 
+/* ── Мой VRChat ─────────────────────────────────────────────── */
+
+.myVrchatSubtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.myVrchatContent {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.myVrchatStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 10px;
+}
+
+.myVrchatStats > div {
+  display: grid;
+  gap: 6px;
+  min-height: 90px;
+  align-content: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(97, 218, 251, 0.1), rgba(15, 22, 31, 0.72));
+}
+
+.myVrchatStats strong {
+  font-size: clamp(20px, 2vw, 30px);
+  line-height: 1;
+}
+
+.myVrchatStats span,
+.myVrchatCard header span,
+.myVrchatPrivacy {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.myVrchatColumns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.myVrchatCard {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(10, 16, 24, 0.62);
+}
+
+.myVrchatCard header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.myVrchatCard h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.myVrchatEncounterList,
+.myVrchatWorldList {
+  display: grid;
+  gap: 7px;
+}
+
+.myVrchatEncounter,
+.myVrchatWorldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.myVrchatEncounter {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+}
+
+.myVrchatEncounter span,
+.myVrchatWorldRow span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.myVrchatEncounter strong,
+.myVrchatWorldRow strong {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.myVrchatPrivacy {
+  margin: 0;
+  line-height: 1.45;
+}
+
 /* ── История сессий ─────────────────────────────────────────── */
 
 .historyList {
@@ -729,6 +847,28 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.historyPlayerLink,
+.crashPlayerLink {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyPlayerLink:hover,
+.crashPlayerLink:hover {
+  color: var(--accent);
+  background: transparent;
 }
 
 .historyPlayerList em {
@@ -917,8 +1057,17 @@ h2 {
 .adminHeaderActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
-  min-width: 420px;
+  min-width: 0;
+}
+
+.adminPane .paneHeader {
+  height: auto;
+  min-height: 52px;
+  padding-top: 7px;
+  padding-bottom: 7px;
 }
 
 .adminLayout {
@@ -1055,6 +1204,11 @@ h2 {
 .eventAction--danger {
   border-color: rgba(217, 107, 95, 0.65);
   color: #ffb4aa;
+}
+
+.eventAction--success {
+  border-color: rgba(74, 222, 128, 0.65);
+  color: #86efac;
 }
 
 .moderationDialog {
@@ -1208,7 +1362,7 @@ h2 {
   flex: 1 1 600px;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(150px, 180px) minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(150px, 180px) minmax(220px, 1fr) auto minmax(125px, 155px) auto auto;
   align-items: center;
   justify-content: stretch;
 }
@@ -1220,6 +1374,12 @@ h2 {
 
 .ownerPane .adminHeaderActions button {
   white-space: nowrap;
+}
+
+@media (max-width: 1400px) {
+  .ownerPane .adminHeaderActions {
+    grid-template-columns: minmax(150px, 1fr) minmax(220px, 2fr) auto;
+  }
 }
 
 .ownerGroupMemberPanel {
@@ -1287,7 +1447,8 @@ h2 {
   resize: vertical;
 }
 
-.ownerGroupPager {
+.ownerGroupPager,
+.playerListPager {
   position: sticky;
   bottom: 0;
   display: grid;
@@ -1300,7 +1461,8 @@ h2 {
   text-align: center;
 }
 
-.ownerGroupPager span {
+.ownerGroupPager span,
+.playerListPager span {
   color: var(--muted);
   font-size: 11px;
 }
@@ -1503,6 +1665,16 @@ h2 {
   border-color: var(--accent);
   color: #071008;
   font-weight: 700;
+}
+
+.playerActionDialog {
+  max-width: 440px;
+}
+
+.playerActionChoices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .adminStats {
@@ -2305,3 +2477,4 @@ body.compactMode .builderMiniList .eventDetailsLine {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Stable 1.1.7 */
