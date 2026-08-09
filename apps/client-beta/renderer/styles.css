@@ -207,6 +207,7 @@ textarea:focus-visible,
 .statusNotice[data-kind="error"] { color: var(--red); }
 .windowActions { display: flex; justify-content: flex-end; gap: 8px; min-width: 0; }
 .windowActions button { min-height: 36px; }
+.compactExitButton { display: none; }
 .headerHideButton { width: 36px; padding: 0; color: var(--muted); }
 .headerRevealButton {
   position: fixed;
@@ -712,12 +713,25 @@ button.insightRow:hover { border-color: var(--line-soft); background: rgba(88, 2
 .builderRow[data-online="true"] strong { color: var(--green); }
 .builderEmpty { min-height: 108px; display: grid; place-items: center; padding: 18px; color: var(--muted); text-align: center; }
 .appShell.compactMode .workspaceToolbar { display: none; }
-.appShell.compactMode { grid-template-rows: 58px 0 minmax(0, 1fr); }
-.appShell.headerHidden.compactMode { grid-template-rows: 0 0 minmax(0, 1fr); }
+.appShell.compactMode { grid-template-rows: 58px minmax(0, 1fr); }
+.appShell.headerHidden.compactMode { grid-template-rows: 0 minmax(0, 1fr); }
 .appShell.compactMode .appTitlebar { min-height: 58px; grid-template-columns: minmax(0, 1fr); padding-inline: 18px; }
 .appShell.headerHidden.compactMode .appTitlebar { min-height: 0; }
 .appShell.compactMode .runtimeState,
 .appShell.compactMode .windowActions { display: none; }
+.appShell.compactMode .compactExitButton {
+  position: fixed;
+  z-index: 50;
+  top: 12px;
+  right: 14px;
+  display: block;
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: rgba(88, 214, 231, 0.42);
+  background: rgba(9, 17, 25, 0.96);
+  color: var(--cyan);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.34);
+}
 .appShell.compactMode .viewPanel { min-height: 0; padding: 10px 12px 14px; }
 .appShell.compactMode .builderIntro p,
 .appShell.compactMode .builderControls { display: none; }
@@ -826,7 +840,7 @@ button.insightRow:hover { border-color: var(--line-soft); background: rgba(88, 2
 }
 
 /* Compact Builder owns the complete window layout, including narrow windows. */
-.appShell.compactMode { grid-template-rows: 58px 0 minmax(0, 1fr); }
-.appShell.headerHidden.compactMode { grid-template-rows: 0 0 minmax(0, 1fr); }
+.appShell.compactMode { grid-template-rows: 58px minmax(0, 1fr); }
+.appShell.headerHidden.compactMode { grid-template-rows: 0 minmax(0, 1fr); }
 .appShell.compactMode .viewPanel { padding-inline: 12px; }
 .appShell.compactMode .builderWindowActions { flex-wrap: nowrap; }

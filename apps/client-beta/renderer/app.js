@@ -937,7 +937,7 @@ function createPreviewApi() {
   }
   return {
     getSettings: async () => ({
-      appVersion: "1.2.0-beta.1",
+      appVersion: "1.2.0-beta.2",
       hasSession: !activationPreviewMode,
       hasVrchatAuthCookie: previewHasVrchatAuthCookie,
       serverUrl: "https://api.vrchatadmintools.ru",
@@ -3772,6 +3772,11 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-builder-compact-exit]")) {
+    if (state.builderCompact) setBuilderCompact().catch((error) => setStatus(error.message || "Не удалось изменить размер окна.", true));
+    return;
+  }
+
   if (event.target.closest("[data-builder-reset]")) {
     if (!window.confirm("Сбросить расположение блоков и настройки окна Builder?")) return;
     resetBuilder().catch((error) => setStatus(error.message || "Не удалось сбросить Builder.", true));
@@ -4332,6 +4337,7 @@ document.addEventListener("keydown", (event) => {
   else if (settingsDialog?.open) closeSettings();
   else if (ownerDialog?.open) closeOwnerDialog();
   else if (!playerDrawer?.hidden) closeSessionPlayer();
+  else if (state.builderCompact) setBuilderCompact().catch((error) => setStatus(error.message || "Не удалось изменить размер окна.", true));
 });
 
 function resetAnalysisEvents() {

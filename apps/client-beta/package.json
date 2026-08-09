@@ -1,7 +1,7 @@
 {
   "name": "vrchat-admin-tools-beta",
   "productName": "VRChat Admin Tools Beta",
-  "version": "1.2.0-beta.1",
+  "version": "1.2.0-beta.2",
   "main": "src/main.js",
   "private": true,
   "description": "Separate beta client for the next VRChat Admin Tools interface.",

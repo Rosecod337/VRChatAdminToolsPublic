@@ -97,6 +97,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-builder-on-top/u);
   assert.match(html, /data-builder-opacity/u);
   assert.match(html, /data-builder-compact/u);
+  assert.match(html, /data-builder-compact-exit/u);
   assert.match(html, /data-view-button="history"/u);
   assert.match(html, /data-history-search/u);
   assert.match(html, /data-history-date/u);
@@ -186,6 +187,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /api\.setAlwaysOnTop/u);
   assert.match(script, /api\.setWindowOpacity/u);
   assert.match(script, /api\.setCompactMode/u);
+  assert.match(script, /state\.builderCompact\) setBuilderCompact/u);
   assert.match(script, /dataTransfer\.setData/u);
   assert.match(script, /betaBuilderOrder/u);
   assert.match(script, /filteredHistorySessions/u);
@@ -200,6 +202,8 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /eventLimit/u);
   assert.match(script, /api\.showNotification/u);
   assert.match(script, /function syncNotificationMonitoring\(/u);
+  assert.match(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+minmax\(0,\s*1fr\)/u);
+  assert.doesNotMatch(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+0\s+minmax/u);
   assert.match(script, /function runButtonOperation\(/u);
   assert.match(script, /ACTION_PENDING_LABELS/u);
   assert.match(script, /api\.updatePlaySession\(currentPlaySessionStats\(\)\)/u);
