@@ -64,6 +64,7 @@ let heartbeatTimer;
 let runtimeConfigTimer;
 let initialRuntimeConfigRefresh;
 let currentPlaySessionId = null;
+let pendingPlaySessionWorldName = null;
 let playSessionFinalization = null;
 let quitFinalizationStarted = false;
 let normalWindowBounds = null;
@@ -663,11 +664,22 @@ ipcMain.handle("tail:start", async (_event, options) => {
   await endCurrentPlaySession().catch(() => {});
   const safeOptions = sanitizeLogOptions(options || {});
   await tailer.start(safeOptions);
-
-  await startCurrentPlaySession(safeOptions.worldName);
+  const deferPlaySession = isBetaClient() && safeOptions.deferPlaySession === true;
+  pendingPlaySessionWorldName = safeOptions.worldName || null;
+  if (!deferPlaySession) await startCurrentPlaySession(safeOptions.worldName);
 
   return { ok: true, playSessionId: currentPlaySessionId };
 });
+
+function hasMeaningfulPlaySessionStats(stats) {
+  return Boolean(
+    String(stats?.worldName || "").trim()
+    || Number(stats?.playerCount) > 0
+    || Number(stats?.avatarCount) > 0
+    || Number(stats?.eventCount) > 0
+    || (Array.isArray(stats?.snapshot?.players) && stats.snapshot.players.length > 0)
+  );
+}
 
 async function updateCurrentPlaySession(stats, end = false) {
   if (!currentPlaySessionId) return { ok: false, error: "no_active_play_session" };
@@ -705,7 +717,15 @@ async function endCurrentPlaySession(stats = null) {
 
 ipcMain.handle("tail:update-session", async (_event, stats) => {
   try {
-    return await updateCurrentPlaySession(stats, false);
+    if (!currentPlaySessionId) {
+      if (!isBetaClient() || !hasMeaningfulPlaySessionStats(stats)) {
+        return isBetaClient() ? { ok: true, deferred: true, playSessionId: null } : { ok: false, error: "no_active_play_session" };
+      }
+      await startCurrentPlaySession(stats?.worldName || pendingPlaySessionWorldName || null);
+      if (!currentPlaySessionId) return { ok: false, error: "play_session_start_failed" };
+    }
+    const result = await updateCurrentPlaySession(stats, false);
+    return { ...result, playSessionId: currentPlaySessionId };
   } catch {
     return { ok: false };
   }
@@ -713,6 +733,7 @@ ipcMain.handle("tail:update-session", async (_event, stats) => {
 
 ipcMain.handle("tail:stop", async (_event, stats) => {
   await endCurrentPlaySession(stats);
+  pendingPlaySessionWorldName = null;
   await tailer.stop();
   return { ok: true };
 });
@@ -1146,7 +1167,8 @@ ipcMain.handle("tail:analyze-current-instance", async (_event, options) => {
     ...safeOptions,
     expectedLocation: currentUser
   });
-  if (!currentPlaySessionId) {
+  pendingPlaySessionWorldName = currentInstance?.worldName || currentUser?.worldName || safeOptions.worldName || null;
+  if (!currentPlaySessionId && !(isBetaClient() && safeOptions.deferPlaySession === true)) {
     await startCurrentPlaySession(currentInstance?.worldName || currentUser?.worldName || null);
   }
   return { ok: true, currentUser, currentInstance, followState, playSessionId: currentPlaySessionId };
@@ -1214,12 +1236,12 @@ ipcMain.handle("window:set-compact", (_event, enabled) => {
   if (next) {
     if (!normalWindowBounds) normalWindowBounds = mainWindow.getBounds();
     const current = mainWindow.getBounds();
-    mainWindow.setMinimumSize(480, 320);
+    mainWindow.setMinimumSize(560, 360);
     mainWindow.setBounds({
       x: current.x,
       y: current.y,
-      width: Math.min(current.width, 640),
-      height: Math.min(current.height, 420)
+      width: Math.min(current.width, 720),
+      height: Math.min(current.height, 520)
     }, true);
   } else {
     const target = normalWindowBounds || { ...mainWindow.getBounds(), width: 1240, height: 820 };

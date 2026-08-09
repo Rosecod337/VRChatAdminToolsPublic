@@ -7,12 +7,17 @@
   <title>VRChat Admin Tools Beta</title>
   <link rel="stylesheet" href="styles.css">
   <script src="admin-notes.js" defer></script>
+  <script src="session-model.js" defer></script>
+  <script src="crash-model.js" defer></script>
+  <script src="insights-model.js" defer></script>
+  <script src="avatar-model.js" defer></script>
+  <script src="notification-model.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <section class="activationView" data-activation-view>
     <form class="activationCard" data-activation-form>
-      <div class="betaLogo" aria-hidden="true">V</div>
+      <div class="betaLogo" aria-hidden="true"><img src="app-logo.png" alt=""></div>
       <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta использует отдельную копию настроек и не изменяет Stable.</p></div>
       <label>
         <span>Ключ доступа <small>тот же, что в Stable</small></span>
@@ -24,82 +29,349 @@
         <input name="authorAlias" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
         <small>Публичная подпись рядом с вашими командными заметками и отметками. Она запрашивается один раз.</small>
       </label>
-      <label>VRChat cookie <small>необязательно</small><input name="vrchatAuthCookie" type="password" autocomplete="off" placeholder="auth=..."></label>
+      <label>VRChat cookie <small>необязательно</small><input name="vrchatAuthCookie" type="password" autocomplete="off" placeholder="auth=..."><small>Можно проверить аккаунт до входа. Cookie хранится только в настройках приложения.</small></label>
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
-      <button class="primaryButton" type="submit">Войти в Beta</button>
+      <div class="activationActions">
+        <button type="button" data-check-vrchat>Проверить VRChat</button>
+        <button class="primaryButton" type="submit">Войти в Beta</button>
+      </div>
       <button type="button" data-import-stable>Использовать вход из Stable</button>
       <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
     </form>
   </section>
 
   <div class="appShell" data-app-view hidden>
-    <aside class="sidebar">
-      <div class="brand"><span class="brandMark">V</span><div><strong>VRChat Admin Tools</strong><em data-app-version>Beta</em></div></div>
-      <nav aria-label="Разделы Beta">
-        <button class="navItem active" type="button" data-view-button="session"><span>01</span>Сессия</button>
-        <button class="navItem" type="button" data-view-button="insights"><span>02</span>Мой VRChat</button>
-        <button class="navItem" type="button" data-view-button="admin"><span>03</span>Admin Tools</button>
-        <button class="navItem" type="button" data-view-button="crash"><span>04</span>Crash Analyzer</button>
-        <button class="navItem" type="button" data-view-button="builder"><span>05</span>Builder Beta</button>
-      </nav>
-      <div class="sidebarNote"><i></i><span>Beta развивается отдельно и не заменяет Stable.</span></div>
-    </aside>
+    <header class="appTitlebar">
+      <div class="brand">
+        <span class="brandMark" aria-hidden="true"><img src="app-logo.png" alt=""></span>
+        <div><strong>VRChat Admin Tools</strong><em data-app-version>Beta</em></div>
+      </div>
+      <div class="runtimeStateWrap">
+        <button class="runtimeState" type="button" data-status-center-toggle data-status-kind="idle" aria-expanded="false" aria-controls="statusCenter" title="Открыть уведомления">
+          <span class="connectionDot"></span>
+          <span class="runtimeStatusCopy" role="status" aria-live="polite"><strong data-runtime-status-title>Состояние</strong><span data-runtime-status>Готово к запуску</span></span>
+          <span class="statusUnread" data-status-unread hidden>0</span>
+        </button>
+        <section class="statusCenter" id="statusCenter" data-status-center hidden aria-label="Последние уведомления">
+          <header><div><span class="eyebrow">События приложения</span><h2>Уведомления</h2></div><button type="button" data-status-clear>Очистить</button></header>
+          <div class="statusCenterList" data-status-list><p class="emptyState">Новых уведомлений нет.</p></div>
+        </section>
+      </div>
+      <div class="windowActions">
+        <button class="headerHideButton" type="button" data-header-hide aria-label="Скрыть верхнюю панель" title="Скрыть верхнюю панель">↑</button>
+        <button type="button" data-settings-open>Настройки</button>
+        <button class="updateButton" type="button" data-action="update" hidden>Установить обновление</button>
+        <button class="logoutButton" type="button" data-action="logout">Выйти</button>
+      </div>
+    </header>
+
+    <button class="headerRevealButton" type="button" data-header-show aria-label="Показать верхнюю панель" title="Показать верхнюю панель">↓</button>
+
+    <div class="workspaceToolbar">
+      <div class="headerActions" aria-label="Основные действия">
+        <button type="button" data-action="choose">Выбрать лог</button>
+        <button type="button" data-action="analyze">Анализ</button>
+        <button type="button" data-action="snapshot">Снимок</button>
+        <button type="button" data-action="community">Сообщество</button>
+        <button class="primaryButton" type="button" data-action="start">Запустить</button>
+        <button type="button" data-action="stop" disabled>Остановить</button>
+      </div>
+      <div class="toolbarMeta">
+        <code data-file-path>Лог ещё не выбран</code>
+        <span data-event-count>0 событий</span>
+      </div>
+    </div>
+
+    <nav class="topNavigation" role="tablist" aria-label="Разделы Beta">
+      <button class="navItem active" id="viewTabSession" type="button" role="tab" aria-selected="true" aria-controls="viewPanelSession" data-view-button="session">Сессия</button>
+      <button class="navItem" id="viewTabAdmin" type="button" role="tab" aria-selected="false" aria-controls="viewPanelAdmin" tabindex="-1" data-view-button="admin">Admin Tools</button>
+      <button class="navItem" id="viewTabOwner" type="button" role="tab" aria-selected="false" aria-controls="viewPanelOwner" tabindex="-1" data-view-button="owner">Owner</button>
+      <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-view-button="crash">Crash Analyzer</button>
+      <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-view-button="insights">Мой VRChat</button>
+      <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-view-button="history">История</button>
+      <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-view-button="builder">Ещё · Builder</button>
+    </nav>
 
     <main class="workspace">
-      <header class="workspaceHeader">
-        <div><span class="eyebrow" data-page-eyebrow>Текущая сессия</span><h1 data-page-title>Живая сессия</h1></div>
-        <div class="headerActions">
-          <button type="button" data-action="choose">Выбрать лог</button>
-          <button class="primaryButton" type="button" data-action="start">Запустить</button>
-          <button type="button" data-action="stop" disabled>Остановить</button>
-          <button type="button" data-action="logout">Выйти</button>
+      <span class="visuallyHidden" data-page-eyebrow>Текущая сессия</span>
+      <span class="visuallyHidden" data-page-title>Живая сессия</span>
+      <section class="viewPanel active" id="viewPanelSession" role="tabpanel" aria-labelledby="viewTabSession" data-view="session">
+        <div class="sectionIntro sessionIntro">
+          <div><span class="eyebrow">События локального лога</span><h2>Сессия в реальном времени</h2><p>Кто находится в инстансе и что происходило в текущей сессии.</p></div>
+          <span class="onlineSummary"><strong data-online-badge>0</strong> онлайн</span>
         </div>
-      </header>
-
-      <div class="sessionStrip"><span class="connectionDot"></span><strong data-runtime-status>Готово к запуску</strong><code data-file-path>Лог ещё не выбран</code><span data-event-count>0 событий</span></div>
-
-      <section class="viewPanel active" data-view="session">
-        <div class="metricGrid">
-          <article><span>Онлайн</span><strong data-metric="online">0</strong><em>сейчас в мире</em></article>
-          <article><span>Пик</span><strong data-metric="peak">0</strong><em>за сессию</em></article>
-          <article><span>Игроков</span><strong data-metric="unique">0</strong><em>уникальных</em></article>
-          <article><span>Мир</span><strong class="worldMetric" data-metric="world">—</strong><em>последний из лога</em></article>
+        <div class="segmented sessionSubnav" role="tablist" aria-label="Экраны Сессии">
+          <button class="active" id="sessionTabFeed" type="button" role="tab" aria-selected="true" aria-controls="sessionPaneFeed" data-session-section="feed">Лента</button>
+          <button id="sessionTabAvatars" type="button" role="tab" aria-selected="false" aria-controls="sessionPaneAvatars" tabindex="-1" data-session-section="avatars">Аватары</button>
+          <button id="sessionTabDashboard" type="button" role="tab" aria-selected="false" aria-controls="sessionPaneDashboard" tabindex="-1" data-session-section="dashboard">Дашборд</button>
         </div>
-        <div class="sessionGrid">
-          <article class="panel"><header><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><span data-feed-count>0 записей</span></header><div class="eventFeed" data-event-feed><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
-          <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки рядом</h2></div></header><div class="playerList" data-player-list><p class="emptyState">Пока никого нет.</p></div></article>
+        <div class="sessionPane active" id="sessionPaneFeed" role="tabpanel" aria-labelledby="sessionTabFeed" data-session-pane="feed">
+          <div class="metricGrid">
+            <article><span>Онлайн</span><strong data-metric="online">0</strong><em>сейчас в мире</em></article>
+            <article><span>Пик</span><strong data-metric="peak">0</strong><em>за сессию</em></article>
+            <article><span>Игроков</span><strong data-metric="unique">0</strong><em>уникальных</em></article>
+            <article><span>Мир</span><strong class="worldMetric" data-metric="world">—</strong><em>последний из лога</em></article>
+          </div>
+          <div class="sessionFilters" aria-label="Фильтр игроков">
+            <div class="segmented playerMode">
+              <button class="active" type="button" data-session-player-mode="online-first" aria-pressed="true">Онлайн сначала</button>
+              <button type="button" data-session-player-mode="online-only" aria-pressed="false">Только онлайн</button>
+              <button type="button" data-session-player-mode="all" aria-pressed="false">Все за сессию</button>
+            </div>
+            <label class="playerSearch"><span class="visuallyHidden">Поиск игрока</span><input type="search" data-session-player-search placeholder="Поиск игрока или User ID…" autocomplete="off"></label>
+          </div>
+          <div class="sessionGrid">
+            <article class="panel"><header><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><span data-feed-count>0 записей</span></header><div class="eventFeed" data-event-feed tabindex="0" aria-label="Лента событий"><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
+            <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки сессии</h2></div><span data-player-count>0 игроков</span></header><div class="playerList" data-player-list tabindex="0" aria-label="Игроки сессии"><p class="emptyState">Пока никого нет.</p></div></article>
+          </div>
+        </div>
+
+        <div class="sessionPane" id="sessionPaneAvatars" role="tabpanel" aria-labelledby="sessionTabAvatars" data-session-pane="avatars" hidden>
+          <div class="metricGrid compact">
+            <article><span>Событий аватаров</span><strong data-avatar-metric="events">0</strong><em>за сессию</em></article>
+            <article><span>Уникальных</span><strong data-avatar-metric="unique">0</strong><em>по имени или ID</em></article>
+            <article><span>С Avatar ID</span><strong data-avatar-metric="resolved">0</strong><em>подтверждённых</em></article>
+            <article><span>Игроков</span><strong data-avatar-metric="players">0</strong><em>меняли аватар</em></article>
+          </div>
+          <div class="avatarToolbar">
+            <label class="playerSearch"><span class="visuallyHidden">Поиск аватара</span><input type="search" data-avatar-search placeholder="Название, Avatar ID или игрок…" autocomplete="off"></label>
+            <label><span class="visuallyHidden">Фильтр аватаров</span><select data-avatar-filter><option value="all">Все аватары</option><option value="crash">С меткой crash</option><option value="unresolved">Без Avatar ID</option></select></label>
+            <button type="button" data-avatar-refresh>Обновить каталог</button>
+          </div>
+          <div class="avatarManagerLayout">
+            <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><span data-avatar-count>0 записей</span></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
+            <article class="panel avatarDetail adminPreviewEmpty" data-avatar-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Avatar ID, командная метка и общие публикации появятся здесь.</p></article>
+          </div>
+        </div>
+
+        <div class="sessionPane" id="sessionPaneDashboard" role="tabpanel" aria-labelledby="sessionTabDashboard" data-session-pane="dashboard" hidden>
+          <div class="metricGrid compact dashboardMetrics">
+            <article><span>Входов</span><strong data-dashboard-metric="joins">0</strong></article>
+            <article><span>Выходов</span><strong data-dashboard-metric="leaves">0</strong></article>
+            <article><span>Аватаров</span><strong data-dashboard-metric="avatars">0</strong></article>
+            <article><span>Смен мира</span><strong data-dashboard-metric="worlds">0</strong></article>
+            <article><span>Длительность</span><strong data-dashboard-duration>0 мин</strong></article>
+            <article><span>Событий</span><strong data-dashboard-total>0</strong></article>
+          </div>
+          <div class="dashboardGrid">
+            <article class="panel dashboardActivity"><header><div><span class="eyebrow">Состав событий</span><h2>Активность сессии</h2></div></header><div data-dashboard-bars></div></article>
+            <article class="panel dashboardRecent"><header><div><span class="eyebrow">Хронология</span><h2>Важные события</h2></div></header><div data-dashboard-recent><p class="emptyState">Важных событий пока нет.</p></div></article>
+          </div>
         </div>
       </section>
 
-      <section class="viewPanel" data-view="insights" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">Личная история</span><h2>Мой VRChat</h2></div><button type="button" data-action="refresh-insights">Обновить</button></div>
-        <div class="metricGrid compact"><article><span>Сессий</span><strong data-insight="sessions">—</strong></article><article><span>Времени</span><strong data-insight="duration">—</strong></article><article><span>Миров</span><strong data-insight="worlds">—</strong></article><article><span>Встреч</span><strong data-insight="players">—</strong></article></div>
-        <article class="panel listPanel"><header><h2>Последние сессии</h2></header><div data-session-list><p class="emptyState">История загрузится после входа.</p></div></article>
+      <section class="viewPanel" id="viewPanelInsights" role="tabpanel" aria-labelledby="viewTabInsights" data-view="insights" hidden>
+        <div class="sectionIntro insightsIntro">
+          <div><span class="eyebrow">Личная история этого устройства</span><h2>Мой VRChat</h2><p>Сессии, миры и люди — без чтения друзей, голоса или личных сообщений.</p></div>
+          <div class="panelHeaderActions">
+            <select data-insights-period aria-label="Период статистики"><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option><option value="all">Всё время</option></select>
+            <button type="button" data-insights-copy>Копировать итог</button>
+            <button type="button" data-action="refresh-insights">Обновить</button>
+          </div>
+        </div>
+        <div class="insightsRuntime">
+          <article><span>Текущий пользователь</span><strong data-insight-current-user>Не проверен</strong></article>
+          <article><span>Текущий инстанс</span><strong data-insight-current-instance>Не проверен</strong></article>
+        </div>
+        <div class="metricGrid compact insightsMetrics">
+          <article><span>Сессий</span><strong data-insight="sessions">—</strong></article>
+          <article><span>Времени</span><strong data-insight="duration">—</strong></article>
+          <article><span>Миров</span><strong data-insight="worlds">—</strong></article>
+          <article><span>Уникальных игроков</span><strong data-insight="players">—</strong></article>
+          <article><span>Повторных встреч</span><strong data-insight="recurring">—</strong></article>
+          <article><span>Всего встреч</span><strong data-insight="encounters">—</strong></article>
+        </div>
+        <div class="insightsColumns">
+          <article class="panel insightCard"><header><div><span class="eyebrow">Чаще рядом</span><h2>Повторные встречи</h2></div></header><div data-insight-players><p class="emptyState">Нет повторных встреч.</p></div></article>
+          <article class="panel insightCard"><header><div><span class="eyebrow">Где бывали</span><h2>Миры</h2></div></header><div data-insight-worlds><p class="emptyState">Миры ещё не сохранены.</p></div></article>
+        </div>
+        <div class="insightSessionsLayout">
+          <article class="panel listPanel insightSessionPanel"><header><div><span class="eyebrow">Последние</span><h2>Сохранённые сессии</h2></div><span data-insight-session-count>0 записей</span></header><div data-session-list><p class="emptyState">История загрузится после входа.</p></div></article>
+          <article class="panel insightSessionDetail" data-insight-session-detail><span class="profileAvatar">S</span><h2>Выберите сессию</h2><p>Мир, длительность и сохранённые встречи появятся здесь.</p></article>
+        </div>
       </section>
 
-      <section class="viewPanel" data-view="admin" hidden>
+      <section class="viewPanel" id="viewPanelHistory" role="tabpanel" aria-labelledby="viewTabHistory" data-view="history" hidden>
+        <div class="sectionIntro historyIntro">
+          <div><span class="eyebrow">Сохранено на сервере</span><h2>История сессий</h2><p>Поиск по мирам, игрокам и состоянию сохранённых запусков.</p></div>
+          <button type="button" data-action="refresh-history">Обновить</button>
+        </div>
+        <div class="historyFilters">
+          <label class="playerSearch"><span class="visuallyHidden">Поиск в истории</span><input type="search" data-history-search placeholder="Мир, игрок, User ID или метка…" autocomplete="off"></label>
+          <label><span class="visuallyHidden">Дата сессии</span><input type="date" data-history-date title="Дата сессии"></label>
+          <label><span class="visuallyHidden">Состояние сессии</span><select data-history-state><option value="all">Все сессии</option><option value="active">В процессе</option><option value="ended">Завершённые</option></select></label>
+          <button type="button" data-history-reset>Сбросить</button>
+        </div>
+        <div class="historyLayout">
+          <article class="panel listPanel historyListPanel"><header><div><span class="eyebrow">Архив</span><h2>Сессии</h2></div><span data-history-count>0 записей</span></header><div class="historyList" data-history-list tabindex="0" aria-label="История сессий"><p class="emptyState">История ещё не загружена.</p></div></article>
+          <article class="panel historyDetail adminPreviewEmpty" data-history-detail><span class="profileAvatar">H</span><h2>Выберите сессию</h2><p>Мир, длительность и участники появятся здесь.</p></article>
+        </div>
+      </section>
+
+      <section class="viewPanel" id="viewPanelAdmin" role="tabpanel" aria-labelledby="viewTabAdmin" data-view="admin" hidden>
+        <div class="sectionIntro adminIntro">
+          <div><span class="eyebrow">Командная работа</span><h2>Admin Tools</h2><p>Игроки из текущей сессии, логов за сегодня и общих командных заметок.</p></div>
+          <button type="button" data-action="refresh-admin">Обновить</button>
+        </div>
+        <div class="adminToolbar">
+          <label class="playerSearch"><span class="visuallyHidden">Поиск игрока Admin Tools</span><input type="search" data-admin-search placeholder="Имя, User ID или заметка…" autocomplete="off"></label>
+          <div class="segmented adminMode" aria-label="Фильтр игроков Admin Tools">
+            <button class="active" type="button" data-admin-mode="online-first" aria-pressed="true">Онлайн сначала</button>
+            <button type="button" data-admin-mode="online-only" aria-pressed="false">Только онлайн</button>
+            <button type="button" data-admin-mode="all" aria-pressed="false">Все</button>
+          </div>
+          <button type="button" data-admin-today>Игроки за сегодня</button>
+          <button type="button" data-admin-copy>Копировать снимок</button>
+        </div>
         <div class="adminLayout">
           <article class="panel listPanel adminListPanel">
-            <header><h2>Сохранённые игроки</h2><div class="panelHeaderActions"><span data-note-count>—</span><button type="button" data-action="refresh-admin">Обновить</button></div></header>
-            <div data-note-list><p class="emptyState">Заметки ещё не загружены.</p></div>
+            <header><h2>Игроки</h2><div class="panelHeaderActions"><span data-note-count>—</span></div></header>
+            <div data-note-list tabindex="0" aria-label="Игроки Admin Tools"><p class="emptyState">Заметки ещё не загружены.</p></div>
           </article>
           <article class="panel adminPreview" data-admin-card aria-live="polite">
-            <span class="profileAvatar">N</span><h2>Выберите игрока</h2><p>Откройте сохранённого игрока слева, чтобы изменить командную метку или заметку.</p>
+            <span class="profileAvatar playerMarker" aria-hidden="true"></span><h2>Выберите игрока</h2><p>Откройте сохранённого игрока слева, чтобы изменить командную метку или заметку.</p>
           </article>
         </div>
       </section>
 
-      <section class="viewPanel" data-view="crash" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">Осторожный анализ</span><h2>Crash Analyzer</h2></div><button type="button" data-action="refresh-crash">Проверить</button></div>
-        <div class="crashNotice"><strong>Это не доказательство.</strong><p>Beta показывает состояние процесса и лога, но не назначает виновного. Подробный перенос анализа будет подключён после проверки новой ленты событий.</p></div>
-        <div class="metricGrid compact"><article><span>VRChat</span><strong data-crash="process">—</strong></article><article><span>Лог</span><strong data-crash="log">—</strong></article><article><span>Обновлён</span><strong class="smallMetric" data-crash="updated">—</strong></article></div>
+      <section class="viewPanel" id="viewPanelOwner" role="tabpanel" aria-labelledby="viewTabOwner" data-view="owner" hidden>
+        <div class="sectionIntro ownerIntro">
+          <div><span class="eyebrow">Доступ владельца</span><h2>Owner</h2><p data-owner-group>VRChat-группа не настроена</p></div>
+          <button type="button" data-action="refresh-owner">Обновить</button>
+        </div>
+        <div class="ownerToolbar">
+          <div class="segmented ownerSource" aria-label="Источник игроков Owner">
+            <button class="active" type="button" data-owner-source="logs" aria-pressed="true">Логи</button>
+            <button type="button" data-owner-source="group" aria-pressed="false">Группа</button>
+          </div>
+          <label class="playerSearch"><span class="visuallyHidden">Поиск игрока Owner</span><input type="search" data-owner-search placeholder="Имя, User ID или ссылка VRChat…" autocomplete="off"></label>
+          <div class="segmented ownerMode" aria-label="Фильтр игроков Owner">
+            <button class="active" type="button" data-owner-mode="online-first" aria-pressed="true">Онлайн сначала</button>
+            <button type="button" data-owner-mode="online-only" aria-pressed="false">Только онлайн</button>
+            <button type="button" data-owner-mode="all" aria-pressed="false">Все</button>
+          </div>
+          <button type="button" data-owner-today>Игроки за сегодня</button>
+          <button type="button" data-owner-group-load hidden>Найти в группе</button>
+        </div>
+        <div class="adminLayout ownerLayout">
+          <article class="panel listPanel adminListPanel">
+            <header><h2>Игроки</h2><span data-owner-count>0 игроков</span></header>
+            <div class="ownerPlayerList" data-owner-list tabindex="0" aria-label="Игроки Owner"><p class="emptyState">Запустите чтение лога или загрузите игроков за сегодня.</p></div>
+          </article>
+          <article class="panel adminPreview ownerPreview" data-owner-card aria-live="polite">
+            <span class="profileAvatar playerMarker" aria-hidden="true"></span><h2>Выберите игрока</h2><p>Профиль, командная заметка и подтверждаемые действия появятся здесь.</p>
+          </article>
+        </div>
       </section>
 
-      <section class="viewPanel" data-view="builder" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">Новый конструктор</span><h2>Builder Beta</h2></div><div class="segmented"><button class="active" type="button" data-layout="grid">Grid</button><button type="button" data-layout="rows">Rows</button></div></div>
-        <div class="betaBuilder" data-builder><article class="panel"><header><h2>События</h2><span>Перетаскивание позже</span></header><div class="miniRows"><span>Nova вошёл<em>сейчас</em></span><span>Mira сменила аватар<em>2 мин</em></span></div></article><article class="panel"><header><h2>Игроки рядом</h2><span>Компактный блок</span></header><div class="miniRows"><span>Nova · watch<em>онлайн</em></span><span>Mira · ok<em>онлайн</em></span></div></article><article class="panel wide"><header><h2>Admin Tools</h2><span>Следующий этап переноса</span></header><div class="builderPlaceholder">Здесь появится полноценная карточка игрока без перегруженного старого экрана.</div></article></div>
+      <section class="viewPanel" id="viewPanelCrash" role="tabpanel" aria-labelledby="viewTabCrash" data-view="crash" hidden>
+        <div class="sectionIntro crashIntro">
+          <div><span class="eyebrow">Осторожный анализ</span><h2>Crash Analyzer</h2><p data-crash-status-text>Анализатор выключен.</p></div>
+          <div class="panelHeaderActions crashActions">
+            <button type="button" data-crash-toggle>Включить</button>
+            <button type="button" data-crash-lag>Лагает сейчас</button>
+            <button type="button" data-crash-copy disabled>Копировать отчёт</button>
+            <button class="dangerAction" type="button" data-crash-clear disabled>Очистить историю</button>
+            <button type="button" data-action="refresh-crash">Проверить</button>
+          </div>
+        </div>
+        <div class="crashNotice"><strong>Это не доказательство.</strong><p>Совпадение игрока или аватара по времени помогает проверить контекст, но не доказывает причину сбоя и не назначает виновного.</p></div>
+        <div class="metricGrid compact crashMetrics">
+          <article><span>Отслеживание</span><strong data-crash="enabled">выключено</strong></article>
+          <article><span>VRChat</span><strong data-crash="process">—</strong></article>
+          <article><span>Текущий лог</span><strong data-crash="log">—</strong></article>
+          <article><span>Обновлён</span><strong class="smallMetric" data-crash="updated">—</strong></article>
+        </div>
+        <div class="crashLayout">
+          <article class="panel listPanel crashIncidentPanel">
+            <header><div><span class="eyebrow">Сохранено локально</span><h2>Инциденты</h2></div><span data-crash-count>0 записей</span></header>
+            <div class="crashIncidentList" data-crash-list><p class="emptyState">Инцидентов пока нет.</p></div>
+          </article>
+          <article class="panel crashDetail" data-crash-detail aria-live="polite">
+            <span class="profileAvatar">C</span><h2>Выберите инцидент</h2><p>Здесь появятся кандидаты по времени и последовательность последних событий.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="viewPanel" id="viewPanelBuilder" role="tabpanel" aria-labelledby="viewTabBuilder" data-view="builder" hidden>
+        <div class="sectionIntro builderIntro">
+          <div><span class="eyebrow">Настраиваемое рабочее место</span><h2>Builder Beta</h2><p>Выберите блоки, перетащите их в нужном порядке и настройте окно поверх VRChat.</p></div>
+          <div class="builderWindowActions">
+            <button type="button" data-builder-on-top aria-pressed="false">Поверх окон</button>
+            <button type="button" data-builder-compact aria-pressed="false">Компактно</button>
+            <button type="button" data-builder-reset>Сбросить</button>
+          </div>
+        </div>
+        <div class="builderControls">
+          <label><span>Раскладка</span><select data-builder-layout><option value="grid">Сетка</option><option value="rows">Строки</option></select></label>
+          <fieldset data-builder-blocks><legend>Блоки</legend><label><input type="checkbox" value="players"> Заход / выход</label><label><input type="checkbox" value="avatars"> Аватары</label><label><input type="checkbox" value="portals"> Порталы</label><label><input type="checkbox" value="worlds"> Миры</label><label><input type="checkbox" value="admin"> Admin Tools</label></fieldset>
+          <label class="builderOpacity"><span>Прозрачность <output data-builder-opacity-output>100%</output></span><input type="range" min="40" max="100" step="5" value="100" data-builder-opacity disabled></label>
+        </div>
+        <div class="betaBuilder" data-builder aria-live="polite"></div>
       </section>
     </main>
+
+    <div class="playerDrawerBackdrop" data-session-player-drawer hidden>
+      <aside class="playerDrawer" role="dialog" aria-modal="true" aria-labelledby="sessionPlayerTitle">
+        <button class="playerDrawerClose" type="button" data-session-player-close aria-label="Закрыть карточку">×</button>
+        <span class="profileAvatar playerMarker" data-session-player-avatar aria-hidden="true"></span>
+        <span class="eyebrow">Игрок текущей сессии</span>
+        <h2 id="sessionPlayerTitle" data-session-player-name>Игрок</h2>
+        <code data-session-player-id>—</code>
+        <span class="playerDrawerStatus" data-session-player-status>неизвестно</span>
+        <div class="playerDrawerMeta"><span>Последнее событие</span><strong data-session-player-event>—</strong><span>Время</span><strong data-session-player-time>—</strong></div>
+        <div class="playerDrawerActions">
+          <button type="button" data-session-player-profile>Профиль VRChat</button>
+          <button class="primaryButton" type="button" data-session-player-admin>Открыть в Admin Tools</button>
+          <button class="ownerActionButton" type="button" data-session-player-owner hidden>Открыть в Owner</button>
+        </div>
+      </aside>
+    </div>
+
+    <dialog class="ownerDialog" data-owner-dialog>
+      <form method="dialog" data-owner-moderation-form>
+        <header><div><span class="eyebrow">Подтверждаемое действие</span><h2>Модерация VRChat-группы</h2></div><button type="button" data-owner-dialog-close aria-label="Закрыть">×</button></header>
+        <p class="ownerDialogTarget" data-owner-dialog-target>Игрок не выбран</p>
+        <label class="adminField"><span>Действие</span><select name="action"><option value="ban">Забанить в группе</option><option value="unban">Разбанить в группе</option></select></label>
+        <label class="adminField" data-owner-duration-mode><span>Срок</span><select name="durationMode"><option value="permanent">Постоянно</option><option value="temporary">Временно</option></select></label>
+        <div class="ownerDuration" data-owner-duration hidden>
+          <label class="adminField"><span>Длительность</span><input name="duration" type="number" min="5" max="43200" value="30"></label>
+          <label class="adminField"><span>Единица</span><select name="durationUnit"><option value="minutes">минут</option><option value="hours">часов</option><option value="days">дней</option></select></label>
+        </div>
+        <label class="adminField"><span>Причина</span><textarea name="reason" maxlength="1000" rows="4" required placeholder="Кратко опишите причину…"></textarea></label>
+        <label class="adminField"><span>Ссылка на доказательство · необязательно</span><input name="evidenceUrl" type="url" maxlength="500" placeholder="https://…"></label>
+        <p class="ownerDialogNotice">Перед отправкой проверьте профиль и причину. Запрос будет выполнен сервером и сохранён в истории.</p>
+        <footer><button type="button" data-owner-dialog-cancel>Отмена</button><button class="primaryButton" type="submit" data-owner-dialog-submit>Отправить запрос</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="settingsDialog" data-settings-dialog>
+      <form data-settings-form>
+        <header><div><span class="eyebrow">Только для Beta</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
+        <div class="settingsGrid">
+          <section><h3>Интерфейс</h3>
+            <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="insights">Мой VRChat</option><option value="history">История</option><option value="builder">Builder</option></select></label>
+            <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option></select></label>
+            <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="90">90%</option><option value="100">100%</option><option value="110">110%</option></select></label>
+            <label class="checkRow"><input name="animations" type="checkbox"><span>Использовать анимации</span></label>
+            <label class="checkRow"><input name="showHeader" type="checkbox"><span>Показывать верхнюю шапку</span></label>
+            <label class="checkRow"><input name="showToolbar" type="checkbox"><span>Показывать панель быстрых действий</span></label>
+          </section>
+          <section><h3>Сессия</h3>
+            <label class="adminField"><span>Игроки по умолчанию</span><select name="sessionPlayerMode"><option value="online-first">Онлайн сначала</option><option value="online-only">Только онлайн</option><option value="all">Все за сессию</option></select></label>
+            <label class="adminField"><span>Буфер событий</span><select name="eventLimit"><option value="1000">1 000</option><option value="2500">2 500</option><option value="5000">5 000</option></select></label>
+            <label class="checkRow"><input name="autoStart" type="checkbox"><span>Автоматически запускать чтение лога</span></label>
+            <label class="checkRow"><input name="rememberSelection" type="checkbox"><span>Запоминать выбранные карточки</span></label>
+            <label class="checkRow"><input name="notifyMarkedPlayers" type="checkbox"><span>Уведомлять о входе отмеченных игроков</span></label>
+            <label class="checkRow"><input name="notifyCrashAvatars" type="checkbox"><span>Уведомлять об отмеченных crash-аватарах</span></label>
+            <p>Системные уведомления появляются только по свежим событиям активного лога. Чтение старой истории их не вызывает.</p>
+          </section>
+          <section><h3>Приватность</h3><p>Ключ и VRChat cookie не попадают в renderer-настройки. Здесь сохраняются только параметры интерфейса.</p><label class="checkRow"><input name="clearOnLogout" type="checkbox"><span>Очищать поиски и выбор при выходе</span></label></section>
+        </div>
+        <p class="formStatus" data-settings-status aria-live="polite"></p>
+        <footer><button type="button" data-settings-reset>По умолчанию</button><div><button type="button" data-settings-cancel>Отмена</button><button class="primaryButton" type="submit">Сохранить</button></div></footer>
+      </form>
+    </dialog>
   </div>
 </body>
 </html>

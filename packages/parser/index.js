@@ -297,6 +297,15 @@ function parseLineWithState(state, line) {
     }, state);
   }
 
+  match = /\[Behaviour\]\s+Initialized PlayerAPI\s+"(?<name>.+?)"\s+is local\.?$/u.exec(message);
+  if (match) {
+    return withBase(base, {
+      type: "local-player",
+      category: "system",
+      playerName: match.groups.name.trim()
+    }, state);
+  }
+
   return null;
 }
 

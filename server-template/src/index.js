@@ -537,8 +537,8 @@ async function createSession(client, license, hwidHash, appVersion, options = {}
   await client.query(
     `UPDATE sessions
      SET revoked_at = NOW()
-     WHERE license_id = $1 AND hwid_hash = $2 AND revoked_at IS NULL`,
-    [license.id, hwidHash]
+     WHERE license_id = $1 AND hwid_hash = $2 AND app_version = $3 AND revoked_at IS NULL`,
+    [license.id, hwidHash, appVersion]
   );
 
   await client.query(

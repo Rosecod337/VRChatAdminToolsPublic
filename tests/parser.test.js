@@ -17,6 +17,18 @@ test("parses player join and leave events", () => {
   assert.equal(left.type, "player-left");
 });
 
+test("parses the authenticated and local VRChat user from the log", () => {
+  const parser = createParser();
+  const authenticated = parser.parseLine("2026.08.08 21:48:10 Debug      -  User Authenticated: ExampleUser (usr_11111111-1111-4111-8111-111111111111)");
+  const local = parser.parseLine('2026.08.08 21:49:00 Debug      -  [Behaviour] Initialized PlayerAPI "ExampleUser" is local');
+
+  assert.equal(authenticated.type, "user-authenticated");
+  assert.equal(authenticated.playerName, "ExampleUser");
+  assert.equal(authenticated.userId, "usr_11111111-1111-4111-8111-111111111111");
+  assert.equal(local.type, "local-player");
+  assert.equal(local.playerName, "ExampleUser");
+});
+
 test("parses avatar switch lines", () => {
   const parser = createParser();
   const event = parser.parseLine("2026.06.09 13:38:07 Debug      -  [Behaviour] Switching ExampleUser to avatar Example Avatar");
