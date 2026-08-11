@@ -12,6 +12,7 @@
   <script src="insights-model.js" defer></script>
   <script src="avatar-model.js" defer></script>
   <script src="notification-model.js" defer></script>
+  <script src="i18n.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -19,6 +20,7 @@
     <form class="activationCard" data-activation-form>
       <div class="betaLogo" aria-hidden="true"><img src="app-logo.png" alt=""></div>
       <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta использует отдельную копию настроек и не изменяет Stable.</p></div>
+      <label class="activationLanguage"><span>Язык интерфейса</span><select name="activationLanguage" data-language-select="instant"><option value="ru">Русский</option><option value="en">English</option></select></label>
       <label>
         <span>Ключ доступа <small>тот же, что в Stable</small></span>
         <input name="licenseKey" type="password" autocomplete="off" required placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
@@ -33,7 +35,7 @@
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
       <div class="activationActions">
         <button type="button" data-check-vrchat>Проверить VRChat</button>
-        <button class="primaryButton" type="submit">Войти в Beta</button>
+        <button class="primaryButton" type="submit" data-activate-submit>Войти в Beta</button>
       </div>
       <button type="button" data-import-stable>Использовать вход из Stable</button>
       <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
@@ -63,9 +65,9 @@
         <button class="updateButton" type="button" data-action="update" hidden>Установить обновление</button>
         <button class="logoutButton" type="button" data-action="logout">Выйти</button>
       </div>
-      <button class="compactExitButton" type="button" data-builder-compact-exit title="Выйти из компактного режима">Обычный вид</button>
     </header>
 
+    <button class="compactExitButton" type="button" data-builder-compact-exit title="Выйти из компактного режима">Обычный вид</button>
     <button class="headerRevealButton" type="button" data-header-show aria-label="Показать верхнюю панель" title="Показать верхнюю панель">↓</button>
 
     <div class="workspaceToolbar">
@@ -121,6 +123,17 @@
             </div>
             <label class="playerSearch"><span class="visuallyHidden">Поиск игрока</span><input type="search" data-session-player-search placeholder="Поиск игрока или User ID…" autocomplete="off"></label>
           </div>
+          <div class="sessionEventFilters" aria-label="Фильтры ленты событий">
+            <span>Показывать в ленте</span>
+            <div class="segmented eventFilterChips">
+              <button class="active" type="button" data-session-event-filter="all" aria-pressed="true">Все</button>
+              <button type="button" data-session-event-filter="joins" aria-pressed="false">Входы</button>
+              <button type="button" data-session-event-filter="leaves" aria-pressed="false">Выходы</button>
+              <button type="button" data-session-event-filter="avatars" aria-pressed="false">Аватары</button>
+              <button type="button" data-session-event-filter="worlds" aria-pressed="false">Миры и порталы</button>
+              <button type="button" data-session-event-filter="other" aria-pressed="false">Другое</button>
+            </div>
+          </div>
           <div class="sessionGrid">
             <article class="panel"><header><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><span data-feed-count>0 записей</span></header><div class="eventFeed" data-event-feed tabindex="0" aria-label="Лента событий"><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
             <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки сессии</h2></div><span data-player-count>0 игроков</span></header><div class="playerList" data-player-list tabindex="0" aria-label="Игроки сессии"><p class="emptyState">Пока никого нет.</p></div></article>
@@ -137,10 +150,13 @@
           <div class="avatarToolbar">
             <label class="playerSearch"><span class="visuallyHidden">Поиск аватара</span><input type="search" data-avatar-search placeholder="Название, Avatar ID или игрок…" autocomplete="off"></label>
             <label><span class="visuallyHidden">Фильтр аватаров</span><select data-avatar-filter><option value="all">Все аватары</option><option value="crash">С меткой crash</option><option value="unresolved">Без Avatar ID</option></select></label>
+            <button type="button" data-avatar-online-search>Расширенный поиск</button>
+            <button type="button" data-avatar-prismic>Prismic’s</button>
             <button type="button" data-avatar-refresh>Обновить каталог</button>
           </div>
+          <section class="avatarOnlineResults" data-avatar-online-results hidden></section>
           <div class="avatarManagerLayout">
-            <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><span data-avatar-count>0 записей</span></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
+            <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><div class="avatarCatalogHeaderMeta"><span class="avatarCatalogScope" data-avatar-catalog-scope>Личный каталог</span><span data-avatar-count>0 записей</span></div></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
             <article class="panel avatarDetail adminPreviewEmpty" data-avatar-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Avatar ID, командная метка и общие публикации появятся здесь.</p></article>
           </div>
         </div>
@@ -304,7 +320,8 @@
           </div>
         </div>
         <div class="builderControls">
-          <label><span>Раскладка</span><select data-builder-layout><option value="grid">Сетка</option><option value="rows">Строки</option></select></label>
+          <label><span>Раскладка</span><select data-builder-layout><option value="grid">Сетка</option><option value="rows">Строки</option><option value="freeform">Свободная</option></select></label>
+          <label><span>Пресет</span><span class="builderPresetControl"><select data-builder-preset><option value="columns">Две колонки</option><option value="vr">VR крупно</option><option value="feed">Лента</option></select><button type="button" data-builder-apply-preset>Применить</button></span></label>
           <fieldset data-builder-blocks><legend>Блоки</legend><label><input type="checkbox" value="players"> Заход / выход</label><label><input type="checkbox" value="avatars"> Аватары</label><label><input type="checkbox" value="portals"> Порталы</label><label><input type="checkbox" value="worlds"> Миры</label><label><input type="checkbox" value="admin"> Admin Tools</label></fieldset>
           <label class="builderOpacity"><span>Прозрачность <output data-builder-opacity-output>100%</output></span><input type="range" min="40" max="100" step="5" value="100" data-builder-opacity disabled></label>
         </div>
@@ -351,9 +368,10 @@
         <header><div><span class="eyebrow">Только для Beta</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
         <div class="settingsGrid">
           <section><h3>Интерфейс</h3>
+            <label class="adminField"><span>Язык интерфейса</span><select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>
             <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="insights">Мой VRChat</option><option value="history">История</option><option value="builder">Builder</option></select></label>
             <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option></select></label>
-            <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="90">90%</option><option value="100">100%</option><option value="110">110%</option></select></label>
+            <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>
             <label class="checkRow"><input name="animations" type="checkbox"><span>Использовать анимации</span></label>
             <label class="checkRow"><input name="showHeader" type="checkbox"><span>Показывать верхнюю шапку</span></label>
             <label class="checkRow"><input name="showToolbar" type="checkbox"><span>Показывать панель быстрых действий</span></label>
@@ -361,7 +379,7 @@
           <section><h3>Сессия</h3>
             <label class="adminField"><span>Игроки по умолчанию</span><select name="sessionPlayerMode"><option value="online-first">Онлайн сначала</option><option value="online-only">Только онлайн</option><option value="all">Все за сессию</option></select></label>
             <label class="adminField"><span>Буфер событий</span><select name="eventLimit"><option value="1000">1 000</option><option value="2500">2 500</option><option value="5000">5 000</option></select></label>
-            <label class="checkRow"><input name="autoStart" type="checkbox"><span>Автоматически запускать чтение лога</span></label>
+            <label class="checkRow"><input name="autoAnalyzeToday" type="checkbox"><span>Автоматически анализировать логи за текущий день</span></label>
             <label class="checkRow"><input name="rememberSelection" type="checkbox"><span>Запоминать выбранные карточки</span></label>
             <label class="checkRow"><input name="notifyMarkedPlayers" type="checkbox"><span>Уведомлять о входе отмеченных игроков</span></label>
             <label class="checkRow"><input name="notifyCrashAvatars" type="checkbox"><span>Уведомлять об отмеченных crash-аватарах</span></label>

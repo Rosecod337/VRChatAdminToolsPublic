@@ -214,8 +214,49 @@ class VrchatUserResolver {
       avatarName: data.name || data.displayName || id,
       authorName: data.authorName || "",
       releaseStatus: data.releaseStatus || "",
+      canFavorite: String(data.releaseStatus || "").toLowerCase() === "public",
       profileUrl: `https://vrchat.com/home/avatar/${encodeURIComponent(data.id || id)}`,
       source: "api"
+    };
+  }
+
+  async favoriteAvatar(avatarId, favoriteGroup = "avatars1") {
+    const id = String(avatarId || "").trim();
+    const group = String(favoriteGroup || "avatars1").trim();
+    if (!AVATAR_ID_RE.test(id)) throw new Error("VRChat avatar id is invalid");
+    if (!/^avatars[1-6]$/u.test(group)) throw new Error("VRChat avatar favorite group is invalid");
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+
+    const avatar = await this.fetchAvatar(id);
+    if (!avatar.canFavorite) throw new Error("VRChat allows this action only for a public avatar");
+
+    const response = await fetchVrchat("https://api.vrchat.cloud/api/1/favorites", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "user-agent": this.userAgent,
+        "cookie": this.authCookie
+      },
+      body: JSON.stringify({ type: "avatar", favoriteId: id, tags: [group] })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = String(data?.error?.message || "").trim();
+      if (/already.+favorite/iu.test(message)) {
+        return { avatarId: id, avatarName: avatar.avatarName, alreadyFavorite: true, favoriteGroup: group };
+      }
+      throw new Error(message || `VRChat API HTTP ${response.status}`);
+    }
+
+    this.avatarSearchCache.clear();
+    this.avatarCollectionCache.delete("favorite");
+    return {
+      avatarId: id,
+      avatarName: avatar.avatarName,
+      favoriteId: data.id || "",
+      favoriteGroup: group,
+      alreadyFavorite: false
     };
   }
 
@@ -241,6 +282,70 @@ class VrchatUserResolver {
 
     this.avatarSearchPending.set(nameKey, pending);
     return pending;
+  }
+
+  async searchAvatars(searchText) {
+    const query = String(searchText || "").trim().replace(/\s+/gu, " ").slice(0, 120);
+    const searchKey = normalizeAvatarName(query);
+    if (searchKey.length < 2) throw new Error("Avatar search requires at least two characters");
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+
+    const cacheKey = `browse:${searchKey}`;
+    const cached = this.avatarSearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (this.avatarSearchPending.has(cacheKey)) return this.avatarSearchPending.get(cacheKey);
+
+    const pending = this._searchAvatars(query, searchKey)
+      .then((value) => {
+        this.avatarSearchCache.set(cacheKey, {
+          expiresAt: Date.now() + AVATAR_SEARCH_CACHE_TTL_MS,
+          value
+        });
+        return value;
+      })
+      .finally(() => this.avatarSearchPending.delete(cacheKey));
+
+    this.avatarSearchPending.set(cacheKey, pending);
+    return pending;
+  }
+
+  async _searchAvatars(query, searchKey) {
+    const tasks = [
+      this._fetchFavoriteAvatars(query),
+      this._fetchCachedAvatarCollection("own", "/avatars", { user: "me", releaseStatus: "all", sort: "updated", order: "descending" }),
+      this._fetchCachedAvatarCollection("licensed", "/avatars/licensed", {})
+    ];
+    const results = await Promise.allSettled(tasks);
+    const successful = results.filter((result) => result.status === "fulfilled");
+    if (!successful.length) throw results[0]?.reason || new Error("VRChat avatar search is unavailable");
+
+    const byId = new Map();
+    for (const result of successful) {
+      for (const avatar of result.value) {
+        const candidate = normalizeAvatarCandidate(avatar.data, avatar.source);
+        if (!candidate) continue;
+        const searchable = normalizeAvatarName(`${candidate.avatarName} ${candidate.authorName} ${candidate.description}`);
+        if (!searchable.includes(searchKey)) continue;
+        const existing = byId.get(candidate.avatarId);
+        if (existing) existing.sources = [...new Set([...existing.sources, ...candidate.sources])];
+        else byId.set(candidate.avatarId, candidate);
+      }
+    }
+
+    const rank = (candidate) => {
+      const name = normalizeAvatarName(candidate.avatarName);
+      if (name === searchKey) return 0;
+      if (name.startsWith(searchKey)) return 1;
+      if (name.includes(searchKey)) return 2;
+      return 3;
+    };
+    return {
+      query,
+      scope: ["favorite", "own", "licensed"],
+      candidates: [...byId.values()]
+        .sort((left, right) => rank(left) - rank(right) || avatarSourcePriority(left) - avatarSourcePriority(right) || left.avatarName.localeCompare(right.avatarName))
+        .slice(0, 40)
+    };
   }
 
   async _searchAvatarCandidates(query, nameKey) {
@@ -360,7 +465,9 @@ function normalizeAvatarCandidate(data, source) {
     avatarId,
     avatarName,
     authorName: String(data.authorName || "").trim(),
+    description: String(data.description || "").trim().slice(0, 500),
     releaseStatus: String(data.releaseStatus || "").trim(),
+    canFavorite: String(data.releaseStatus || "").trim().toLowerCase() === "public",
     profileUrl: `https://vrchat.com/home/avatar/${encodeURIComponent(avatarId)}`,
     sources: [source]
   };

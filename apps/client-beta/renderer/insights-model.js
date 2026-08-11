@@ -120,18 +120,35 @@
     };
   }
 
-  function formatDuration(milliseconds) {
+  function formatDuration(milliseconds, language = "ru") {
     const totalMinutes = Math.max(0, Math.floor(Number(milliseconds || 0) / 60_000));
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
+    if (language === "en") {
+      if (!hours) return `${minutes} min`;
+      if (!minutes) return `${hours} h`;
+      return `${hours} h ${minutes} min`;
+    }
     if (!hours) return `${minutes} мин`;
     if (!minutes) return `${hours} ч`;
     return `${hours} ч ${minutes} мин`;
   }
 
-  function recap(insights, periodLabel) {
+  function recap(insights, periodLabel, language = "ru") {
     const recurring = insights.topPlayers.filter((player) => player.sessions > 1).slice(0, 3).map((player) => `${player.displayName} (${player.sessions})`).join(", ");
     const topWorld = insights.topWorlds[0];
+    if (language === "en") {
+      return [
+        `My VRChat · ${periodLabel}`,
+        `Sessions: ${insights.sessionCount}`,
+        `Time: ${formatDuration(insights.totalDurationMs, language)}`,
+        `Worlds: ${insights.worldCount}`,
+        `Unique players: ${insights.uniquePlayerCount}`,
+        `Repeat encounters: ${insights.recurringPlayerCount}`,
+        recurring ? `Seen most often: ${recurring}` : "",
+        topWorld ? `Most recorded world: ${topWorld.worldName} (${topWorld.sessions})` : ""
+      ].filter(Boolean).join("\n");
+    }
     return [
       `Мой VRChat · ${periodLabel}`,
       `Сессий: ${insights.sessionCount}`,

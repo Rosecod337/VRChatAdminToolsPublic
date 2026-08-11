@@ -5,14 +5,19 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { LogTailer, findCurrentInstanceStartIndex, findTodayLogFiles } = require("../apps/client/src/log-tailer");
+const {
+  LogTailer,
+  findCurrentInstanceStartIndex,
+  findTodayLogFiles,
+  readTodayPlayers
+} = require("../apps/client/src/log-tailer");
 
 test("current instance analysis prefers the last confirmed joined room", () => {
   const lines = [
     "2026.07.01 10:00:00 Debug      -  [Behaviour] Entering Room: Previous World",
     "2026.07.01 10:00:01 Debug      -  [Behaviour] Joining wrld_previous:12345",
     "2026.07.01 10:00:02 Debug      -  [Behaviour] Joining or Creating Room: Previous World",
-    "2026.07.01 10:00:05 Debug      -  [Behaviour] OnPlayerJoined ExampleUser (usr_11111111-1111-4111-8111-111111111111)",
+    "2026.07.01 10:00:05 Debug      -  [Behaviour] OnPlayerJoined Rose337 (usr_11111111-1111-4111-8111-111111111111)",
     "2026.07.01 10:05:00 Debug      -  [Behaviour] Entering Room: Wrong Loading World",
     "2026.07.01 10:05:01 Debug      -  [Behaviour] Joining wrld_wrong:99999"
   ];
@@ -74,6 +79,74 @@ test("today log selection ignores older VRChat logs", async () => {
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test("reads unique players from every VRChat log created today", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-today-players-"));
+  const today = new Date("2026-08-05T12:00:00");
+  const firstLog = path.join(directory, "output_log_2026-08-05_09-00-00.txt");
+  const secondLog = path.join(directory, "output_log_2026-08-05_10-00-00.txt");
+  const oldLog = path.join(directory, "output_log_2026-08-04_10-00-00.txt");
+
+  try {
+    await fs.writeFile(firstLog, [
+      "2026.08.05 09:00:01 Debug      -  [Behaviour] OnPlayerJoined Alice (usr_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)",
+      "2026.08.05 09:00:02 Debug      -  [Behaviour] OnPlayerJoined Bob (usr_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb)"
+    ].join("\n"), "utf8");
+    await fs.writeFile(secondLog, [
+      "2026.08.05 10:00:01 Debug      -  [Behaviour] OnPlayerLeft Alice Renamed (usr_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)",
+      "2026.08.05 10:00:02 Debug      -  [Behaviour] OnPlayerJoined Carol (usr_cccccccc-cccc-4ccc-8ccc-cccccccccccc)"
+    ].join("\n"), "utf8");
+    await fs.writeFile(
+      oldLog,
+      "2026.08.04 10:00:01 Debug      -  [Behaviour] OnPlayerJoined Old (usr_dddddddd-dddd-4ddd-8ddd-dddddddddddd)\n",
+      "utf8"
+    );
+    await fs.utimes(firstLog, new Date("2026-08-05T09:00:00"), new Date("2026-08-05T09:00:00"));
+    await fs.utimes(secondLog, new Date("2026-08-05T10:00:00"), new Date("2026-08-05T10:00:00"));
+    await fs.utimes(oldLog, new Date("2026-08-04T10:00:00"), new Date("2026-08-04T10:00:00"));
+
+    const result = await readTodayPlayers(directory, { referenceDate: today });
+
+    assert.equal(result.fileCount, 2);
+    assert.equal(result.playerEventCount, 4);
+    assert.equal(result.players.length, 3);
+    assert.equal(result.players.find((player) => player.userId.startsWith("usr_aaaaaaaa"))?.displayName, "Alice Renamed");
+    assert.equal(result.players.some((player) => player.displayName === "Old"), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("full-day analysis keeps events from every log instead of cutting at the latest instance", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-full-day-"));
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const firstLog = path.join(directory, `output_log_${stamp}_09-00-00.txt`);
+  const secondLog = path.join(directory, `output_log_${stamp}_12-00-00.txt`);
+  const tailer = new LogTailer();
+  const events = [];
+  tailer.on("event", (event) => events.push(event));
+  context.after(async () => {
+    await tailer.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(firstLog, [
+    "2026.08.09 09:00:00 Debug      -  [Behaviour] Joining wrld_morning:111",
+    "2026.08.09 09:00:01 Debug      -  [Behaviour] OnPlayerJoined Morning Player (usr_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)"
+  ].join("\n"), "utf8");
+  await fs.writeFile(secondLog, [
+    "2026.08.09 12:00:00 Debug      -  [Behaviour] Joining wrld_noon:222",
+    "2026.08.09 12:00:01 Debug      -  [Behaviour] OnPlayerJoined Noon Player (usr_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb)",
+    ""
+  ].join("\n"), "utf8");
+
+  const result = await tailer.analyzeCurrentInstance(secondLog, { mode: "today", scope: "all" });
+  const names = events.filter((event) => event.type === "player-joined").map((event) => event.playerName);
+
+  assert.equal(result.boundaryType, "full-history");
+  assert.deepEqual(names, ["Morning Player", "Noon Player"]);
 });
 
 test("log rotation reads the beginning of the newly created VRChat log", async () => {

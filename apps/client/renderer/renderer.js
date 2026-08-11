@@ -15,6 +15,9 @@ const activateBtn = document.querySelector("#activateBtn");
 const runtimeStatus = document.querySelector("#runtimeStatus");
 const updateBtn = document.querySelector("#updateBtn");
 const communityBtn = document.querySelector("#communityBtn");
+const betaPromo = document.querySelector("#betaPromo");
+const betaPromoButton = document.querySelector("#betaPromoButton");
+const betaPromoDismiss = document.querySelector("#betaPromoDismiss");
 const chooseFileBtn = document.querySelector("#chooseFileBtn");
 const analyzeCurrentBtn = document.querySelector("#analyzeCurrentBtn");
 const copySnapshotBtn = document.querySelector("#copySnapshotBtn");
@@ -3903,6 +3906,17 @@ updateBtn.addEventListener("click", () => {
 communityBtn?.addEventListener("click", () => {
   runButton(communityBtn, () => window.clientApi.openExternal("https://discord.gg/wXFuzxEbfC"))
     .catch((error) => setRuntimeStatus(error.message, true));
+});
+
+const BETA_PROMO_DISMISSED_KEY = "stableBetaPromoDismissed-1.2";
+if (betaPromo && localStorage.getItem(BETA_PROMO_DISMISSED_KEY) === "true") betaPromo.hidden = true;
+betaPromoButton?.addEventListener("click", () => {
+  runButton(betaPromoButton, () => window.clientApi.openExternal("https://vrchatadmintools.ru/download-beta"))
+    .catch((error) => setRuntimeStatus(error.message, true));
+});
+betaPromoDismiss?.addEventListener("click", () => {
+  localStorage.setItem(BETA_PROMO_DISMISSED_KEY, "true");
+  betaPromo.hidden = true;
 });
 
 async function importTodayPlayers() {

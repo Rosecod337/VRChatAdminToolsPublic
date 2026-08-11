@@ -47,6 +47,8 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   "discord.gg",
   "github.com",
   "t.me",
+  "vrchatadmintools.ru",
+  "www.vrchatadmintools.ru",
   "vrchat.com",
   "www.vrchat.com"
 ]);
@@ -573,6 +575,18 @@ ipcMain.handle("vrchat:avatar-search", async (_event, avatarName) => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   return resolver.searchAvatarCandidates(avatarName);
+});
+
+ipcMain.handle("vrchat:avatar-browse", async (_event, searchText) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.searchAvatars(searchText);
+});
+
+ipcMain.handle("vrchat:avatar-favorite", async (_event, avatarId) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.favoriteAvatar(avatarId);
 });
 
 ipcMain.handle("client:activate", async (_event, body) => {

@@ -279,6 +279,26 @@ h2 {
   scrollbar-width: thin;
 }
 
+.betaPromo {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 22px;
+  border-bottom: 1px solid rgba(88, 214, 231, 0.28);
+  background: linear-gradient(90deg, rgba(29, 92, 104, 0.22), rgba(20, 35, 47, 0.92));
+}
+
+.betaPromo[hidden] { display: none; }
+.betaPromo > div:first-child { display: grid; gap: 4px; }
+.betaPromo strong { color: #bff7ff; font-size: 14px; }
+.betaPromo span { color: var(--muted); font-size: 11px; }
+.betaPromoActions { display: flex; flex: 0 0 auto; gap: 8px; }
+.betaPromoButton,
+#betaPromoButton { border-color: rgba(88, 214, 231, 0.5); background: rgba(88, 214, 231, 0.12); color: #bff7ff; }
+#betaPromoDismiss { min-width: 36px; padding-inline: 10px; color: var(--muted); }
+
 .tab {
   flex: 0 0 auto;
   border-bottom-left-radius: 0;
@@ -2477,4 +2497,4 @@ body.compactMode .builderMiniList .eventDetailsLine {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Stable 1.1.7 */
+/* Stable 1.1.8 */

@@ -10,6 +10,7 @@ const crashModel = window.betaCrashModel;
 const insightsModel = window.betaInsightsModel;
 const avatarModel = window.betaAvatarModel;
 const notificationModel = window.betaNotificationModel;
+const i18n = window.betaI18n;
 const api = window.clientApi || (previewMode ? createPreviewApi() : null);
 const activationView = document.querySelector("[data-activation-view]");
 const activationForm = document.querySelector("[data-activation-form]");
@@ -39,6 +40,7 @@ const avatarSessionList = document.querySelector("[data-avatar-session-list]");
 const avatarDetail = document.querySelector("[data-avatar-detail]");
 const avatarSearch = document.querySelector("[data-avatar-search]");
 const avatarFilter = document.querySelector("[data-avatar-filter]");
+const avatarOnlineResults = document.querySelector("[data-avatar-online-results]");
 const dashboardBars = document.querySelector("[data-dashboard-bars]");
 const dashboardRecent = document.querySelector("[data-dashboard-recent]");
 const dashboardDuration = document.querySelector("[data-dashboard-duration]");
@@ -64,6 +66,7 @@ const insightSessionList = document.querySelector("[data-session-list]");
 const insightSessionDetail = document.querySelector("[data-insight-session-detail]");
 const builderGrid = document.querySelector("[data-builder]");
 const builderLayout = document.querySelector("[data-builder-layout]");
+const builderPreset = document.querySelector("[data-builder-preset]");
 const builderOpacity = document.querySelector("[data-builder-opacity]");
 const historyList = document.querySelector("[data-history-list]");
 const historyDetail = document.querySelector("[data-history-detail]");
@@ -76,6 +79,9 @@ let settingsReturnFocus = null;
 let ownerDialogReturnFocus = null;
 let playerDrawerReturnFocus = null;
 const BUILDER_KINDS = Object.freeze(["players", "avatars", "portals", "worlds", "admin"]);
+const BUILDER_MIN_WIDTH = 260;
+const BUILDER_MIN_HEIGHT = 150;
+const SESSION_EVENT_FILTERS = Object.freeze(["joins", "leaves", "avatars", "worlds", "other"]);
 const ACTION_PENDING_LABELS = Object.freeze({
   choose: "Выбираем…",
   analyze: "Анализируем…",
@@ -92,6 +98,14 @@ const ACTION_PENDING_LABELS = Object.freeze({
   logout: "Выходим…"
 });
 
+function t(value) {
+  return i18n?.translate?.(value, i18n.language()) ?? String(value ?? "");
+}
+
+function uiLocale() {
+  return i18n?.language?.() === "en" ? "en-US" : "ru-RU";
+}
+
 function loadLocalJson(key, fallback) {
   try {
     const value = JSON.parse(localStorage.getItem(key));
@@ -102,6 +116,7 @@ function loadLocalJson(key, fallback) {
 }
 
 const DEFAULT_UI_SETTINGS = Object.freeze({
+  language: "ru",
   startView: "session",
   density: "comfortable",
   scale: 100,
@@ -110,7 +125,7 @@ const DEFAULT_UI_SETTINGS = Object.freeze({
   showToolbar: true,
   sessionPlayerMode: "online-first",
   eventLimit: 2500,
-  autoStart: false,
+  autoAnalyzeToday: false,
   rememberSelection: true,
   notifyMarkedPlayers: false,
   notifyCrashAvatars: false,
@@ -119,12 +134,14 @@ const DEFAULT_UI_SETTINGS = Object.freeze({
 
 function normalizedUiSettings(value = {}) {
   const next = { ...DEFAULT_UI_SETTINGS, ...(value && typeof value === "object" ? value : {}) };
+  delete next.autoStart;
+  if (!["ru", "en"].includes(next.language)) next.language = "ru";
   if (!["session", "admin", "owner", "crash", "insights", "history", "builder"].includes(next.startView)) next.startView = "session";
   if (!["comfortable", "compact"].includes(next.density)) next.density = "comfortable";
-  next.scale = [90, 100, 110].includes(Number(next.scale)) ? Number(next.scale) : 100;
+  next.scale = [100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
   if (!["online-first", "online-only", "all"].includes(next.sessionPlayerMode)) next.sessionPlayerMode = "online-first";
-  for (const key of ["animations", "showHeader", "showToolbar", "autoStart", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
+  for (const key of ["animations", "showHeader", "showToolbar", "autoAnalyzeToday", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
   return next;
 }
 
@@ -151,6 +168,7 @@ const state = {
   view: "session",
   sessionPlayerMode: "online-first",
   sessionPlayerQuery: "",
+  sessionEventFilters: loadLocalJson("betaSessionEventFilters", ["all"]),
   sessionSection: "feed",
   selectedSessionUserId: "",
   sessionVisibleEvents: [],
@@ -165,6 +183,10 @@ const state = {
   avatarCandidates: [],
   avatarQuery: "",
   avatarFilter: "all",
+  avatarOnlineRows: [],
+  avatarOnlineQuery: "",
+  avatarOnlineLoading: false,
+  avatarOnlineError: "",
   avatarLoading: false,
   avatarSaving: false,
   avatarError: "",
@@ -231,11 +253,14 @@ const state = {
   currentVrchatInstance: null,
   builderOrder: loadLocalJson("betaBuilderOrder", BUILDER_KINDS),
   builderVisible: loadLocalJson("betaBuilderVisible", BUILDER_KINDS),
-  builderLayout: localStorage.getItem("betaBuilderLayout") === "rows" ? "rows" : "grid",
+  builderLayout: ["rows", "freeform"].includes(localStorage.getItem("betaBuilderLayout")) ? localStorage.getItem("betaBuilderLayout") : "grid",
+  builderGeometry: loadLocalJson("betaBuilderGeometry", {}),
+  builderQueries: loadLocalJson("betaBuilderQueries", {}),
   builderAlwaysOnTop: localStorage.getItem("betaBuilderAlwaysOnTop") === "true",
   builderOpacity: Math.min(100, Math.max(40, Number(localStorage.getItem("betaBuilderOpacity")) || 100)),
   builderCompact: localStorage.getItem("betaBuilderCompact") === "true",
   builderDraggedKind: "",
+  builderInteraction: null,
   builderRenderFrame: 0,
   builderOpacityTimer: 0,
   historySessions: [],
@@ -259,6 +284,9 @@ const state = {
 state.builderOrder = [...new Set((Array.isArray(state.builderOrder) ? state.builderOrder : []).filter((kind) => BUILDER_KINDS.includes(kind)))];
 for (const kind of BUILDER_KINDS) if (!state.builderOrder.includes(kind)) state.builderOrder.push(kind);
 state.builderVisible = [...new Set((Array.isArray(state.builderVisible) ? state.builderVisible : []).filter((kind) => BUILDER_KINDS.includes(kind)))];
+state.builderQueries = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, String(state.builderQueries?.[kind] || "").slice(0, 120)]));
+state.sessionEventFilters = [...new Set((Array.isArray(state.sessionEventFilters) ? state.sessionEventFilters : []).filter((kind) => kind === "all" || SESSION_EVENT_FILTERS.includes(kind)))];
+if (!state.sessionEventFilters.length || state.sessionEventFilters.includes("all")) state.sessionEventFilters = ["all"];
 
 const savedPlayerMode = localStorage.getItem("betaSessionPlayerMode");
 if (["online-first", "online-only", "all"].includes(savedPlayerMode)) state.sessionPlayerMode = savedPlayerMode;
@@ -364,7 +392,7 @@ function renderStatusCenter() {
       adminElement("strong", "", STATUS_TITLES[notice.kind] || "Уведомление"),
       adminElement("span", "", notice.message)
     );
-    const time = adminElement("time", "", new Date(notice.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
+    const time = adminElement("time", "", new Date(notice.createdAt).toLocaleTimeString(uiLocale(), { hour: "2-digit", minute: "2-digit" }));
     row.append(adminElement("i"), copy, time);
     statusList.append(row);
   }
@@ -436,6 +464,7 @@ async function runButtonOperation(button, operation, pendingText = "Выполн
 function applyUiSettings({ persist = false } = {}) {
   state.uiSettings = normalizedUiSettings(state.uiSettings);
   if (persist) localStorage.setItem("betaUiSettings", JSON.stringify(state.uiSettings));
+  document.documentElement.lang = state.uiSettings.language;
   appView.classList.toggle("densityCompact", state.uiSettings.density === "compact");
   appView.classList.toggle("animationsOff", !state.uiSettings.animations);
   appView.classList.toggle("headerHidden", !state.uiSettings.showHeader);
@@ -455,9 +484,10 @@ function fillSettingsForm(settings = state.uiSettings) {
     ownerStartOption.title = ownerStartOption.disabled ? "Недоступно для текущего ключа" : "";
   }
   const safeStartView = value.startView === "owner" && !hasOwnerAccess() ? "session" : value.startView;
+  settingsForm.elements.language.value = value.language;
   settingsForm.elements.startView.value = safeStartView;
   for (const name of ["density", "scale", "sessionPlayerMode", "eventLimit"]) settingsForm.elements[name].value = String(value[name]);
-  for (const name of ["animations", "showHeader", "showToolbar", "autoStart", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) settingsForm.elements[name].checked = value[name];
+  for (const name of ["animations", "showHeader", "showToolbar", "autoAnalyzeToday", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) settingsForm.elements[name].checked = value[name];
   const status = settingsForm.querySelector("[data-settings-status]");
   if (status) status.textContent = "";
 }
@@ -534,6 +564,7 @@ function closeSettings() {
 
 function readSettingsForm() {
   return normalizedUiSettings({
+    language: settingsForm.elements.language.value,
     startView: settingsForm.elements.startView.value,
     density: settingsForm.elements.density.value,
     scale: Number(settingsForm.elements.scale.value),
@@ -542,7 +573,7 @@ function readSettingsForm() {
     showToolbar: settingsForm.elements.showToolbar.checked,
     sessionPlayerMode: settingsForm.elements.sessionPlayerMode.value,
     eventLimit: Number(settingsForm.elements.eventLimit.value),
-    autoStart: settingsForm.elements.autoStart.checked,
+    autoAnalyzeToday: settingsForm.elements.autoAnalyzeToday.checked,
     rememberSelection: settingsForm.elements.rememberSelection.checked,
     notifyMarkedPlayers: settingsForm.elements.notifyMarkedPlayers.checked,
     notifyCrashAvatars: settingsForm.elements.notifyCrashAvatars.checked,
@@ -615,7 +646,7 @@ async function syncNotificationMonitoring({ refreshNow = false, announceError = 
 
 function deliverSystemNotification(payload) {
   if (!api?.showNotification || !payload) return;
-  void api.showNotification(payload).then((result) => {
+  void api.showNotification({ ...payload, title: t(payload.title), body: t(payload.body) }).then((result) => {
     if (result?.unsupported && state.notificationWarning !== "unsupported") {
       state.notificationWarning = "unsupported";
       setStatus("Системные уведомления недоступны в этой версии Windows.", false, { kind: "warning" });
@@ -809,13 +840,13 @@ async function showApp() {
   showRuntimeConfigNotice(state.runtimeConfig);
   await syncNotificationMonitoring({ refreshNow: true, announceError: true });
   requestAnimationFrame(() => renderSession());
-  if (state.uiSettings.autoStart && !previewMode && !state.running) {
-    startTail().catch((error) => setStatus(error.message || "Автозапуск чтения лога не выполнен.", true));
+  if (state.uiSettings.autoAnalyzeToday && !previewMode && !state.running) {
+    analyzeTodayLogs().catch((error) => setStatus(error.message || "Автоматический анализ логов за сегодня не выполнен.", true));
   }
   if (previewMode) {
     const previewParams = new URLSearchParams(window.location.search);
     const previewScale = Number(previewParams.get("scale"));
-    if ([90, 100, 110].includes(previewScale)) state.uiSettings.scale = previewScale;
+    if ([100, 125, 150, 175, 200].includes(previewScale)) state.uiSettings.scale = previewScale;
     if (previewParams.get("header") === "0") state.uiSettings.showHeader = false;
     if (previewParams.get("toolbar") === "0") state.uiSettings.showToolbar = false;
     if (previewParams.get("animations") === "0") state.uiSettings.animations = false;
@@ -829,6 +860,10 @@ async function showApp() {
     const previewView = previewParams.get("view");
     if (previewView === "owner" && previewParams.get("source") === "group") state.ownerSource = "group";
     if (previewView && viewTitles[previewView]) selectView(previewView);
+    if (previewView === "builder" && ["columns", "vr", "feed"].includes(previewParams.get("builderPreset"))) {
+      if (builderPreset) builderPreset.value = previewParams.get("builderPreset");
+      applyBuilderPreset(previewParams.get("builderPreset"));
+    }
     if (previewParams.get("status") === "error") setStatus("API HTTP 503", true, { sticky: true });
     if (previewParams.get("notifications") === "1") {
       setStatus("Снимок сессии скопирован.", false, { kind: "success", sticky: true });
@@ -843,6 +878,11 @@ async function showApp() {
     }
     if (previewParams.get("settings") === "1") setTimeout(() => openSettings(), 200);
     if (previewView === "session" && state.sessionSection === "avatars") await refreshAvatars();
+    if (previewView === "session" && state.sessionSection === "avatars" && previewParams.get("onlineAvatarSearch") === "1") {
+      avatarSearch.value = previewParams.get("avatarSearch") || "Night";
+      state.avatarQuery = avatarSearch.value;
+      await searchOnlineAvatars();
+    }
     const previewAvatar = previewParams.get("avatar");
     if (previewView === "session" && state.sessionSection === "avatars" && previewAvatar) {
       state.selectedAvatarKey = previewAvatar;
@@ -916,8 +956,8 @@ function createPreviewApi() {
     { type: "world-joined", worldName: "Group Public", timestamp: new Date(previewNow - 75_000).toISOString() },
     { type: "player-joined", playerName: "Nova", userId: "usr_demo_nova", timestamp: new Date(previewNow - 50_000).toISOString() },
     { type: "player-joined", playerName: "Mira", userId: "usr_demo_mira", timestamp: new Date(previewNow - 32_000).toISOString() },
-    { type: "avatar-changed", playerName: "Mira", userId: "usr_demo_mira", avatarName: "Night Shift", timestamp: new Date(previewNow - 12_000).toISOString() },
-    { type: "avatar-data", playerName: "Mira", userId: "usr_demo_mira", avatarName: "Night Shift", avatarId: "avtr_12345678", timestamp: new Date(previewNow - 8_000).toISOString() }
+    { type: "avatar-changed", playerName: "Mira", avatarName: "Night Shift", timestamp: new Date(previewNow - 12_000).toISOString() },
+    { type: "avatar-data", playerName: "Mira", avatarName: "Night Shift", avatarId: "avtr_12345678", timestamp: new Date(previewNow - 8_000).toISOString() }
   ];
   const stressPlayers = Array.from({ length: 1000 }, (_, index) => ({
     type: "player-joined",
@@ -937,7 +977,7 @@ function createPreviewApi() {
   }
   return {
     getSettings: async () => ({
-      appVersion: "1.2.0-beta.2",
+      appVersion: "1.2.0-beta.5",
       hasSession: !activationPreviewMode,
       hasVrchatAuthCookie: previewHasVrchatAuthCookie,
       serverUrl: "https://api.vrchatadmintools.ru",
@@ -945,6 +985,7 @@ function createPreviewApi() {
         teamId: "team_preview_beta",
         authorAlias: "Beta Preview",
         canPublishGlobalNotes: true,
+        canViewFullAvatarCatalog: true,
         moderationGroupId: lockedOwnerPreviewMode ? "" : "grp_preview_full_white",
         canRequestGroupBan: !lockedOwnerPreviewMode,
         canViewGroupMembers: !lockedOwnerPreviewMode,
@@ -1029,6 +1070,15 @@ function createPreviewApi() {
     },
     resolveVrchatAvatar: async (avatarId) => ({ avatarId, avatarName: previewAvatarCatalog.find((row) => row.avatarId === avatarId)?.avatarName || "Resolved Avatar" }),
     findVrchatAvatarCandidates: async (avatarName) => ({ candidates: [{ avatarName, avatarId: "avtr_candidate_1" }, { avatarName, avatarId: "avtr_candidate_2" }] }),
+    searchVrchatAvatars: async (query) => ({
+      query,
+      scope: ["favorite", "own", "licensed"],
+      candidates: [
+        { avatarName: `${query} Night`, avatarId: "avtr_preview_search_1", authorName: "Preview Author", releaseStatus: "public", canFavorite: true, sources: ["favorite"] },
+        { avatarName: `${query} Studio`, avatarId: "avtr_preview_search_2", authorName: "Demo Creator", releaseStatus: "private", canFavorite: false, sources: ["own"] }
+      ]
+    }),
+    favoriteVrchatAvatar: async (avatarId) => ({ avatarId, favoriteGroup: "avatars1", alreadyFavorite: false }),
     readTodayPlayers: async () => ({
       fileCount: 3,
       players: [
@@ -1067,8 +1117,8 @@ function createPreviewApi() {
     requestGroupManagement: async (request) => {
       let result = { roles: previewGroupRoles };
       if (request.action === "list_members") {
-        const query = String(request.query || "").toLocaleLowerCase("ru-RU");
-        const members = previewGroupMembers.filter((member) => !query || member.displayName.toLocaleLowerCase("ru-RU").includes(query) || member.userId.includes(query));
+        const query = String(request.query || "").toLocaleLowerCase(uiLocale());
+        const members = previewGroupMembers.filter((member) => !query || member.displayName.toLocaleLowerCase(uiLocale()).includes(query) || member.userId.includes(query));
         result = { members, roles: previewGroupRoles, total: members.length, offset: 0, limit: 100, query, hasMore: false };
       } else {
         const member = previewGroupMembers.find((row) => row.userId === request.targetUserId);
@@ -1105,7 +1155,7 @@ function setFilePath(filePath) {
 
 function eventTime(event) {
   const date = new Date(event.timestamp || event.capturedAt || Date.now());
-  return Number.isNaN(date.getTime()) ? "--:--" : date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? "--:--" : date.toLocaleTimeString(uiLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function eventName(event) {
@@ -1130,6 +1180,48 @@ function eventKind(event) {
 
 function eventDetail(event) {
   return String(event.avatarName || event.worldName || event.userId || event.raw || "—");
+}
+
+function eventFilterKind(event) {
+  const type = String(event?.type || "");
+  if (type === "player-joined") return "joins";
+  if (type === "player-left") return "leaves";
+  if (type === "avatar-changed" || type === "avatar-data") return "avatars";
+  if (type.startsWith("world-") || type.includes("portal")) return "worlds";
+  return "other";
+}
+
+function visibleSessionEvents(events = state.events) {
+  const filters = state.sessionEventFilters;
+  const rows = filters.includes("all")
+    ? events
+    : events.filter((event) => filters.includes(eventFilterKind(event)));
+  return [...rows].reverse();
+}
+
+function syncSessionEventFilters() {
+  document.querySelectorAll("[data-session-event-filter]").forEach((button) => {
+    const filter = button.dataset.sessionEventFilter;
+    const active = state.sessionEventFilters.includes("all") ? filter === "all" : state.sessionEventFilters.includes(filter);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function toggleSessionEventFilter(filter) {
+  if (filter === "all") {
+    state.sessionEventFilters = ["all"];
+  } else if (SESSION_EVENT_FILTERS.includes(filter)) {
+    const selected = state.sessionEventFilters.filter((value) => value !== "all");
+    state.sessionEventFilters = selected.includes(filter)
+      ? selected.filter((value) => value !== filter)
+      : [...selected, filter];
+    if (!state.sessionEventFilters.length) state.sessionEventFilters = ["all"];
+  } else {
+    return;
+  }
+  localStorage.setItem("betaSessionEventFilters", JSON.stringify(state.sessionEventFilters));
+  renderSession();
 }
 
 function eventTimestampMs(event) {
@@ -1234,13 +1326,41 @@ function visibleSessionPlayers(players) {
 function eventRowElement(event) {
   const row = document.createElement("div");
   row.className = `eventRow${event.type === "player-left" ? " left" : event.type?.startsWith("world-") ? " world" : ""}`;
+  row.dataset.eventType = String(event.type || "unknown");
   const time = document.createElement("time");
   time.textContent = eventTime(event);
   const dot = document.createElement("i");
-  const name = document.createElement("strong");
-  name.textContent = `${eventName(event)} · ${eventKind(event)}`;
-  const detail = document.createElement("span");
-  detail.textContent = eventDetail(event);
+  const name = document.createElement("div");
+  name.className = "eventIdentity";
+  const playerName = eventName(event);
+  const linkedPlayer = sessionStats().players.find((player) => sessionModel.eventBelongsToPlayer(event, player));
+  if (linkedPlayer?.userId) {
+    const player = document.createElement("button");
+    player.type = "button";
+    player.className = "eventTextLink eventPlayerLink";
+    player.dataset.eventUserId = String(linkedPlayer.userId);
+    player.dataset.eventUserName = playerName;
+    setUserText(player, playerName);
+    player.title = `Открыть ${playerName} в Admin Tools`;
+    name.append(player);
+  } else {
+    name.append(userTextElement("strong", "eventName", playerName));
+  }
+  name.append(document.createTextNode(" · "), adminElement("strong", "eventKind", eventKind(event)));
+  let detail = document.createElement("span");
+  const detailText = eventDetail(event);
+  const avatarKey = (event.type === "avatar-changed" || event.type === "avatar-data")
+    ? avatarModel.key(event.avatarName, event.avatarId)
+    : "";
+  if (avatarKey) {
+    detail = document.createElement("button");
+    detail.type = "button";
+    detail.className = "eventTextLink eventAvatarLink";
+    detail.dataset.eventAvatarKey = avatarKey;
+    detail.title = "Открыть аватар в каталоге";
+  }
+  if (detailText !== "—") setUserText(detail, detailText);
+  else detail.textContent = detailText;
   row.append(time, dot, name, detail);
   return row;
 }
@@ -1262,7 +1382,7 @@ function playerRowElement(event) {
   const avatar = playerMarker(Boolean(event.online));
   const copy = document.createElement("div");
   const name = document.createElement("strong");
-  name.textContent = eventName(event);
+  setUserText(name, eventName(event));
   const id = document.createElement("span");
   id.textContent = event.userId || "ID не найден";
   copy.append(name, id);
@@ -1311,7 +1431,10 @@ function renderVirtualRows(container, items, rowHeight, createRow, emptyText, fo
 }
 
 function renderVirtualEventRows(force = false) {
-  renderVirtualRows(eventFeed, state.sessionVisibleEvents, 54, eventRowElement, "Запустите чтение лога — новые события появятся здесь.", force);
+  const emptyText = state.events.length
+    ? "Событий выбранных типов пока нет."
+    : "Запустите чтение лога — новые события появятся здесь.";
+  renderVirtualRows(eventFeed, state.sessionVisibleEvents, 54, eventRowElement, emptyText, force);
 }
 
 function renderVirtualPlayerRows(force = false) {
@@ -1347,6 +1470,21 @@ function setSessionSection(section) {
   });
 }
 
+function openAvatarFromEvent(avatarKey) {
+  const key = String(avatarKey || "");
+  if (!key) return;
+  state.avatarQuery = "";
+  state.avatarFilter = "all";
+  state.selectedAvatarKey = key;
+  state.avatarCandidates = [];
+  state.avatarError = "";
+  if (avatarSearch) avatarSearch.value = "";
+  if (avatarFilter) avatarFilter.value = "all";
+  rememberSelections();
+  selectView("session");
+  setSessionSection("avatars");
+}
+
 function avatarRowElement(row) {
   const element = document.createElement("button");
   element.type = "button";
@@ -1355,12 +1493,16 @@ function avatarRowElement(row) {
   element.classList.toggle("active", row.avatarKey === state.selectedAvatarKey);
   const avatar = document.createElement("span");
   avatar.className = "playerAvatar";
-  avatar.textContent = row.avatarName.slice(0, 1).toUpperCase() || "A";
+  setUserText(avatar, row.avatarName.slice(0, 1).toUpperCase() || "A");
   const copy = document.createElement("div");
   const name = document.createElement("strong");
-  name.textContent = row.avatarName;
+  setUserText(name, row.avatarName);
   const meta = document.createElement("span");
-  meta.textContent = `${row.playerName || "Каталог"}${row.avatarId ? ` · ${row.avatarId}` : " · ID не найден"}${row.note ? ` · ${row.note}` : ""}`;
+  appendSeparated(meta, [
+    row.playerName ? { text: row.playerName, user: true } : { text: "Каталог" },
+    row.avatarId ? { text: row.avatarId, user: true } : { text: "ID не найден" },
+    row.note ? { text: row.note, user: true } : null
+  ]);
   copy.append(name, meta);
   const time = document.createElement("time");
   time.textContent = row.status === "crash" ? "crash" : (row.timestamp ? eventTime(row) : `${Number(row.seenCount || 1)}×`);
@@ -1383,8 +1525,135 @@ function renderAvatarSession() {
   }
   const count = document.querySelector("[data-avatar-count]");
   if (count) count.textContent = state.avatarLoading ? "загрузка…" : `${state.avatarVisibleRows.length} записей`;
+  const scope = document.querySelector("[data-avatar-catalog-scope]");
+  if (scope) {
+    const fullCatalog = Boolean(state.settings?.license?.canViewFullAvatarCatalog);
+    scope.textContent = fullCatalog ? "Каталог команды" : "Личный каталог";
+    scope.classList.toggle("full", fullCatalog);
+    scope.title = fullCatalog
+      ? "Ключу разрешено видеть весь каталог команды"
+      : "Показаны записи, созданные этим ключом";
+  }
   renderAvatarRows(true);
   renderAvatarDetail();
+  renderAvatarOnlineResults();
+}
+
+function avatarSourceLabel(sources = []) {
+  const labels = { favorite: "избранное", own: "ваши", licensed: "лицензированные" };
+  return [...new Set(sources)].map((source) => labels[source] || source).join(" · ") || "VRChat";
+}
+
+function renderAvatarOnlineResults() {
+  if (!avatarOnlineResults) return;
+  const visible = state.avatarOnlineLoading || state.avatarOnlineError || state.avatarOnlineQuery;
+  avatarOnlineResults.hidden = !visible;
+  avatarOnlineResults.replaceChildren();
+  if (!visible) return;
+
+  const header = adminElement("header");
+  const heading = adminElement("div");
+  heading.append(
+    adminElement("span", "eyebrow", "Расширенный поиск VRChat"),
+    adminElement("h3", "", state.avatarOnlineQuery ? `Результаты для «${state.avatarOnlineQuery}»` : "Результаты")
+  );
+  header.append(heading, adminElement("span", "", state.avatarOnlineLoading ? "поиск…" : `${state.avatarOnlineRows.length} найдено`));
+  avatarOnlineResults.append(header);
+
+  if (state.avatarOnlineLoading) {
+    avatarOnlineResults.append(emptyMessage("Ищем среди ваших, избранных и лицензированных аватаров…"));
+    return;
+  }
+  if (state.avatarOnlineError) {
+    avatarOnlineResults.append(adminElement("p", "adminError", state.avatarOnlineError));
+    return;
+  }
+  if (!state.avatarOnlineRows.length) {
+    avatarOnlineResults.append(emptyMessage("Совпадений в доступных источниках VRChat не найдено."));
+    return;
+  }
+
+  const list = adminElement("div", "avatarOnlineList");
+  for (const row of state.avatarOnlineRows) {
+    const item = adminElement("article", "avatarOnlineRow");
+    const copy = adminElement("div");
+    copy.append(
+      userTextElement("strong", "", row.avatarName || row.avatarId),
+      userTextElement("span", "", row.authorName || "Автор не указан"),
+      adminElement("em", "", avatarSourceLabel(row.sources))
+    );
+    const copyability = adminElement("span", `avatarCopyability ${row.canFavorite ? "available" : "unknown"}`, row.canFavorite ? "публичный" : "доступ не подтверждён");
+    const actions = adminElement("div", "avatarOnlineActions");
+    const add = adminElement("button", "", "В каталог");
+    add.type = "button";
+    add.dataset.avatarOnlineAdd = row.avatarId;
+    const open = adminElement("button", "", "Страница");
+    open.type = "button";
+    open.dataset.avatarOpen = row.avatarId;
+    actions.append(add);
+    if (row.canFavorite && api.favoriteVrchatAvatar) {
+      const favorite = adminElement("button", "primaryButton", "В избранное");
+      favorite.type = "button";
+      favorite.dataset.avatarOnlineFavorite = row.avatarId;
+      actions.append(favorite);
+    }
+    actions.append(open);
+    item.append(copy, copyability, actions);
+    list.append(item);
+  }
+  avatarOnlineResults.append(list);
+}
+
+async function searchOnlineAvatars() {
+  const query = String(avatarSearch?.value || "").trim();
+  if (query.length < 2) throw new Error("Для расширенного поиска введите хотя бы 2 символа.");
+  if (!api.searchVrchatAvatars) throw new Error("Расширенный поиск недоступен в этой сборке.");
+  state.avatarOnlineQuery = query;
+  state.avatarOnlineRows = [];
+  state.avatarOnlineError = "";
+  state.avatarOnlineLoading = true;
+  renderAvatarOnlineResults();
+  try {
+    const result = await api.searchVrchatAvatars(query);
+    state.avatarOnlineRows = Array.isArray(result?.candidates) ? result.candidates : [];
+    setStatus(`Расширенный поиск завершён: ${state.avatarOnlineRows.length} результатов.`, false, { kind: "success" });
+  } catch (error) {
+    state.avatarOnlineError = error.message || "Расширенный поиск аватаров недоступен.";
+    throw error;
+  } finally {
+    state.avatarOnlineLoading = false;
+    renderAvatarOnlineResults();
+  }
+}
+
+async function addOnlineAvatarToCatalog(avatarId) {
+  const row = state.avatarOnlineRows.find((candidate) => candidate.avatarId === avatarId);
+  if (!row) throw new Error("Результат поиска больше недоступен.");
+  await api.saveAvatarCatalog({ avatarName: row.avatarName || row.avatarId, avatarId: row.avatarId });
+  state.selectedAvatarKey = avatarModel.idKey(row.avatarId);
+  state.avatarQuery = "";
+  if (avatarSearch) avatarSearch.value = "";
+  rememberSelections();
+  await refreshAvatars();
+  setStatus("Аватар сохранён в каталог программы.", false, { kind: "success" });
+}
+
+async function favoriteOnlineAvatar(avatarId) {
+  const row = state.avatarOnlineRows.find((candidate) => candidate.avatarId === avatarId);
+  if (!row) throw new Error("Результат поиска больше недоступен.");
+  if (!row.canFavorite) throw new Error("Добавить в избранное можно только подтверждённый публичный аватар.");
+  await api.saveAvatarCatalog({ avatarName: row.avatarName || row.avatarId, avatarId: row.avatarId });
+  const result = await api.favoriteVrchatAvatar(row.avatarId);
+  state.selectedAvatarKey = avatarModel.idKey(row.avatarId);
+  rememberSelections();
+  await refreshAvatars();
+  setStatus(
+    result?.alreadyFavorite
+      ? "Аватар уже был в избранном VRChat; каталог программы обновлён."
+      : "Аватар сохранён в каталог и избранное VRChat.",
+    false,
+    { kind: "success" }
+  );
 }
 
 function selectedAvatar() {
@@ -1413,7 +1682,7 @@ function renderAvatarDetail() {
   const content = adminElement("div", "avatarDetailContent");
   const header = adminElement("header", "avatarDetailHeader");
   const identity = adminElement("div");
-  identity.append(adminElement("span", "eyebrow", record.status === "crash" ? "Требует внимания" : "Каталог аватаров"), adminElement("h2", "", record.avatarName || "Неизвестный аватар"), adminElement("code", "", record.avatarId || "Avatar ID не подтверждён"));
+  identity.append(adminElement("span", "eyebrow", record.status === "crash" ? "Требует внимания" : "Каталог аватаров"), userOrUiElement("h2", "", record.avatarName, "Неизвестный аватар"), userOrUiElement("code", "", record.avatarId, "Avatar ID не подтверждён"));
   const actions = adminElement("div", "avatarDetailActions");
   if (record.avatarId) {
     const open = adminElement("button", "", "Страница аватара");
@@ -1467,7 +1736,7 @@ function renderAvatarDetail() {
       const button = adminElement("button", "avatarCandidate");
       button.type = "button";
       button.dataset.avatarCandidateId = candidate.avatarId;
-      button.append(adminElement("strong", "", candidate.avatarName || record.avatarName), adminElement("span", "", candidate.avatarId), adminElement("em", "", "Выбрать"));
+      button.append(userTextElement("strong", "", candidate.avatarName || record.avatarName), userTextElement("span", "", candidate.avatarId), adminElement("em", "", "Выбрать"));
       candidates.append(button);
     }
     content.append(candidates);
@@ -1489,7 +1758,7 @@ function renderAvatarDetail() {
     const itemHeader = adminElement("header");
     itemHeader.append(adminElement("strong", "", report.updatedByLabel || "Команда"), adminElement("span", "adminNoteBadge", report.status === "crash" ? "Crash" : "Без отметки"));
     itemHeader.lastElementChild.dataset.status = report.status;
-    item.append(itemHeader, adminElement("p", "", report.note || "Без текста"), adminElement("time", "", adminDate(report.updatedAt)));
+    item.append(itemHeader, report.note ? userTextElement("p", "", report.note) : adminElement("p", "", "Без текста"), adminElement("time", "", adminDate(report.updatedAt)));
     if (report.sourceTeamId === currentTeamId()) {
       const remove = adminElement("button", "dangerAction", "Убрать нашу публикацию");
       remove.type = "button";
@@ -1629,8 +1898,8 @@ function dashboardEventElement(event) {
   const dot = adminElement("i");
   const copy = adminElement("div");
   copy.append(
-    adminElement("strong", "", `${eventName(event)} · ${eventKind(event)}`),
-    adminElement("span", "", eventDetail(event))
+    appendSeparated(adminElement("strong"), [{ text: eventName(event), user: true }, { text: eventKind(event) }]),
+    eventDetail(event) === "—" ? adminElement("span", "", "—") : userTextElement("span", "", eventDetail(event))
   );
   row.append(dot, copy, adminElement("time", "", eventTime(event)));
   return row;
@@ -1646,7 +1915,7 @@ function renderPlayerDrawer() {
   playerDrawer.hidden = !player;
   if (!player) return;
   playerDrawer.querySelector("[data-session-player-avatar]").dataset.online = player.online ? "true" : "false";
-  playerDrawer.querySelector("[data-session-player-name]").textContent = eventName(player);
+  setUserText(playerDrawer.querySelector("[data-session-player-name]"), eventName(player));
   playerDrawer.querySelector("[data-session-player-id]").textContent = player.userId;
   const status = playerDrawer.querySelector("[data-session-player-status]");
   status.textContent = player.online ? "в сети сейчас" : "не в сети";
@@ -1678,21 +1947,28 @@ async function openSessionPlayerProfile() {
   await api.openExternal(`https://vrchat.com/home/user/${encodeURIComponent(player.userId)}`);
 }
 
-async function openSessionPlayerAdmin() {
-  const player = selectedSessionPlayer();
-  if (!player?.userId) throw new Error("Для игрока не найден User ID.");
+function openPlayerInAdmin(player) {
+  const userId = String(player?.userId || "");
+  if (!userId) throw new Error("Для игрока не найден User ID.");
   state.adminDraftPlayer = noteTools.normalizeNote({
-    userId: player.userId,
-    displayName: eventName(player),
+    userId,
+    displayName: player.displayName || player.playerName || player.display || eventName(player),
+    online: Boolean(player.online),
     status: "ok",
     note: ""
   });
-  state.selectedAdminUserId = player.userId;
+  state.selectedAdminUserId = userId;
   state.adminHistory = [];
-  closeSessionPlayer();
+  rememberSelections();
   selectView("admin");
-  renderAdminList();
+  renderAdminList(true);
   renderAdminCard();
+}
+
+async function openSessionPlayerAdmin() {
+  const player = selectedSessionPlayer();
+  closeSessionPlayer();
+  openPlayerInAdmin(player);
 }
 
 function openSessionPlayerOwner() {
@@ -1740,10 +2016,14 @@ function renderSession() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  syncSessionEventFilters();
 
   eventCount.textContent = `${state.events.length} событий`;
-  document.querySelector("[data-feed-count]").textContent = `${state.events.length} записей`;
-  state.sessionVisibleEvents = [...state.events].reverse();
+  state.sessionVisibleEvents = visibleSessionEvents();
+  const feedCount = document.querySelector("[data-feed-count]");
+  if (feedCount) feedCount.textContent = state.sessionVisibleEvents.length === state.events.length
+    ? `${state.events.length} записей`
+    : `${state.sessionVisibleEvents.length} из ${state.events.length}`;
   state.sessionVisiblePlayers = visibleSessionPlayers(stats.players);
   if (playerCount) playerCount.textContent = `${state.sessionVisiblePlayers.length} игроков`;
   if (state.sessionSection === "feed") {
@@ -1766,57 +2046,186 @@ const BUILDER_DEFINITIONS = Object.freeze({
 });
 
 function builderRows(kind) {
-  if (kind === "admin") return adminPlayers().slice(0, 60);
+  const query = String(state.builderQueries[kind] || "").trim().toLocaleLowerCase(uiLocale());
+  if (kind === "admin") {
+    return adminPlayers().filter((player) => !query || `${player.displayName || ""} ${player.userId || ""} ${adminStatusLabel(player.status)} ${player.note || ""}`.toLocaleLowerCase(uiLocale()).includes(query)).slice(0, 60);
+  }
   const matches = {
     players: (event) => event.type === "player-joined" || event.type === "player-left",
     avatars: (event) => event.type === "avatar-changed" || event.type === "avatar-data",
     portals: (event) => String(event.type || "").includes("portal"),
     worlds: (event) => String(event.type || "").startsWith("world-")
   }[kind];
-  return [...state.events].reverse().filter(matches || (() => false)).slice(0, 60);
+  return [...state.events].reverse().filter(matches || (() => false)).filter((event) => (
+    !query || `${eventName(event)} ${eventDetail(event)} ${event.type || ""}`.toLocaleLowerCase(uiLocale()).includes(query)
+  )).slice(0, 60);
 }
 
 function builderRowElement(kind, item) {
-  const row = adminElement("div", "builderRow");
+  const actionable = (kind === "admin" && item.userId)
+    || (kind === "players" && item.userId)
+    || kind === "avatars";
+  const row = adminElement(actionable ? "button" : "div", "builderRow");
+  if (actionable) row.type = "button";
   if (kind === "admin") {
     row.dataset.online = String(Boolean(item.online));
+    row.dataset.builderAdminUser = item.userId;
+    row.title = `Открыть ${item.displayName || item.userId} в Admin Tools`;
     row.append(
-      adminElement("strong", "", item.displayName || item.userId),
-      adminElement("span", "", `${adminStatusLabel(item.status)}${item.note ? ` · ${item.note}` : ""}`),
+      userTextElement("strong", "", item.displayName || item.userId),
+      appendSeparated(adminElement("span"), [{ text: adminStatusLabel(item.status) }, { text: item.note, user: true }]),
       adminElement("time", "", item.online ? "онлайн" : "не в сети")
     );
     return row;
   }
+  if (kind === "players" && item.userId) {
+    row.dataset.builderSessionUser = item.userId;
+    row.title = `Открыть карточку ${eventName(item)}`;
+  }
+  if (kind === "avatars") {
+    row.dataset.builderAvatarKey = avatarModel.key(item.avatarName, item.avatarId);
+    row.title = "Открыть аватар в каталоге";
+  }
   const title = kind === "worlds" ? (item.worldName || eventName(item)) : eventName(item);
   row.append(
-    adminElement("strong", "", title),
-    adminElement("span", "", kind === "avatars" ? (item.avatarName || eventDetail(item)) : eventDetail(item)),
+    userTextElement("strong", "", title),
+    userTextElement("span", "", kind === "avatars" ? (item.avatarName || eventDetail(item)) : eventDetail(item)),
     adminElement("time", "", eventTime(item))
   );
   return row;
 }
 
+function defaultBuilderGeometry(kind, boardWidth = 1000, preset = "columns") {
+  const safeWidth = Math.max(320, Number(boardWidth) || 1000);
+  const index = Math.max(0, BUILDER_KINDS.indexOf(kind));
+  if (preset === "vr") {
+    return { x: 0, y: index * 300, width: safeWidth, height: 282, fontScale: 145 };
+  }
+  if (preset === "feed") {
+    return { x: 0, y: index * 218, width: safeWidth, height: 202, fontScale: 112 };
+  }
+  const columns = safeWidth >= 720 ? 2 : 1;
+  const gap = 14;
+  const width = columns === 2 ? Math.floor((safeWidth - gap) / 2) : safeWidth;
+  return {
+    x: columns === 2 ? (index % 2) * (width + gap) : 0,
+    y: Math.floor(index / columns) * 286,
+    width,
+    height: 270,
+    fontScale: 100
+  };
+}
+
+function normalizedBuilderGeometry(kind, boardWidth = builderGrid?.clientWidth || appView?.clientWidth || 1000) {
+  const defaults = defaultBuilderGeometry(kind, boardWidth);
+  const stored = state.builderGeometry?.[kind] || {};
+  const finiteOr = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const widthLimit = Math.max(BUILDER_MIN_WIDTH, Number(boardWidth) || defaults.width);
+  const width = Math.min(widthLimit, Math.max(BUILDER_MIN_WIDTH, finiteOr(stored.width, defaults.width)));
+  const height = Math.max(BUILDER_MIN_HEIGHT, finiteOr(stored.height, defaults.height));
+  const x = Math.max(0, Math.min(finiteOr(stored.x, defaults.x), Math.max(0, widthLimit - width)));
+  const y = Math.max(0, finiteOr(stored.y, defaults.y));
+  const fontScale = Math.min(180, Math.max(80, finiteOr(stored.fontScale, defaults.fontScale)));
+  return { x, y, width, height, fontScale };
+}
+
+function applyBuilderBlockFont(block, geometry) {
+  block.style.setProperty("--builder-font-scale", String(geometry.fontScale / 100));
+  block.style.setProperty("--builder-title-font", `${14 * geometry.fontScale / 100}px`);
+  block.style.setProperty("--builder-row-font", `${11 * geometry.fontScale / 100}px`);
+  block.style.setProperty("--builder-meta-font", `${9 * geometry.fontScale / 100}px`);
+  block.dataset.fontScale = String(geometry.fontScale);
+}
+
+function applyBuilderBlockGeometry(block, geometry) {
+  block.style.left = `${Math.round(geometry.x)}px`;
+  block.style.top = `${Math.round(geometry.y)}px`;
+  block.style.width = `${Math.round(geometry.width)}px`;
+  block.style.height = `${Math.round(geometry.height)}px`;
+  applyBuilderBlockFont(block, geometry);
+}
+
+function updateBuilderBoardHeight() {
+  if (!builderGrid || state.builderLayout !== "freeform") return;
+  const bottom = BUILDER_KINDS
+    .filter((kind) => state.builderVisible.includes(kind))
+    .reduce((maximum, kind) => {
+      const geometry = normalizedBuilderGeometry(kind);
+      return Math.max(maximum, geometry.y + geometry.height);
+    }, 0);
+  builderGrid.style.minHeight = `${Math.max(620, Math.ceil(bottom + 24))}px`;
+}
+
 function builderBlock(kind) {
   const definition = BUILDER_DEFINITIONS[kind];
   const rows = builderRows(kind);
+  const geometry = normalizedBuilderGeometry(kind);
   const block = adminElement("article", "panel builderBlock");
-  block.draggable = true;
   block.dataset.builderKind = kind;
+  applyBuilderBlockFont(block, geometry);
   const header = adminElement("header");
+  header.dataset.builderMove = kind;
+  header.draggable = state.builderLayout !== "freeform";
+  if (header.draggable) header.dataset.builderOrderHandle = kind;
   const title = adminElement("div", "builderBlockTitle");
   title.append(adminElement("span", "builderBlockIcon", definition.icon), adminElement("h2", "", definition.title));
-  header.append(title, adminElement("span", "builderBlockCount", `${rows.length}`));
+  const tools = adminElement("div", "builderBlockTools");
+  const fontDown = adminElement("button", "builderFontButton", "−");
+  fontDown.type = "button";
+  fontDown.dataset.builderFontAdjust = "-10";
+  fontDown.title = "Уменьшить шрифт блока";
+  const fontValue = adminElement("span", "builderFontValue", `${geometry.fontScale}%`);
+  const fontUp = adminElement("button", "builderFontButton", "+");
+  fontUp.type = "button";
+  fontUp.dataset.builderFontAdjust = "10";
+  fontUp.title = "Увеличить шрифт блока";
+  tools.append(fontDown, fontValue, fontUp, adminElement("span", "builderBlockCount", `${rows.length}`));
+  header.append(title, tools);
+  const search = document.createElement("input");
+  search.className = "builderBlockSearch";
+  search.type = "search";
+  search.maxLength = 120;
+  search.placeholder = "Поиск в блоке…";
+  search.value = state.builderQueries[kind] || "";
+  search.dataset.builderSearch = kind;
+  search.setAttribute("aria-label", `Поиск: ${definition.title}`);
   const content = adminElement("div", "builderRows");
+  content.dataset.builderRows = kind;
   for (const row of rows) content.append(builderRowElement(kind, row));
   if (!rows.length) content.append(adminElement("p", "builderEmpty", definition.empty));
-  block.append(header, content);
+  block.append(header, search, content);
+  if (state.builderLayout === "freeform") {
+    state.builderGeometry[kind] = geometry;
+    applyBuilderBlockGeometry(block, geometry);
+    for (const corner of ["nw", "ne", "sw", "se"]) {
+      const handle = adminElement("span", `builderResizeHandle ${corner}`);
+      handle.dataset.builderResize = corner;
+      handle.setAttribute("aria-hidden", "true");
+      block.append(handle);
+    }
+  }
   return block;
+}
+
+function renderBuilderBlockRows(kind) {
+  const block = builderGrid?.querySelector(`[data-builder-kind="${CSS.escape(kind)}"]`);
+  const content = block?.querySelector("[data-builder-rows]");
+  if (!block || !content) return;
+  const rows = builderRows(kind);
+  const fragment = document.createDocumentFragment();
+  for (const row of rows) fragment.append(builderRowElement(kind, row));
+  if (!rows.length) fragment.append(adminElement("p", "builderEmpty", BUILDER_DEFINITIONS[kind].empty));
+  content.replaceChildren(fragment);
+  const count = block.querySelector(".builderBlockCount");
+  if (count) count.textContent = String(rows.length);
 }
 
 function persistBuilderSettings() {
   localStorage.setItem("betaBuilderOrder", JSON.stringify(state.builderOrder));
   localStorage.setItem("betaBuilderVisible", JSON.stringify(state.builderVisible));
   localStorage.setItem("betaBuilderLayout", state.builderLayout);
+  localStorage.setItem("betaBuilderGeometry", JSON.stringify(state.builderGeometry));
+  localStorage.setItem("betaBuilderQueries", JSON.stringify(state.builderQueries));
   localStorage.setItem("betaBuilderAlwaysOnTop", String(state.builderAlwaysOnTop));
   localStorage.setItem("betaBuilderOpacity", String(state.builderOpacity));
   localStorage.setItem("betaBuilderCompact", String(state.builderCompact));
@@ -1825,6 +2234,8 @@ function persistBuilderSettings() {
 function syncBuilderControls() {
   if (!builderGrid) return;
   builderGrid.classList.toggle("rows", state.builderLayout === "rows");
+  builderGrid.classList.toggle("freeform", state.builderLayout === "freeform");
+  if (state.builderLayout !== "freeform") builderGrid.style.removeProperty("min-height");
   builderLayout.value = state.builderLayout;
   document.querySelectorAll("[data-builder-blocks] input").forEach((input) => {
     input.checked = state.builderVisible.includes(input.value);
@@ -1851,10 +2262,11 @@ function renderBuilder() {
   for (const kind of state.builderOrder) if (state.builderVisible.includes(kind)) fragment.append(builderBlock(kind));
   builderGrid.replaceChildren(fragment);
   if (!builderGrid.children.length) builderGrid.append(adminElement("p", "panel builderEmpty", "Включите хотя бы один блок в настройках выше."));
+  updateBuilderBoardHeight();
 }
 
 function scheduleBuilderRender() {
-  if (state.builderRenderFrame) return;
+  if (state.builderRenderFrame || state.builderInteraction) return;
   state.builderRenderFrame = requestAnimationFrame(() => {
     state.builderRenderFrame = 0;
     renderBuilder();
@@ -1879,10 +2291,102 @@ async function setBuilderCompact() {
   setStatus(next ? "Компактный режим включён." : "Обычный размер восстановлен.");
 }
 
+function applyBuilderPreset(name) {
+  const preset = ["vr", "feed"].includes(name) ? name : "columns";
+  const width = builderGrid?.clientWidth || appView?.clientWidth || 1000;
+  state.builderLayout = "freeform";
+  state.builderGeometry = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, defaultBuilderGeometry(kind, width, preset)]));
+  persistBuilderSettings();
+  renderBuilder();
+  setStatus(`Пресет Builder применён: ${preset === "vr" ? "VR крупно" : preset === "feed" ? "Лента" : "Две колонки"}.`);
+}
+
+function adjustBuilderFont(kind, delta) {
+  if (!BUILDER_KINDS.includes(kind)) return;
+  const geometry = normalizedBuilderGeometry(kind);
+  geometry.fontScale = Math.min(180, Math.max(80, geometry.fontScale + Number(delta || 0)));
+  state.builderGeometry[kind] = geometry;
+  persistBuilderSettings();
+  const block = builderGrid?.querySelector(`[data-builder-kind="${CSS.escape(kind)}"]`);
+  if (block) {
+    if (state.builderLayout === "freeform") applyBuilderBlockGeometry(block, geometry);
+    else applyBuilderBlockFont(block, geometry);
+    const output = block.querySelector(".builderFontValue");
+    if (output) output.textContent = `${geometry.fontScale}%`;
+  }
+}
+
+function startBuilderInteraction(event) {
+  if (state.builderLayout !== "freeform" || event.button !== 0) return;
+  const resize = event.target.closest("[data-builder-resize]");
+  const move = event.target.closest("[data-builder-move]");
+  if (!resize && (!move || event.target.closest("button"))) return;
+  const block = event.target.closest("[data-builder-kind]");
+  if (!block) return;
+  const kind = block.dataset.builderKind;
+  const geometry = normalizedBuilderGeometry(kind);
+  state.builderGeometry[kind] = geometry;
+  state.builderInteraction = {
+    kind,
+    mode: resize ? "resize" : "move",
+    corner: resize?.dataset.builderResize || "",
+    startX: event.clientX,
+    startY: event.clientY,
+    initial: { ...geometry },
+    block
+  };
+  block.classList.add("interacting");
+  event.preventDefault();
+}
+
+function moveBuilderInteraction(event) {
+  const interaction = state.builderInteraction;
+  if (!interaction) return;
+  const boardWidth = Math.max(BUILDER_MIN_WIDTH, builderGrid?.clientWidth || interaction.initial.width);
+  const dx = event.clientX - interaction.startX;
+  const dy = event.clientY - interaction.startY;
+  const initial = interaction.initial;
+  const next = { ...initial };
+  if (interaction.mode === "move") {
+    next.x = Math.max(0, Math.min(initial.x + dx, Math.max(0, boardWidth - initial.width)));
+    next.y = Math.max(0, initial.y + dy);
+  } else {
+    const west = interaction.corner.includes("w");
+    const north = interaction.corner.includes("n");
+    if (west) {
+      next.x = Math.max(0, Math.min(initial.x + dx, initial.x + initial.width - BUILDER_MIN_WIDTH));
+      next.width = initial.width + initial.x - next.x;
+    } else {
+      next.width = Math.min(boardWidth - initial.x, Math.max(BUILDER_MIN_WIDTH, initial.width + dx));
+    }
+    if (north) {
+      next.y = Math.max(0, Math.min(initial.y + dy, initial.y + initial.height - BUILDER_MIN_HEIGHT));
+      next.height = initial.height + initial.y - next.y;
+    } else {
+      next.height = Math.max(BUILDER_MIN_HEIGHT, initial.height + dy);
+    }
+  }
+  state.builderGeometry[interaction.kind] = next;
+  applyBuilderBlockGeometry(interaction.block, next);
+  updateBuilderBoardHeight();
+  event.preventDefault();
+}
+
+function finishBuilderInteraction() {
+  const interaction = state.builderInteraction;
+  if (!interaction) return;
+  interaction.block?.classList.remove("interacting");
+  state.builderInteraction = null;
+  persistBuilderSettings();
+  renderBuilder();
+}
+
 async function resetBuilder() {
   state.builderOrder = [...BUILDER_KINDS];
   state.builderVisible = [...BUILDER_KINDS];
   state.builderLayout = "grid";
+  state.builderGeometry = {};
+  state.builderQueries = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, ""]));
   state.builderOpacity = 100;
   state.builderCompact = false;
   if (state.builderAlwaysOnTop) await api.setAlwaysOnTop(false, 1);
@@ -1958,7 +2462,19 @@ function selectView(view) {
 }
 
 function formatDuration(milliseconds) {
-  return insightsModel.formatDuration(milliseconds);
+  return insightsModel.formatDuration(milliseconds, i18n.language());
+}
+
+function localizedCount(value, forms) {
+  return i18n.count(value, forms, i18n.language());
+}
+
+function sessionCountText(value) {
+  return localizedCount(value, { enOne: "session", enMany: "sessions", ruOne: "сессия", ruFew: "сессии", ruMany: "сессий" });
+}
+
+function encounterCountText(value) {
+  return localizedCount(value, { enOne: "encounter", enMany: "encounters", ruOne: "встреча", ruFew: "встречи", ruMany: "встреч" });
 }
 
 function insightSessionKey(session) {
@@ -1975,12 +2491,22 @@ function renderInsightsRuntime() {
   const user = state.currentVrchatUser;
   const instance = state.currentVrchatInstance;
   const stats = sessionStats();
-  document.querySelector("[data-insight-current-user]").textContent = user?.displayName || user?.username || user?.id || "Не найден в текущем логе";
+  const currentUser = document.querySelector("[data-insight-current-user]");
+  const currentUserText = user?.displayName || user?.username || user?.id;
+  if (currentUserText) setUserText(currentUser, currentUserText);
+  else {
+    currentUser.removeAttribute("data-i18n-skip");
+    currentUser.textContent = "Не найден в текущем логе";
+  }
   const worldName = instance?.worldName || instance?.world?.name || instance?.worldId || (stats.world !== "—" ? stats.world : "Мир ещё не найден в логе");
   const online = Number.isFinite(Number(instance?.nUsers))
     ? ` · ${Number(instance.nUsers)}${Number.isFinite(Number(instance?.capacity)) ? `/${Number(instance.capacity)}` : ""}`
     : (stats.online ? ` · ${stats.online} в логе` : "");
-  document.querySelector("[data-insight-current-instance]").textContent = `${worldName}${online}`;
+  const currentInstance = document.querySelector("[data-insight-current-instance]");
+  currentInstance.replaceChildren();
+  if (worldName === "Мир ещё не найден в логе") currentInstance.append(document.createTextNode(worldName));
+  else currentInstance.append(userTextElement("span", "", worldName));
+  if (online) currentInstance.append(document.createTextNode(online));
 }
 
 function renderInsightSessionDetail(insights) {
@@ -1995,13 +2521,13 @@ function renderInsightSessionDetail(insights) {
   insightSessionDetail.classList.remove("adminPreviewEmpty");
   const content = adminElement("div", "insightSessionContent");
   const header = adminElement("header");
-  header.append(adminElement("span", "eyebrow", adminDate(selected.startedAt)), adminElement("h2", "", selected.worldName || "Неизвестный мир"), adminElement("p", "", `${formatDuration(selected.endedAt - selected.startedAt)} · ${selected.complete ? "завершена" : "идёт сейчас"}`));
+  header.append(adminElement("span", "eyebrow", adminDate(selected.startedAt)), userOrUiElement("h2", "", selected.worldName, "Неизвестный мир"), adminElement("p", "", `${formatDuration(selected.endedAt - selected.startedAt)} · ${selected.complete ? "завершена" : "идёт сейчас"}`));
   content.append(header);
   const players = adminElement("section", "insightSessionPlayers");
   players.append(adminElement("h3", "", `Сохранённые встречи · ${selected.players.length}`));
   for (const player of selected.players.slice(0, 50)) {
     const row = adminElement("div", "insightSessionPlayer");
-    row.append(adminElement("span", "", player.displayName || player.userId));
+    row.append(userTextElement("span", "", player.displayName || player.userId));
     const profile = adminElement("button", "", "Профиль");
     profile.type = "button";
     profile.dataset.insightProfile = player.userId;
@@ -2033,7 +2559,7 @@ function renderInsights() {
     const row = adminElement("button", "insightRow");
     row.type = "button";
     row.dataset.insightProfile = player.userId;
-    row.append(adminElement("strong", "", player.displayName || player.userId), adminElement("span", "", `Последняя встреча: ${adminDate(player.lastSeenAt)}`), adminElement("em", "", `${player.sessions} сессии`));
+    row.append(userTextElement("strong", "", player.displayName || player.userId), adminElement("span", "", `Последняя встреча: ${adminDate(player.lastSeenAt)}`), adminElement("em", "", sessionCountText(player.sessions)));
     playerRows.append(row);
   }
   if (!recurring.length) playerRows.append(emptyMessage("За выбранный период повторных встреч нет."));
@@ -2042,7 +2568,7 @@ function renderInsights() {
   worldRows.replaceChildren();
   for (const world of insights.topWorlds) {
     const row = adminElement("div", "insightRow");
-    row.append(adminElement("strong", "", world.worldName), adminElement("span", "", `Последний раз: ${adminDate(world.lastSeenAt)}`), adminElement("em", "", `${world.sessions} сессии`));
+    row.append(userTextElement("strong", "", world.worldName), adminElement("span", "", `Последний раз: ${adminDate(world.lastSeenAt)}`), adminElement("em", "", sessionCountText(world.sessions)));
     worldRows.append(row);
   }
   if (!insights.topWorlds.length) worldRows.append(emptyMessage("Миры ещё не сохранены."));
@@ -2055,7 +2581,7 @@ function renderInsights() {
     row.classList.toggle("active", row.dataset.insightSession === state.selectedInsightSessionKey);
     const avatar = adminElement("span", "playerAvatar", "W");
     const copy = adminElement("div");
-    copy.append(adminElement("strong", "", session.worldName || "Неизвестный мир"), adminElement("span", "", `${adminDate(session.startedAt)} · ${session.players.length} встреч`));
+    copy.append(userOrUiElement("strong", "", session.worldName, "Неизвестный мир"), adminElement("span", "", `${adminDate(session.startedAt)} · ${encounterCountText(session.players.length)}`));
     row.append(avatar, copy, adminElement("span", "", formatDuration(session.endedAt - session.startedAt)));
     insightSessionList.append(row);
   }
@@ -2087,7 +2613,7 @@ async function refreshInsights() {
 
 async function copyInsightsRecap() {
   const label = insightsPeriod?.selectedOptions?.[0]?.textContent || "30 дней";
-  await api.writeClipboardText(insightsModel.recap(currentInsights(), label.toLocaleLowerCase("ru-RU")));
+  await api.writeClipboardText(insightsModel.recap(currentInsights(), label.toLocaleLowerCase(uiLocale()), i18n.language()));
   setStatus("Итог «Мой VRChat» скопирован.");
 }
 
@@ -2098,14 +2624,14 @@ function localDateKey(timestampMs) {
 }
 
 function filteredHistorySessions() {
-  const query = state.historyQuery.trim().toLocaleLowerCase("ru-RU");
+  const query = state.historyQuery.trim().toLocaleLowerCase(uiLocale());
   return insightsModel.dedupeSessions(state.historySessions).filter((session) => {
     if (state.historyStatus === "active" && session.complete) return false;
     if (state.historyStatus === "ended" && !session.complete) return false;
     if (state.historyDate && localDateKey(session.startedAt) !== state.historyDate) return false;
     if (!query) return true;
     const players = session.players.map((player) => `${player.displayName} ${player.userId} ${player.status || ""}`).join(" ");
-    return `${session.worldName} ${players}`.toLocaleLowerCase("ru-RU").includes(query);
+    return `${session.worldName} ${players}`.toLocaleLowerCase(uiLocale()).includes(query);
   });
 }
 
@@ -2117,7 +2643,7 @@ function historySessionRow(session) {
   const avatar = adminElement("span", "playerAvatar", "H");
   const copy = adminElement("div");
   copy.append(
-    adminElement("strong", "", session.worldName || "Неизвестный мир"),
+    userOrUiElement("strong", "", session.worldName, "Неизвестный мир"),
     adminElement("span", "", `${adminDate(session.startedAt)} · ${session.players.length} игроков · ${session.complete ? "завершена" : "в процессе"}`)
   );
   row.append(avatar, copy, adminElement("span", "", formatDuration(session.endedAt - session.startedAt)));
@@ -2141,7 +2667,7 @@ function renderHistoryDetail() {
   const content = adminElement("div", "historyDetailContent");
   const header = adminElement("header");
   const title = adminElement("div");
-  title.append(adminElement("span", "eyebrow", session.complete ? "Завершённая сессия" : "Сессия в процессе"), adminElement("h2", "", session.worldName || "Неизвестный мир"), adminElement("p", "", adminDate(session.startedAt)));
+  title.append(adminElement("span", "eyebrow", session.complete ? "Завершённая сессия" : "Сессия в процессе"), userOrUiElement("h2", "", session.worldName, "Неизвестный мир"), adminElement("p", "", adminDate(session.startedAt)));
   const copyButton = adminElement("button", "", "Копировать");
   copyButton.type = "button";
   copyButton.dataset.historyCopy = insightSessionKey(session);
@@ -2164,7 +2690,7 @@ function renderHistoryDetail() {
   for (const player of session.players.slice(0, 100)) {
     const item = adminElement("div", "historyPlayer");
     const identity = adminElement("div");
-    identity.append(adminElement("strong", "", player.displayName || player.userId), adminElement("span", "", player.userId));
+    identity.append(userTextElement("strong", "", player.displayName || player.userId), userTextElement("span", "", player.userId));
     const actions = adminElement("div", "historyPlayerActions");
     const profile = adminElement("button", "", "Профиль");
     profile.type = "button";
@@ -2224,12 +2750,14 @@ async function refreshHistory() {
 async function copyHistorySession(sessionKey) {
   const session = state.historyVisibleSessions.find((row) => insightSessionKey(row) === sessionKey);
   if (!session) throw new Error("Сессия не найдена.");
+  const english = i18n?.language?.() === "en";
+  const world = session.worldName || (english ? "Unknown world" : "Неизвестный мир");
   const lines = [
-    `История VRChat · ${session.worldName || "Неизвестный мир"}`,
-    `Начало: ${adminDate(session.startedAt)}`,
-    `Длительность: ${formatDuration(session.endedAt - session.startedAt)}`,
-    `Состояние: ${session.complete ? "завершена" : "в процессе"}`,
-    `Участники: ${session.players.length}`,
+    `${english ? "VRChat history" : "История VRChat"} · ${world}`,
+    `${english ? "Started" : "Начало"}: ${adminDate(session.startedAt)}`,
+    `${english ? "Duration" : "Длительность"}: ${formatDuration(session.endedAt - session.startedAt)}`,
+    `${english ? "State" : "Состояние"}: ${session.complete ? (english ? "completed" : "завершена") : (english ? "in progress" : "в процессе")}`,
+    `${english ? "Participants" : "Участники"}: ${session.players.length}`,
     ...session.players.slice(0, 100).map((player) => `- ${player.displayName || player.userId} · ${player.userId}`)
   ];
   await api.writeClipboardText(lines.join("\n"));
@@ -2240,6 +2768,40 @@ function adminElement(tag, className = "", text = "") {
   const element = document.createElement(tag);
   if (className) element.className = className;
   if (text !== "") element.textContent = text;
+  return element;
+}
+
+function userTextElement(tag, className = "", text = "") {
+  const element = adminElement(tag, className, text);
+  element.dataset.i18nSkip = "true";
+  return element;
+}
+
+function userOrUiElement(tag, className, value, fallback) {
+  return value ? userTextElement(tag, className, value) : adminElement(tag, className, fallback);
+}
+
+function setUserText(element, text) {
+  if (!element) return element;
+  element.textContent = text;
+  element.dataset.i18nSkip = "true";
+  return element;
+}
+
+function appendSeparated(element, parts) {
+  element.replaceChildren();
+  parts.filter((part) => part?.text !== undefined && part.text !== "").forEach((part, index) => {
+    if (index) element.append(document.createTextNode(" · "));
+    element.append(part.user ? userTextElement("span", "", part.text) : document.createTextNode(part.text));
+  });
+  return element;
+}
+
+function labeledUserElement(tag, className, label, value, fallback = "—") {
+  const element = adminElement(tag, className);
+  element.append(document.createTextNode(`${label}: `));
+  if (value) element.append(userTextElement("span", "", value));
+  else element.append(document.createTextNode(fallback));
   return element;
 }
 
@@ -2280,7 +2842,7 @@ function ownGlobalPlayerReport(userId) {
 function adminDate(value) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? "—" : date.toLocaleString("ru-RU");
+  return Number.isNaN(date.valueOf()) ? "—" : date.toLocaleString(uiLocale());
 }
 
 function adminAuthor(record) {
@@ -2308,8 +2870,8 @@ function adminPlayers() {
   for (const player of sessionStats().players) mergePlayer(player);
   for (const note of state.adminNotes) mergePlayer(note);
   if (state.adminDraftPlayer) mergePlayer(state.adminDraftPlayer);
-  const query = state.adminQuery.trim().toLocaleLowerCase("ru-RU");
-  return sessionModel.filterPlayers([...rows.values()], state.adminPlayerMode, "").filter((row) => !query || `${row.displayName} ${row.userId} ${row.note || ""} ${adminStatusLabel(row.status)}`.toLocaleLowerCase("ru-RU").includes(query));
+  const query = state.adminQuery.trim().toLocaleLowerCase(uiLocale());
+  return sessionModel.filterPlayers([...rows.values()], state.adminPlayerMode, "").filter((row) => !query || `${row.displayName} ${row.userId} ${row.note || ""} ${adminStatusLabel(row.status)}`.toLocaleLowerCase(uiLocale()).includes(query));
 }
 
 function adminRowElement(note) {
@@ -2356,6 +2918,88 @@ function appendAdminMeta(container, label, value) {
   container.append(item);
 }
 
+function playerActivity(record) {
+  let currentWorldName = "";
+  let worldName = "";
+  let joinedAt = "";
+  let leftAt = "";
+  let online = false;
+  const avatars = [];
+  for (const event of state.events) {
+    if (String(event?.type || "").startsWith("world-") && (event.worldName || event.worldId)) {
+      currentWorldName = String(event.worldName || event.worldId);
+    }
+    if (!sessionModel.eventBelongsToPlayer(event, record)) continue;
+    if (currentWorldName) worldName = currentWorldName;
+    if (event.type === "player-joined") {
+      joinedAt = event.timestamp || event.capturedAt || "";
+      leftAt = "";
+      online = true;
+    } else if (event.type === "player-left") {
+      leftAt = event.timestamp || event.capturedAt || "";
+      online = false;
+    } else if (event.type === "avatar-changed" || event.type === "avatar-data") {
+      const avatarName = String(event.avatarName || "").trim();
+      const avatarId = String(event.avatarId || "").trim();
+      if (!avatarName && !avatarId) continue;
+      const key = avatarModel.key(avatarName, avatarId);
+      const previous = avatars.at(-1);
+      if (previous?.key === key) {
+        previous.avatarId = avatarId || previous.avatarId;
+        previous.timestamp = event.timestamp || event.capturedAt || previous.timestamp;
+      } else {
+        avatars.push({ key, avatarName: avatarName || avatarId, avatarId, timestamp: event.timestamp || event.capturedAt || "" });
+      }
+    }
+  }
+  return { online, joinedAt, leftAt, worldName, avatars, currentAvatar: avatars.at(-1) || null };
+}
+
+function renderPlayerActivity(container, record) {
+  const activity = playerActivity(record);
+  const section = adminElement("section", "adminPlayerActivity");
+  const header = adminElement("header");
+  const title = adminElement("div");
+  title.append(adminElement("span", "eyebrow", "Текущая сессия"), adminElement("h3", "", "Карточка игрока"));
+  const status = adminElement("span", `adminActivityStatus ${activity.online ? "online" : "offline"}`, activity.online ? "В сети" : "Не в сети");
+  header.append(title, status);
+  section.append(header);
+
+  const metrics = adminElement("div", "adminActivityGrid");
+  appendAdminMeta(metrics, "Вошёл", adminDate(activity.joinedAt));
+  appendAdminMeta(metrics, "Мир", activity.worldName || "Не определён");
+  appendAdminMeta(metrics, "Текущий аватар", activity.currentAvatar?.avatarName || "Нет данных");
+  appendAdminMeta(metrics, "Смен аватара", String(activity.avatars.length));
+  section.append(metrics);
+
+  if (activity.currentAvatar) {
+    const current = adminElement("button", "adminCurrentAvatar");
+    current.type = "button";
+    current.dataset.adminAvatarKey = activity.currentAvatar.key;
+    const copy = adminElement("div");
+    copy.append(
+      userTextElement("strong", "", activity.currentAvatar.avatarName),
+      userOrUiElement("span", "", activity.currentAvatar.avatarId, "Avatar ID не подтверждён")
+    );
+    current.append(copy, adminElement("em", "", "Открыть в аватарах"));
+    section.append(current);
+  }
+
+  if (activity.avatars.length > 1) {
+    const history = adminElement("div", "adminAvatarTrail");
+    history.append(adminElement("strong", "", "Последние смены"));
+    for (const avatar of [...activity.avatars].reverse().slice(0, 5)) {
+      const button = adminElement("button");
+      button.type = "button";
+      button.dataset.adminAvatarKey = avatar.key;
+      button.append(userTextElement("span", "", avatar.avatarName), adminElement("time", "", eventTime(avatar)));
+      history.append(button);
+    }
+    section.append(history);
+  }
+  container.append(section);
+}
+
 function renderAdminHistory(container) {
   const section = adminElement("section", "adminHistory");
   section.append(adminElement("h3", "", "История изменений"));
@@ -2376,8 +3020,8 @@ function renderAdminHistory(container) {
       item.append(header, adminElement("span", "adminHistoryChange", `${scope} · ${previousStatus} → ${adminStatusLabel(row.status)}`));
       if (row.previousNote !== row.note) {
         item.append(
-          adminElement("p", "", `Было: ${row.previousNote || "без заметки"}`),
-          adminElement("p", "", `Стало: ${row.note || "без заметки"}`)
+          labeledUserElement("p", "", "Было", row.previousNote, "без заметки"),
+          labeledUserElement("p", "", "Стало", row.note, "без заметки")
         );
       }
       if (row.visibility === "team" && row.id) {
@@ -2428,7 +3072,7 @@ function renderGlobalPlayerReports(container, record) {
       const itemHeader = adminElement("header");
       itemHeader.append(adminElement("strong", "", report.updatedByLabel || "Команда"), adminElement("span", "adminNoteBadge", adminStatusLabel(report.status)));
       itemHeader.lastElementChild.dataset.status = report.status;
-      item.append(itemHeader, adminElement("p", "", report.note || "Без текста"), adminElement("time", "", adminDate(report.updatedAt)));
+      item.append(itemHeader, report.note ? userTextElement("p", "", report.note) : adminElement("p", "", "Без текста"), adminElement("time", "", adminDate(report.updatedAt)));
       if (report.sourceTeamId && report.sourceTeamId === currentTeamId()) {
         const remove = adminElement("button", "dangerAction", "Убрать нашу публикацию");
         remove.type = "button";
@@ -2463,8 +3107,8 @@ function renderAdminCard() {
     adminElement("div", "", "")
   );
   identity.lastElementChild.append(
-    adminElement("h2", "", record.displayName || record.userId || "Игрок"),
-    adminElement("code", "", record.userId)
+    userOrUiElement("h2", "", record.displayName || record.userId, "Игрок"),
+    userTextElement("code", "", record.userId)
   );
   const actions = adminElement("div", "adminCardActions");
   const profileButton = adminElement("button", "", "Профиль");
@@ -2483,6 +3127,19 @@ function renderAdminCard() {
   actions.append(profileButton, closeButton);
   header.append(identity, actions);
   content.append(header);
+
+  if (!state.adminVisiblePlayers.some((player) => player.userId === record.userId)) {
+    const hiddenNotice = adminElement("div", "selectionHiddenNotice");
+    const message = adminElement("div");
+    message.append(adminElement("strong", "", "Карточка остаётся открытой"), adminElement("span", "", "Игрок скрыт текущим поиском или фильтром списка."));
+    const reveal = adminElement("button", "", "Показать в списке");
+    reveal.type = "button";
+    reveal.dataset.adminRevealSelection = "true";
+    hiddenNotice.append(message, reveal);
+    content.append(hiddenNotice);
+  }
+
+  renderPlayerActivity(content, record);
 
   if (state.adminError) content.append(adminElement("p", "adminError", state.adminError));
 
@@ -2557,7 +3214,7 @@ function selectAdminPlayer(userId) {
   rememberSelections();
   state.adminError = "";
   state.adminHistory = [];
-  renderAdminList();
+  renderAdminList(true);
   renderAdminCard();
   void loadAdminHistory(userId);
 }
@@ -2647,7 +3304,7 @@ async function refreshAdmin() {
   } finally {
     if (requestId === state.adminListRequestId) {
       state.adminLoading = false;
-      renderAdminList();
+      renderAdminList(true);
       renderAdminCard();
       if (state.selectedAdminUserId) void loadAdminHistory(state.selectedAdminUserId);
     }
@@ -2675,12 +3332,13 @@ async function copyAdminSnapshot() {
   const rows = adminPlayers();
   const online = rows.filter((row) => row.online).length;
   const marked = rows.filter((row) => row.status && row.status !== "ok").length;
+  const english = i18n?.language?.() === "en";
   const lines = [
-    `Admin Tools · ${new Date().toLocaleString("ru-RU")}`,
-    `Игроков: ${rows.length} · онлайн: ${online} · с отметкой: ${marked}`,
-    ...rows.slice(0, 100).map((row) => `${row.online ? "●" : "○"} ${row.displayName || row.userId} · ${adminStatusLabel(row.status)}${row.note ? ` · ${row.note}` : ""}`)
+    `Admin Tools · ${new Date().toLocaleString(uiLocale())}`,
+    english ? `Players: ${rows.length} · online: ${online} · marked: ${marked}` : `Игроков: ${rows.length} · онлайн: ${online} · с отметкой: ${marked}`,
+    ...rows.slice(0, 100).map((row) => `${row.online ? "●" : "○"} ${row.displayName || row.userId} · ${english ? t(adminStatusLabel(row.status)) : adminStatusLabel(row.status)}${row.note ? ` · ${row.note}` : ""}`)
   ];
-  if (rows.length > 100) lines.push(`…и ещё ${rows.length - 100}`);
+  if (rows.length > 100) lines.push(english ? `…and ${rows.length - 100} more` : `…и ещё ${rows.length - 100}`);
   await api.writeClipboardText(lines.join("\n"));
   setStatus("Снимок Admin Tools скопирован.");
 }
@@ -2707,6 +3365,11 @@ function ownerPlayers() {
     const normalized = normalizeOwnerPlayer(player);
     if (!normalized) continue;
     rows.set(normalized.userId, { ...(rows.get(normalized.userId) || {}), ...normalized });
+  }
+  for (const note of state.adminNotes) {
+    const normalized = normalizeOwnerPlayer(note);
+    if (!normalized) continue;
+    rows.set(normalized.userId, { ...(rows.get(normalized.userId) || {}), ...normalized, online: Boolean(rows.get(normalized.userId)?.online) });
   }
   return [...rows.values()];
 }
@@ -2853,7 +3516,7 @@ function renderOwnerGroupPanel(container, player) {
     return;
   }
 
-  section.append(adminElement("p", "", `${member.displayName || member.userId} · ${member.membershipStatus || "member"}`));
+  section.append(appendSeparated(adminElement("p"), [{ text: member.displayName || member.userId, user: true }, { text: member.membershipStatus || "member" }]));
   const assignedIds = new Set(member.roleIds || []);
   const columns = adminElement("div", "ownerRoleColumns");
   for (const [title, roles, action] of [
@@ -2911,7 +3574,7 @@ function renderOwnerRequests(container, userId) {
     for (const request of requests) {
       const row = adminElement("article", "ownerRequestRow");
       row.append(
-        adminElement("strong", "", `${moderationActionLabel(request)} · ${request.reason || "причина не указана"}`),
+        appendSeparated(adminElement("strong"), [{ text: moderationActionLabel(request) }, request.reason ? { text: request.reason, user: true } : { text: "причина не указана" }]),
         adminElement("span", "ownerRequestStatus", moderationStatusLabel(request.status)),
         adminElement("time", "", adminDate(request.updatedAt || request.createdAt))
       );
@@ -2928,17 +3591,205 @@ function renderOwnerRequests(container, userId) {
   container.append(section);
 }
 
+function ownerWatchPlayers() {
+  const playersById = new Map([...ownerPlayers(), ...groupPlayers()].map((player) => [player.userId, player]));
+  return state.adminNotes
+    .filter((note) => note.status === "watch" && note.userId)
+    .map((note) => {
+      const player = playersById.get(note.userId) || normalizeOwnerPlayer(note);
+      return { ...player, ...note, online: Boolean(player?.online) };
+    })
+    .filter((player) => player?.userId)
+    .sort((left, right) => String(left.displayName || left.userId).localeCompare(String(right.displayName || right.userId), uiLocale()));
+}
+
+function ownerActiveTemporaryBans() {
+  const now = Date.now();
+  return state.ownerRequests.filter((request) => (
+    request.action === "ban"
+    && request.status === "succeeded"
+    && request.banExpiresAt
+    && new Date(request.banExpiresAt).valueOf() > now
+  ));
+}
+
+function renderOwnerOverview() {
+  ownerCard.classList.remove("adminPreviewEmpty");
+  const content = adminElement("div", "adminCardContent ownerOverview");
+  const header = adminElement("header", "adminCardHeader");
+  const heading = adminElement("div");
+  heading.append(adminElement("span", "eyebrow", "Центр Owner"), adminElement("h2", "", "Сводка модерации"), adminElement("p", "", "Очередь действий, временные баны и игроки под наблюдением."));
+  header.append(heading);
+  content.append(header);
+
+  const watchPlayers = ownerWatchPlayers();
+  const activeTemporaryBans = ownerActiveTemporaryBans();
+  const metrics = adminElement("div", "ownerOverviewMetrics");
+  for (const [value, label] of [
+    [state.ownerRequests.filter((request) => request.status === "pending" || request.status === "processing").length, "В очереди"],
+    [activeTemporaryBans.length, "Временные баны"],
+    [watchPlayers.length, "Под наблюдением"],
+    [state.ownerRequests.filter((request) => request.status === "failed").length, "Требуют внимания"]
+  ]) {
+    const metric = adminElement("div");
+    metric.append(adminElement("strong", "", String(value)), adminElement("span", "", label));
+    metrics.append(metric);
+  }
+  content.append(metrics);
+
+  const watchSection = adminElement("section", "ownerOverviewSection");
+  watchSection.append(adminElement("h3", "", "Наблюдение"));
+  const watchList = adminElement("div", "ownerOverviewWatchList");
+  for (const player of watchPlayers.slice(0, 20)) {
+    const button = adminElement("button", "ownerWatchRow");
+    button.type = "button";
+    button.dataset.ownerUserId = player.userId;
+    const copy = adminElement("div");
+    copy.append(userTextElement("strong", "", player.displayName || player.userId), userTextElement("span", "", player.note || "Без заметки"));
+    button.append(playerMarker(Boolean(player.online)), copy, adminElement("em", "", player.online ? "онлайн" : "карточка"));
+    watchList.append(button);
+  }
+  if (!watchPlayers.length) watchList.append(emptyMessage("Список наблюдения пуст."));
+  watchSection.append(watchList);
+  content.append(watchSection);
+
+  const attention = state.ownerRequests.filter((request) => ["pending", "processing", "failed"].includes(request.status)).slice(0, 8);
+  const requestSection = adminElement("section", "ownerOverviewSection");
+  requestSection.append(adminElement("h3", "", "Последние операции"));
+  const requestList = adminElement("div", "ownerOverviewRequests");
+  for (const request of attention) {
+    const row = adminElement("article", "ownerRequestRow");
+    row.append(
+      userTextElement("strong", "", request.targetDisplayName || request.targetUserId || moderationActionLabel(request)),
+      adminElement("span", "ownerRequestStatus", moderationStatusLabel(request.status)),
+      adminElement("time", "", adminDate(request.updatedAt || request.createdAt))
+    );
+    row.querySelector(".ownerRequestStatus").dataset.status = request.status || "";
+    if (request.status === "failed" && request.id) {
+      const retry = adminElement("button", "", "Повторить");
+      retry.type = "button";
+      retry.dataset.ownerRetry = request.id;
+      row.append(retry);
+    }
+    requestList.append(row);
+  }
+  if (!attention.length) requestList.append(emptyMessage("Активных или ошибочных операций нет."));
+  requestSection.append(requestList);
+  content.append(requestSection);
+
+  const temporarySection = adminElement("section", "ownerOverviewSection");
+  temporarySection.append(adminElement("h3", "", "Активные временные баны"));
+  const temporaryList = adminElement("div", "ownerOverviewRequests");
+  for (const request of activeTemporaryBans.slice(0, 12)) {
+    const row = adminElement("article", "ownerRequestRow");
+    row.append(
+      userTextElement("strong", "", request.targetDisplayName || request.targetUserId || "Игрок"),
+      adminElement("span", "ownerRequestStatus", "до " + adminDate(request.banExpiresAt)),
+      userTextElement("span", "", request.reason || "Причина не указана")
+    );
+    row.querySelector(".ownerRequestStatus").dataset.status = "succeeded";
+    temporaryList.append(row);
+  }
+  if (!activeTemporaryBans.length) temporaryList.append(emptyMessage("Активных временных банов нет."));
+  temporarySection.append(temporaryList);
+  content.append(temporarySection);
+
+  const moderationSection = adminElement("section", "ownerOverviewSection");
+  moderationSection.append(adminElement("h3", "", "Журнал модерации команды"));
+  const moderationList = adminElement("div", "ownerOverviewRequests");
+  for (const request of state.ownerRequests.slice(0, 20)) {
+    const row = adminElement("article", "ownerRequestRow");
+    row.append(
+      userTextElement("strong", "", request.targetDisplayName || request.targetUserId || moderationActionLabel(request)),
+      adminElement("span", "ownerRequestStatus", `${moderationActionLabel(request)} · ${moderationStatusLabel(request.status)}`),
+      adminElement("time", "", adminDate(request.updatedAt || request.createdAt))
+    );
+    row.querySelector(".ownerRequestStatus").dataset.status = request.status || "";
+    if (request.status === "failed" && request.id) {
+      const retry = adminElement("button", "", "Повторить");
+      retry.type = "button";
+      retry.dataset.ownerRetry = request.id;
+      row.append(retry);
+    }
+    moderationList.append(row);
+  }
+  if (!state.ownerRequests.length) moderationList.append(emptyMessage("Операций пока нет."));
+  moderationSection.append(moderationList);
+  content.append(moderationSection);
+
+  if (canViewGroupMembers() || canManageGroupRoles() || canKickGroupMembers()) {
+    const actionLabels = {
+      list_members: "Список участников",
+      get_member: "Проверка участника",
+      add_role: "Выдача роли",
+      remove_role: "Отзыв роли",
+      update_manager_notes: "Заметки управляющих",
+      kick_member: "Исключение участника"
+    };
+    const groupSection = adminElement("section", "ownerOverviewSection");
+    groupSection.append(adminElement("h3", "", "Операции управления VRChat-группой"));
+    const groupList = adminElement("div", "ownerOverviewRequests");
+    for (const request of state.groupManagementRequests.slice(0, 20)) {
+      const row = adminElement("article", "ownerRequestRow");
+      row.append(
+        userTextElement("strong", "", request.targetDisplayName || request.query || request.roleName || actionLabels[request.action] || request.action),
+        adminElement("span", "ownerRequestStatus", actionLabels[request.action] || request.action || "Операция"),
+        adminElement("time", "", `${moderationStatusLabel(request.status)} · ${adminDate(request.updatedAt || request.createdAt)}`)
+      );
+      row.querySelector(".ownerRequestStatus").dataset.status = request.status || "";
+      groupList.append(row);
+    }
+    if (!state.groupManagementRequests.length) groupList.append(emptyMessage("Операций с группой пока нет."));
+    groupSection.append(groupList);
+    content.append(groupSection);
+  }
+  ownerCard.append(content);
+}
+
+async function toggleOwnerWatch(userId) {
+  const player = ownerPlayer(userId);
+  if (!player) throw new Error("Игрок не найден.");
+  const current = adminNote(userId) || noteTools.normalizeNote({ userId, displayName: eventName(player), status: "ok", note: "" });
+  const payload = noteTools.editorPayload(current, { status: current.status === "watch" ? "ok" : "watch" });
+  const saved = await api.savePlayerNote(payload);
+  state.adminNotes = noteTools.mergeSavedNote(state.adminNotes, saved || payload, payload);
+  if (state.uiSettings.notifyMarkedPlayers) state.notificationPlayerNotes = noteTools.mergeSavedNote(state.notificationPlayerNotes, saved || payload, payload);
+  setStatus(payload.status === "watch" ? "Игрок добавлен под наблюдение." : "Наблюдение снято.");
+  renderOwner(true);
+}
+
+function ownerIncidentReport(userId) {
+  const player = ownerPlayer(userId);
+  if (!player) throw new Error("Игрок не найден.");
+  const note = adminNote(userId) || { status: "ok", note: "" };
+  const activity = playerActivity(userId);
+  const requests = state.ownerRequests.filter((request) => request.targetUserId === userId);
+  const recentEvents = state.events.filter((event) => String(event?.userId || "") === userId).slice(-8).reverse();
+  const recentAvatars = activity.avatars.slice(-5).reverse();
+  const english = i18n?.language?.() === "en";
+  return [
+    english ? "VRChat Admin Tools · incident card" : "VRChat Admin Tools · карточка инцидента",
+    `${english ? "Player" : "Игрок"}: ${eventName(player)}`,
+    `User ID: ${userId}`,
+    `${english ? "World" : "Мир"}: ${activity.worldName || "—"}`,
+    `${english ? "Status" : "Статус"}: ${adminStatusLabel(note.status)}`,
+    `${english ? "Note" : "Заметка"}: ${note.note || (english ? "none" : "нет")}`,
+    `${english ? "Confirmed operations" : "Подтверждённых операций"}: ${requests.filter((request) => request.status === "succeeded").length}`,
+    "",
+    english ? "Recent avatars:" : "Последние аватары:",
+    ...(recentAvatars.length ? recentAvatars.map((avatar) => `- ${avatar.avatarName || avatar.avatarId || "—"}${avatar.avatarId ? ` · ${avatar.avatarId}` : ""}`) : [english ? "- no data" : "- нет данных"]),
+    "",
+    english ? "Recent events:" : "Последние события:",
+    ...(recentEvents.length ? recentEvents.map((event) => `- ${eventTime(event)} · ${eventKind(event)} · ${eventDetail(event)}`) : [english ? "- no events" : "- нет событий"])
+  ].join("\n");
+}
+
 function renderOwnerCard() {
   if (!ownerCard) return;
   ownerCard.replaceChildren();
   const player = ownerPlayer(state.ownerSelectedUserId);
   if (!player) {
-    ownerCard.classList.add("adminPreviewEmpty");
-    ownerCard.append(
-      playerMarker(false, true),
-      adminElement("h2", "", "Выберите игрока"),
-      adminElement("p", "", "Профиль, командная заметка и подтверждаемые действия появятся здесь.")
-    );
+    renderOwnerOverview();
     return;
   }
   ownerCard.classList.remove("adminPreviewEmpty");
@@ -2946,7 +3797,7 @@ function renderOwnerCard() {
   const header = adminElement("header", "adminCardHeader");
   const identity = adminElement("div", "adminIdentity");
   identity.append(playerMarker(Boolean(player.online), true), adminElement("div"));
-  identity.lastElementChild.append(adminElement("h2", "", eventName(player)), adminElement("code", "", player.userId));
+  identity.lastElementChild.append(userTextElement("h2", "", eventName(player)), userTextElement("code", "", player.userId));
   const close = adminElement("button", "adminCardClose", "×");
   close.type = "button";
   close.dataset.ownerClear = "true";
@@ -2959,11 +3810,12 @@ function renderOwnerCard() {
   appendAdminMeta(meta, "Последнее событие", eventKind(player));
   appendAdminMeta(meta, "Время", player.timestamp ? adminDate(player.timestamp) : "—");
   content.append(meta);
+  renderPlayerActivity(content, { ...player, displayName: eventName(player) });
 
   const note = adminNote(player.userId);
-  const noteBlock = adminElement("p", "ownerAccessNotice", note
-    ? `${adminStatusLabel(note.status)} · ${note.note || "без заметки"}`
-    : "Командной заметки пока нет.");
+  const noteBlock = note
+    ? appendSeparated(adminElement("p", "ownerAccessNotice"), [{ text: adminStatusLabel(note.status) }, note.note ? { text: note.note, user: true } : { text: "без заметки" }])
+    : adminElement("p", "ownerAccessNotice", "Командной заметки пока нет.");
   content.append(noteBlock);
 
   const actions = adminElement("div", "ownerCardActions");
@@ -2973,7 +3825,14 @@ function renderOwnerCard() {
   const admin = adminElement("button", "", "Открыть в Admin Tools");
   admin.type = "button";
   admin.dataset.ownerAdmin = player.userId;
-  actions.append(profile, admin);
+  const watching = adminNote(player.userId)?.status === "watch";
+  const watch = adminElement("button", watching ? "active" : "", watching ? "Снять наблюдение" : "Наблюдать");
+  watch.type = "button";
+  watch.dataset.ownerWatch = player.userId;
+  const copyIncident = adminElement("button", "", "Копировать карточку");
+  copyIncident.type = "button";
+  copyIncident.dataset.ownerCopyIncident = player.userId;
+  actions.append(profile, admin, watch, copyIncident);
   if (canRequestOwnerBans()) {
     const ban = adminElement("button", "dangerAction", "Забанить");
     ban.type = "button";
@@ -3077,7 +3936,7 @@ function openOwnerModerationDialog(action) {
   ownerDialogReturnFocus = focusedElement();
   ownerModerationForm.reset();
   ownerModerationForm.elements.action.value = action === "unban" ? "unban" : "ban";
-  ownerDialog.querySelector("[data-owner-dialog-target]").textContent = `${eventName(player)} · ${player.userId}`;
+  setUserText(ownerDialog.querySelector("[data-owner-dialog-target]"), `${eventName(player)} · ${player.userId}`);
   syncOwnerModerationFields();
   ownerDialog.showModal();
   ownerModerationForm.elements.reason.focus();
@@ -3146,7 +4005,7 @@ function crashIncidentRow(incident) {
   const header = adminElement("header");
   header.append(adminElement("strong", "", incident.reason), adminElement("time", "", adminDate(incident.createdAt)));
   const candidateCount = (incident.suspects || []).length;
-  button.append(header, adminElement("span", "", incident.worldName || "Мир не определён"), adminElement("em", "", `${candidateCount} кандидатов · ${(incident.candidates || []).length} событий`));
+  button.append(header, userOrUiElement("span", "", incident.worldName, "Мир не определён"), adminElement("em", "", `${candidateCount} кандидатов · ${(incident.candidates || []).length} событий`));
   return button;
 }
 
@@ -3164,9 +4023,11 @@ function crashSuspectCard(candidate, index) {
   const risk = adminElement("span", "crashRiskBadge", `${candidate.risk} · ${candidate.score}`);
   risk.dataset.risk = candidate.risk;
   const copy = adminElement("div", "crashSuspectCopy");
+  const candidateName = candidate.playerName || candidate.userId;
+  const candidateAvatar = candidate.avatarName || candidate.avatarId;
   copy.append(
-    adminElement("strong", "", `#${index + 1} ${candidate.playerName || candidate.userId || "Неизвестный игрок"}`),
-    adminElement("span", "", candidate.avatarName || candidate.avatarId || "Аватар не определён")
+    candidateName ? userTextElement("strong", "", `#${index + 1} ${candidateName}`) : adminElement("strong", "", `#${index + 1} Неизвестный игрок`),
+    userOrUiElement("span", "", candidateAvatar, "Аватар не определён")
   );
   const actions = adminElement("div", "crashSuspectActions");
   if (candidate.userId) {
@@ -3209,7 +4070,7 @@ function renderCrashDetail() {
   const content = adminElement("div", "crashDetailContent");
   const header = adminElement("header", "crashDetailHeader");
   const title = adminElement("div");
-  title.append(adminElement("span", "eyebrow", incident.manual ? "Ручной снимок" : "Автоматический инцидент"), adminElement("h2", "", incident.reason), adminElement("p", "", `Мир: ${incident.worldName || "—"}`));
+  title.append(adminElement("span", "eyebrow", incident.manual ? "Ручной снимок" : "Автоматический инцидент"), adminElement("h2", "", incident.reason), labeledUserElement("p", "", "Мир", incident.worldName));
   header.append(title, adminElement("time", "", adminDate(incident.createdAt)));
   content.append(header);
 
@@ -3225,7 +4086,10 @@ function renderCrashDetail() {
     const row = adminElement("div", "crashTimelineRow");
     row.append(adminElement("time", "", eventTime({ timestamp: event.time })), adminElement("i"));
     const copy = adminElement("div");
-    copy.append(adminElement("strong", "", `${event.playerName || event.userId || "Событие"} · ${crashModel.eventLabel(event.type)}`), adminElement("span", "", event.avatarName || event.avatarId || event.detail || "—"));
+    copy.append(
+      appendSeparated(adminElement("strong"), [{ text: event.playerName || event.userId, user: true }, { text: crashModel.eventLabel(event.type) }]),
+      userOrUiElement("span", "", event.avatarName || event.avatarId || event.detail, "—")
+    );
     row.append(copy);
     timeline.append(row);
   }
@@ -3239,7 +4103,7 @@ function renderCrash() {
   document.querySelector('[data-crash="enabled"]').textContent = state.crashEnabled ? "включено" : "выключено";
   document.querySelector('[data-crash="process"]').textContent = status ? (status.processRunning ? "запущен" : "не найден") : "—";
   document.querySelector('[data-crash="log"]').textContent = status ? (status.filePath ? "найден" : "не найден") : "—";
-  document.querySelector('[data-crash="updated"]').textContent = status?.logModifiedAt ? new Date(status.logModifiedAt).toLocaleString("ru-RU") : "—";
+  document.querySelector('[data-crash="updated"]').textContent = status?.logModifiedAt ? new Date(status.logModifiedAt).toLocaleString(uiLocale()) : "—";
   const statusText = document.querySelector("[data-crash-status-text]");
   if (!state.crashEnabled) statusText.textContent = "Анализатор выключен.";
   else if (!status) statusText.textContent = "Ожидание первого статуса…";
@@ -3310,7 +4174,7 @@ function stopCrashAnalyzer() {
 
 function toggleCrashAnalyzer() {
   if (!state.crashEnabled) {
-    const confirmed = window.confirm("Crash Analyzer отслеживает состояние VRChat и последние события перед возможным сбоем. Возможны ложные совпадения. Включить анализатор?");
+    const confirmed = window.confirm(t("Crash Analyzer отслеживает состояние VRChat и последние события перед возможным сбоем. Возможны ложные совпадения. Включить анализатор?"));
     if (!confirmed) return;
     state.crashEnabled = true;
     startCrashAnalyzer();
@@ -3323,13 +4187,13 @@ function toggleCrashAnalyzer() {
 }
 
 async function copyCrashReport() {
-  await api.writeClipboardText(crashModel.report(selectedCrashIncident()));
+  await api.writeClipboardText(crashModel.report(selectedCrashIncident(), i18n.language()));
   setStatus("Отчёт Crash Analyzer скопирован.");
 }
 
 function clearCrashHistory() {
   if (!state.crashIncidents.length) return;
-  if (!window.confirm(`Удалить всю историю Crash Analyzer (${state.crashIncidents.length})?`)) return;
+  if (!window.confirm(t(`Удалить всю историю Crash Analyzer (${state.crashIncidents.length})?`))) return;
   state.crashIncidents = [];
   state.selectedCrashIncidentId = "";
   saveCrashState();
@@ -3397,19 +4261,48 @@ async function analyzeLog() {
   );
 }
 
+async function analyzeTodayLogs() {
+  setStatus("Анализируем логи за текущий день…", false, { kind: "info" });
+  let filePath = state.filePath;
+  if (!filePath) {
+    const latest = await api.latestFile();
+    filePath = latest?.filePath || "";
+  }
+  if (!filePath) throw new Error("Логи VRChat за сегодня не найдены.");
+  const payload = await api.analyzeCurrentInstance({
+    filePath,
+    mode: "today",
+    scope: "all",
+    maxFiles: 60,
+    maxLines: 100000,
+    maxBytesPerFile: 12 * 1024 * 1024,
+    deferPlaySession: true
+  });
+  setFilePath(payload?.followState?.filePath || filePath);
+  state.running = Boolean(payload?.followState?.running);
+  state.currentPlaySessionId = String(payload?.playSessionId || state.currentPlaySessionId || "");
+  if (payload?.currentUser) state.currentVrchatUser = payload.currentUser;
+  if (payload?.currentInstance) state.currentVrchatInstance = payload.currentInstance;
+  state.playSessionLastSyncAt = 0;
+  document.querySelector('[data-action="start"]').disabled = state.running;
+  document.querySelector('[data-action="stop"]').disabled = !state.running;
+  setStatus("Логи за текущий день проанализированы. Новые события отслеживаются автоматически.", false, { kind: "success" });
+}
+
 function buildSessionSnapshot() {
   const stats = sessionStats();
   const onlinePlayers = stats.players.filter((player) => player.online).slice(0, 25);
+  const english = i18n?.language?.() === "en";
   return [
     "**VRChat Admin Snapshot · Beta**",
-    `Мир: ${stats.world}`,
-    `Онлайн: ${stats.online}`,
-    `Пик: ${stats.peak}`,
-    `Уникальных игроков: ${stats.unique}`,
-    `Событий: ${state.events.length}`,
+    `${english ? "World" : "Мир"}: ${stats.world}`,
+    `${english ? "Online" : "Онлайн"}: ${stats.online}`,
+    `${english ? "Peak" : "Пик"}: ${stats.peak}`,
+    `${english ? "Unique players" : "Уникальных игроков"}: ${stats.unique}`,
+    `${english ? "Events" : "Событий"}: ${state.events.length}`,
     "",
-    "**Онлайн игроки:**",
-    onlinePlayers.length ? onlinePlayers.map((player) => `• ${eventName(player)}`).join("\n") : "нет данных"
+    english ? "**Online players:**" : "**Онлайн игроки:**",
+    onlinePlayers.length ? onlinePlayers.map((player) => `• ${eventName(player)}`).join("\n") : (english ? "no data" : "нет данных")
   ].join("\n");
 }
 
@@ -3554,12 +4447,17 @@ importStableButton?.addEventListener("click", async () => {
 
 settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
+  const previousLanguage = state.uiSettings.language;
   state.uiSettings = readSettingsForm();
   if (!state.uiSettings.rememberSelection) localStorage.removeItem("betaRememberedSelections");
   state.sessionPlayerMode = state.uiSettings.sessionPlayerMode;
   localStorage.setItem("betaSessionPlayerMode", state.sessionPlayerMode);
   if (state.events.length > state.uiSettings.eventLimit) state.events.splice(0, state.events.length - state.uiSettings.eventLimit);
   applyUiSettings({ persist: true });
+  if (state.uiSettings.language !== previousLanguage) {
+    window.location.reload();
+    return;
+  }
   renderSession();
   closeSettings();
   setStatus("Настройки Beta сохранены.");
@@ -3654,6 +4552,25 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const eventUserButton = event.target.closest("[data-event-user-id]");
+  if (eventUserButton) {
+    try {
+      openPlayerInAdmin({
+        userId: eventUserButton.dataset.eventUserId,
+        displayName: eventUserButton.dataset.eventUserName || eventUserButton.textContent
+      });
+    } catch (error) {
+      setStatus(error.message || "Не удалось открыть игрока в Admin Tools.", true);
+    }
+    return;
+  }
+
+  const eventAvatarKey = event.target.closest("[data-event-avatar-key]")?.dataset.eventAvatarKey;
+  if (eventAvatarKey) {
+    openAvatarFromEvent(eventAvatarKey);
+    return;
+  }
+
   const avatarKey = event.target.closest("[data-avatar-key]")?.dataset.avatarKey;
   if (avatarKey) {
     state.selectedAvatarKey = avatarKey;
@@ -3668,6 +4585,35 @@ document.addEventListener("click", (event) => {
   if (avatarRefreshButton) {
     runButtonOperation(avatarRefreshButton, refreshAvatars, "Обновляем…")
       .catch((error) => setStatus(error.message || "Не удалось обновить каталог аватаров.", true));
+    return;
+  }
+
+  const avatarOnlineSearchButton = event.target.closest("[data-avatar-online-search]");
+  if (avatarOnlineSearchButton) {
+    runButtonOperation(avatarOnlineSearchButton, searchOnlineAvatars, "Ищем…")
+      .catch((error) => setStatus(error.message || "Расширенный поиск аватаров недоступен.", true));
+    return;
+  }
+
+  if (event.target.closest("[data-avatar-prismic]")) {
+    api.openExternal("https://vrchat.com/home/launch?worldId=wrld_90abd1bf-ec04-4ec1-9e9e-a1da2344599e")
+      .catch((error) => setStatus(error.message || "Не удалось открыть мир Prismic’s Avatar Search.", true));
+    return;
+  }
+
+  const onlineAvatarAddButton = event.target.closest("[data-avatar-online-add]");
+  const onlineAvatarId = onlineAvatarAddButton?.dataset.avatarOnlineAdd;
+  if (onlineAvatarId) {
+    runButtonOperation(onlineAvatarAddButton, () => addOnlineAvatarToCatalog(onlineAvatarId), "Сохраняем…")
+      .catch((error) => setStatus(error.message || "Не удалось сохранить аватар в каталог.", true));
+    return;
+  }
+
+  const onlineAvatarFavoriteButton = event.target.closest("[data-avatar-online-favorite]");
+  const favoriteAvatarId = onlineAvatarFavoriteButton?.dataset.avatarOnlineFavorite;
+  if (favoriteAvatarId) {
+    runButtonOperation(onlineAvatarFavoriteButton, () => favoriteOnlineAvatar(favoriteAvatarId), "Добавляем…")
+      .catch((error) => setStatus(error.message || "Не удалось добавить аватар в избранное VRChat.", true));
     return;
   }
 
@@ -3699,7 +4645,7 @@ document.addEventListener("click", (event) => {
   const avatarPublishButton = event.target.closest("[data-avatar-global-publish]");
   if (avatarPublishButton) {
     const record = selectedAvatar();
-    if (!record || !window.confirm("Опубликовать текущую отметку аватара для всех команд?")) return;
+    if (!record || !window.confirm(t("Опубликовать текущую отметку аватара для всех команд?"))) return;
     runButtonOperation(avatarPublishButton, () => publishGlobalAvatar(record), "Публикуем…")
       .catch((error) => setStatus(error.message || "Не удалось опубликовать отметку аватара.", true));
     return;
@@ -3708,7 +4654,7 @@ document.addEventListener("click", (event) => {
   const removeGlobalAvatarButton = event.target.closest("[data-avatar-global-remove]");
   const removeGlobalAvatarId = removeGlobalAvatarButton?.dataset.avatarGlobalRemove;
   if (removeGlobalAvatarId) {
-    if (!window.confirm("Убрать общую публикацию вашей команды об этом аватаре?")) return;
+    if (!window.confirm(t("Убрать общую публикацию вашей команды об этом аватаре?"))) return;
     runButtonOperation(removeGlobalAvatarButton, async () => {
       await api.removeGlobalAvatarNote(removeGlobalAvatarId);
       state.globalAvatarNotes = state.globalAvatarNotes.filter((row) => row.avatarId !== removeGlobalAvatarId || row.sourceTeamId !== currentTeamId());
@@ -3720,7 +4666,9 @@ document.addEventListener("click", (event) => {
 
   const sessionPlayerButton = event.target.closest("[data-session-player-id]");
   if (sessionPlayerButton) {
-    openSessionPlayer(sessionPlayerButton.dataset.sessionPlayerId);
+    const player = sessionStats().players.find((entry) => entry.userId === sessionPlayerButton.dataset.sessionPlayerId);
+    if (player) openPlayerInAdmin(player);
+    else openSessionPlayer(sessionPlayerButton.dataset.sessionPlayerId);
     return;
   }
 
@@ -3756,10 +4704,39 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const eventFilter = event.target.closest("[data-session-event-filter]")?.dataset.sessionEventFilter;
+  if (eventFilter) {
+    toggleSessionEventFilter(eventFilter);
+    return;
+  }
+
   const layout = event.target.closest("[data-layout]")?.dataset.layout;
   if (layout) {
     document.querySelectorAll("[data-layout]").forEach((button) => button.classList.toggle("active", button.dataset.layout === layout));
     document.querySelector("[data-builder]").classList.toggle("rows", layout === "rows");
+  }
+
+  const builderAdminUser = event.target.closest("[data-builder-admin-user]")?.dataset.builderAdminUser;
+  if (builderAdminUser) {
+    const player = adminPlayers().find((row) => row.userId === builderAdminUser) || { userId: builderAdminUser, displayName: builderAdminUser };
+    openPlayerInAdmin(player);
+    return;
+  }
+
+  const builderSessionUser = event.target.closest("[data-builder-session-user]")?.dataset.builderSessionUser;
+  if (builderSessionUser) {
+    state.sessionSection = "feed";
+    localStorage.setItem("betaSessionSection", "feed");
+    selectView("session");
+    renderSession();
+    openSessionPlayer(builderSessionUser);
+    return;
+  }
+
+  const builderAvatarKey = event.target.closest("[data-builder-avatar-key]")?.dataset.builderAvatarKey;
+  if (builderAvatarKey) {
+    openAvatarFromEvent(builderAvatarKey);
+    return;
   }
 
   if (event.target.closest("[data-builder-on-top]")) {
@@ -3777,8 +4754,20 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-builder-apply-preset]")) {
+    applyBuilderPreset(builderPreset?.value || "columns");
+    return;
+  }
+
+  const builderFontButton = event.target.closest("[data-builder-font-adjust]");
+  if (builderFontButton) {
+    const block = builderFontButton.closest("[data-builder-kind]");
+    adjustBuilderFont(block?.dataset.builderKind, builderFontButton.dataset.builderFontAdjust);
+    return;
+  }
+
   if (event.target.closest("[data-builder-reset]")) {
-    if (!window.confirm("Сбросить расположение блоков и настройки окна Builder?")) return;
+    if (!window.confirm(t("Сбросить расположение блоков и настройки окна Builder?"))) return;
     resetBuilder().catch((error) => setStatus(error.message || "Не удалось сбросить Builder.", true));
     return;
   }
@@ -3789,11 +4778,21 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-admin-reveal-selection]")) {
+    state.adminQuery = "";
+    state.adminPlayerMode = "all";
+    if (adminSearch) adminSearch.value = "";
+    renderAdminList(true);
+    renderAdminCard();
+    return;
+  }
+
   const adminMode = event.target.closest("[data-admin-mode]")?.dataset.adminMode;
   if (adminMode && ["online-first", "online-only", "all"].includes(adminMode)) {
     state.adminPlayerMode = adminMode;
     localStorage.setItem("betaAdminPlayerMode", adminMode);
     renderAdminList(true);
+    renderAdminCard();
     return;
   }
 
@@ -3814,7 +4813,7 @@ document.addEventListener("click", (event) => {
   const publishGlobalButton = event.target.closest("[data-admin-global-publish]");
   const publishGlobalUserId = publishGlobalButton?.dataset.adminGlobalPublish;
   if (publishGlobalUserId) {
-    if (!window.confirm("Опубликовать текущую метку и заметку для всех команд?")) return;
+    if (!window.confirm(t("Опубликовать текущую метку и заметку для всех команд?"))) return;
     runButtonOperation(publishGlobalButton, () => publishGlobalAdminNote(publishGlobalUserId), "Публикуем…")
       .catch((error) => setStatus(error.message || "Не удалось опубликовать заметку.", true));
     return;
@@ -3823,7 +4822,7 @@ document.addEventListener("click", (event) => {
   const removeGlobalButton = event.target.closest("[data-admin-global-remove]");
   const removeGlobalUserId = removeGlobalButton?.dataset.adminGlobalRemove;
   if (removeGlobalUserId) {
-    if (!window.confirm("Убрать общую публикацию вашей команды? Командная заметка останется.")) return;
+    if (!window.confirm(t("Убрать общую публикацию вашей команды? Командная заметка останется."))) return;
     runButtonOperation(removeGlobalButton, () => removeGlobalAdminNote(removeGlobalUserId), "Удаляем…")
       .catch((error) => setStatus(error.message || "Не удалось удалить общую публикацию.", true));
     return;
@@ -3832,7 +4831,7 @@ document.addEventListener("click", (event) => {
   const restoreHistoryButton = event.target.closest("[data-admin-history-restore]");
   const restoreHistoryId = restoreHistoryButton?.dataset.adminHistoryRestore;
   if (restoreHistoryId) {
-    if (!window.confirm("Восстановить предыдущее значение командной заметки?")) return;
+    if (!window.confirm(t("Восстановить предыдущее значение командной заметки?"))) return;
     runButtonOperation(restoreHistoryButton, () => restoreAdminHistory(restoreHistoryId), "Восстанавливаем…")
       .catch((error) => setStatus(error.message || "Не удалось восстановить заметку.", true));
     return;
@@ -3854,6 +4853,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const adminAvatarKey = event.target.closest("[data-admin-avatar-key]")?.dataset.adminAvatarKey;
+  if (adminAvatarKey) {
+    openAvatarFromEvent(adminAvatarKey);
+    return;
+  }
+
   if (event.target.closest("[data-admin-clear]")) {
     if (state.adminDraftPlayer?.userId === state.selectedAdminUserId) state.adminDraftPlayer = null;
     state.selectedAdminUserId = "";
@@ -3861,7 +4866,7 @@ document.addEventListener("click", (event) => {
     state.adminHistoryRequestId += 1;
     state.adminHistory = [];
     state.adminError = "";
-    renderAdminList();
+    renderAdminList(true);
     renderAdminCard();
     return;
   }
@@ -3895,6 +4900,22 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const ownerWatchButton = event.target.closest("[data-owner-watch]");
+  if (ownerWatchButton) {
+    runButtonOperation(ownerWatchButton, () => toggleOwnerWatch(ownerWatchButton.dataset.ownerWatch), "Сохраняем…")
+      .catch((error) => setStatus(error.message || "Не удалось изменить наблюдение.", true));
+    return;
+  }
+
+  const ownerCopyIncidentButton = event.target.closest("[data-owner-copy-incident]");
+  if (ownerCopyIncidentButton) {
+    runButtonOperation(ownerCopyIncidentButton, async () => {
+      await api.writeClipboardText(ownerIncidentReport(ownerCopyIncidentButton.dataset.ownerCopyIncident));
+      setStatus("Карточка инцидента скопирована.");
+    }, "Копируем…").catch((error) => setStatus(error.message || "Не удалось скопировать карточку инцидента.", true));
+    return;
+  }
+
   if (event.target.closest("[data-owner-clear]")) {
     state.ownerSelectedUserId = "";
     rememberSelections();
@@ -3922,7 +4943,7 @@ document.addEventListener("click", (event) => {
     state.selectedAdminUserId = ownerAdmin;
     state.adminHistory = [];
     selectView("admin");
-    renderAdminList();
+    renderAdminList(true);
     renderAdminCard();
     return;
   }
@@ -3979,7 +5000,7 @@ document.addEventListener("click", (event) => {
     const roleName = roleButton.dataset.groupRoleName || roleId;
     const action = addRole ? "add_role" : "remove_role";
     const verb = addRole ? "Выдать" : "Отозвать";
-    if (!window.confirm(`${verb} роль «${roleName}» для ${eventName(player)}?`)) return;
+    if (!window.confirm(t(`${verb} роль «${roleName}» для ${eventName(player)}?`))) return;
     runButtonOperation(roleButton, () => submitGroupManagement({ action, targetUserId: player.userId, targetDisplayName: eventName(player), roleId, roleName }, `${verb} роль: операция добавлена в очередь.`), "Отправляем…")
       .catch((error) => setStatus(error.message || "Не удалось изменить роль.", true));
     return;
@@ -3998,7 +5019,7 @@ document.addEventListener("click", (event) => {
   const memberKickButton = event.target.closest("[data-group-member-kick]");
   if (memberKickButton) {
     const player = ownerPlayer(state.ownerSelectedUserId);
-    if (!player || !window.confirm(`Исключить ${eventName(player)} из VRChat-группы?`)) return;
+    if (!player || !window.confirm(t(`Исключить ${eventName(player)} из VRChat-группы?`))) return;
     runButtonOperation(memberKickButton, () => submitGroupManagement({ action: "kick_member", targetUserId: player.userId, targetDisplayName: eventName(player) }, "Исключение участника добавлено в очередь."), "Отправляем…")
       .catch((error) => setStatus(error.message || "Не удалось исключить участника.", true));
     return;
@@ -4143,7 +5164,7 @@ document.addEventListener("click", (event) => {
     state.selectedAdminUserId = userId;
     state.adminHistory = [];
     selectView("admin");
-    renderAdminList();
+    renderAdminList(true);
     renderAdminCard();
     return;
   }
@@ -4200,6 +5221,10 @@ playerSearch?.addEventListener("input", () => {
 
 avatarSearch?.addEventListener("input", () => {
   clearTimeout(state.avatarSearchTimer);
+  state.avatarOnlineQuery = "";
+  state.avatarOnlineRows = [];
+  state.avatarOnlineError = "";
+  renderAvatarOnlineResults();
   state.avatarSearchTimer = setTimeout(() => {
     state.avatarSearchTimer = 0;
     state.avatarQuery = avatarSearch.value;
@@ -4229,6 +5254,7 @@ adminSearch?.addEventListener("input", () => {
     state.adminSearchTimer = 0;
     state.adminQuery = adminSearch.value;
     renderAdminList(true);
+    renderAdminCard();
   }, 120);
 });
 
@@ -4262,7 +5288,7 @@ insightsPeriod?.addEventListener("change", () => {
 });
 
 builderLayout?.addEventListener("change", () => {
-  state.builderLayout = builderLayout.value === "rows" ? "rows" : "grid";
+  state.builderLayout = ["rows", "freeform"].includes(builderLayout.value) ? builderLayout.value : "grid";
   persistBuilderSettings();
   renderBuilder();
 });
@@ -4277,6 +5303,15 @@ document.querySelector("[data-builder-blocks]")?.addEventListener("change", (eve
   renderBuilder();
 });
 
+builderGrid?.addEventListener("input", (event) => {
+  const search = event.target.closest("[data-builder-search]");
+  const kind = search?.dataset.builderSearch;
+  if (!kind || !BUILDER_KINDS.includes(kind)) return;
+  state.builderQueries[kind] = String(search.value || "").slice(0, 120);
+  persistBuilderSettings();
+  renderBuilderBlockRows(kind);
+});
+
 builderOpacity?.addEventListener("input", () => {
   state.builderOpacity = Math.min(100, Math.max(40, Number(builderOpacity.value) || 100));
   document.querySelector("[data-builder-opacity-output]").textContent = `${state.builderOpacity}%`;
@@ -4289,6 +5324,10 @@ builderOpacity?.addEventListener("input", () => {
 });
 
 builderGrid?.addEventListener("dragstart", (event) => {
+  if (!event.target.closest("[data-builder-order-handle]") || state.builderLayout === "freeform") {
+    event.preventDefault();
+    return;
+  }
   const block = event.target.closest("[data-builder-kind]");
   if (!block) return;
   state.builderDraggedKind = block.dataset.builderKind;
@@ -4320,6 +5359,14 @@ builderGrid?.addEventListener("drop", (event) => {
 builderGrid?.addEventListener("dragend", () => {
   state.builderDraggedKind = "";
   builderGrid.querySelectorAll(".dragging, .dragTarget").forEach((block) => block.classList.remove("dragging", "dragTarget"));
+});
+
+builderGrid?.addEventListener("pointerdown", startBuilderInteraction);
+document.addEventListener("pointermove", moveBuilderInteraction);
+document.addEventListener("pointerup", finishBuilderInteraction);
+document.addEventListener("pointercancel", finishBuilderInteraction);
+window.addEventListener("resize", () => {
+  if (state.view === "builder") scheduleBuilderRender();
 });
 
 eventFeed?.addEventListener("scroll", () => renderVirtualEventRows(), { passive: true });
@@ -4414,7 +5461,7 @@ api?.onUpdaterStatus?.((info) => {
 api?.onRuntimeConfig?.(showRuntimeConfigNotice);
 
 async function initialize() {
-  if (!api || !noteTools || !sessionModel || !crashModel || !insightsModel || !avatarModel || !notificationModel) {
+  if (!api || !noteTools || !sessionModel || !crashModel || !insightsModel || !avatarModel || !notificationModel || !i18n) {
     showActivation("Безопасный мост приложения недоступен.", true);
     return;
   }

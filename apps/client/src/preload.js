@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("clientApi", {
   removeGlobalAvatarNote: (avatarId) => ipcRenderer.invoke("global-avatar-notes:remove", avatarId),
   resolveVrchatAvatar: (avatarId) => ipcRenderer.invoke("vrchat:avatar", avatarId),
   findVrchatAvatarCandidates: (avatarName) => ipcRenderer.invoke("vrchat:avatar-search", avatarName),
+  searchVrchatAvatars: (searchText) => ipcRenderer.invoke("vrchat:avatar-browse", searchText),
+  favoriteVrchatAvatar: (avatarId) => ipcRenderer.invoke("vrchat:avatar-favorite", avatarId),
   getCrashStatus: (options) => ipcRenderer.invoke("crash:status", options),
   prepareAnalyzeOptions: (options) => ipcRenderer.invoke("tail:prepare-analysis-options", options),
   analyzeCurrentInstance: (options) => ipcRenderer.invoke("tail:analyze-current-instance", options),

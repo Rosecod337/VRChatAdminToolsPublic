@@ -12,6 +12,7 @@ const betaCrashModel = require("../apps/client-beta/renderer/crash-model");
 const betaInsightsModel = require("../apps/client-beta/renderer/insights-model");
 const betaAvatarModel = require("../apps/client-beta/renderer/avatar-model");
 const betaNotificationModel = require("../apps/client-beta/renderer/notification-model");
+const betaI18n = require("../apps/client-beta/renderer/i18n");
 
 const root = path.resolve(__dirname, "..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -35,6 +36,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   const css = read("apps/client-beta/renderer/styles.css");
   const script = read("apps/client-beta/renderer/app.js");
   const coreMain = read("apps/client/src/main.js");
+  const preload = read("apps/client/src/preload.js");
 
   assert.match(html, /Отдельное приложение · Beta/u);
   assert.match(html, /src="app-logo\.png"/u);
@@ -59,12 +61,18 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-session-player-mode="online-first"/u);
   assert.match(html, /data-session-player-mode="online-only"/u);
   assert.match(html, /data-session-player-search/u);
+  assert.match(html, /data-session-event-filter="joins"/u);
+  assert.match(html, /data-session-event-filter="avatars"/u);
+  assert.match(html, /data-session-event-filter="other"/u);
   assert.match(html, /data-session-section="feed"/u);
   assert.match(html, /data-session-section="avatars"/u);
   assert.match(html, /data-session-section="dashboard"/u);
   assert.match(html, /data-avatar-search/u);
   assert.match(html, /data-avatar-filter/u);
   assert.match(html, /data-avatar-refresh/u);
+  assert.match(html, /data-avatar-online-search/u);
+  assert.match(html, /data-avatar-prismic/u);
+  assert.match(html, /data-avatar-online-results/u);
   assert.match(html, /data-avatar-detail/u);
   assert.match(html, /data-session-player-drawer/u);
   assert.match(html, /data-view-button="owner"/u);
@@ -98,6 +106,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-builder-opacity/u);
   assert.match(html, /data-builder-compact/u);
   assert.match(html, /data-builder-compact-exit/u);
+  assert.match(html, /<\/header>\s*<button class="compactExitButton"/u);
   assert.match(html, /data-view-button="history"/u);
   assert.match(html, /data-history-search/u);
   assert.match(html, /data-history-date/u);
@@ -106,6 +115,9 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-history-detail/u);
   assert.match(html, /data-settings-open/u);
   assert.match(html, /data-settings-dialog/u);
+  assert.match(html, /src="i18n\.js"/u);
+  assert.match(html, /name="language"/u);
+  assert.match(html, /data-language-select="instant"/u);
   assert.match(html, /data-header-hide/u);
   assert.match(html, /data-header-show/u);
   assert.match(html, /data-runtime-status-title/u);
@@ -115,10 +127,12 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /name="startView"/u);
   assert.match(html, /option value="owner">Owner<\/option>/u);
   assert.match(html, /name="eventLimit"/u);
+  assert.match(html, /name="scale"[\s\S]*?value="200"/u);
   assert.match(html, /name="notifyMarkedPlayers"/u);
   assert.match(html, /name="notifyCrashAvatars"/u);
   assert.match(css, /@keyframes beta-view-in/u);
   assert.match(css, /@keyframes beta-dialog-in/u);
+  assert.match(css, /@keyframes beta-status-center-in[\s\S]*?translate\(-50%,/u);
   assert.match(css, /prefers-reduced-motion/u);
   assert.match(css, /\.animationsOff/u);
   assert.match(css, /data-status-kind="error"/u);
@@ -169,6 +183,10 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /renderVirtualRows/u);
   assert.match(script, /openSessionPlayerProfile/u);
   assert.match(script, /openSessionPlayerAdmin/u);
+  assert.match(script, /function toggleSessionEventFilter\(/u);
+  assert.match(script, /dataset\.eventUserId/u);
+  assert.match(script, /dataset\.eventAvatarKey/u);
+  assert.match(script, /function openAvatarFromEvent\(/u);
   assert.match(script, /openSessionPlayerOwner/u);
   assert.match(script, /api\.requestGroupBan/u);
   assert.match(script, /api\.requestGroupUnban/u);
@@ -196,15 +214,21 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /api\.listAvatarCatalog/u);
   assert.match(script, /api\.saveAvatarNote/u);
   assert.match(script, /api\.findVrchatAvatarCandidates/u);
+  assert.match(script, /api\.searchVrchatAvatars/u);
   assert.match(script, /api\.saveGlobalAvatarNote/u);
   assert.match(script, /normalizedUiSettings/u);
   assert.match(script, /betaUiSettings/u);
+  assert.match(script, /language:\s*"ru"/u);
   assert.match(script, /eventLimit/u);
   assert.match(script, /api\.showNotification/u);
   assert.match(script, /function syncNotificationMonitoring\(/u);
   assert.match(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+minmax\(0,\s*1fr\)/u);
   assert.doesNotMatch(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+0\s+minmax/u);
+  assert.match(css, /\.activationCard label > span > small\s*\{\s*margin-left:\s*6px/u);
+  assert.match(script, /else if \(state\.builderCompact\) setBuilderCompact\(\)/u);
   assert.match(script, /function runButtonOperation\(/u);
+  assert.match(script, /function selectAdminPlayer\(userId\)[\s\S]*?renderAdminList\(true\)/u);
+  assert.match(script, /data-admin-reveal-selection|dataset\.adminRevealSelection/u);
   assert.match(script, /ACTION_PENDING_LABELS/u);
   assert.match(script, /api\.updatePlaySession\(currentPlaySessionStats\(\)\)/u);
   assert.match(script, /api\?\.onAnalysisStart/u);
@@ -212,6 +236,8 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /api\?\.onUserResolved/u);
   assert.match(script, /api\?\.onRuntimeConfig/u);
   assert.match(coreMain, /appVersion: app\.getVersion\(\)/u);
+  assert.match(coreMain, /vrchat:avatar-browse/u);
+  assert.match(preload, /searchVrchatAvatars/u);
   assert.doesNotMatch(script, /require\s*\(/u);
   assert.doesNotMatch(script, /ipcRenderer|electron/u);
 });
@@ -221,6 +247,7 @@ test("beta keeps every user-facing Stable action reachable", () => {
   const betaHtml = read("apps/client-beta/renderer/index.html");
   const actionMap = [
     ["checkVrchatBtn", "data-check-vrchat"],
+    ["activateBtn", "data-activate-submit"],
     ["updateBtn", 'data-action="update"'],
     ["chooseFileBtn", 'data-action="choose"'],
     ["analyzeCurrentBtn", 'data-action="analyze"'],
@@ -229,6 +256,7 @@ test("beta keeps every user-facing Stable action reachable", () => {
     ["startBtn", 'data-action="start"'],
     ["stopBtn", 'data-action="stop"'],
     ["logoutBtn", 'data-action="logout"'],
+    ["ownerTabButton", 'data-view-button="owner"'],
     ["refreshMyVrchatBtn", 'data-action="refresh-insights"'],
     ["copyMyVrchatBtn", "data-insights-copy"],
     ["adminReadTodayPlayersBtn", "data-admin-today"],
@@ -246,6 +274,9 @@ test("beta keeps every user-facing Stable action reachable", () => {
     ["refreshHistoryBtn", 'data-action="refresh-history"'],
     ["historyResetBtn", "data-history-reset"],
     ["banRequestSubmitBtn", "data-owner-dialog-submit"],
+    ["banRequestCloseBtn", "data-owner-dialog-close"],
+    ["banRequestCancelBtn", "data-owner-dialog-cancel"],
+    ["playerActionCloseBtn", "data-session-player-close"],
     ["playerActionOwnerBtn", "data-session-player-owner"],
     ["playerActionProfileBtn", "data-session-player-profile"]
   ];
@@ -253,6 +284,22 @@ test("beta keeps every user-facing Stable action reachable", () => {
   for (const [stableId, betaMarker] of actionMap) {
     assert.match(stableHtml, new RegExp(`id="${stableId}"`, "u"), `${stableId} must still exist in Stable`);
     assert.ok(betaHtml.includes(betaMarker), `${stableId} must have a reachable Beta equivalent`);
+  }
+
+  const navigationMap = [
+    ["players", 'data-view-button="session"'],
+    ["avatars", 'data-session-section="avatars"'],
+    ["dashboard", 'data-session-section="dashboard"'],
+    ["insights", 'data-view-button="insights"'],
+    ["admin", 'data-view-button="admin"'],
+    ["owner", 'data-view-button="owner"'],
+    ["crash", 'data-view-button="crash"'],
+    ["builder", 'data-view-button="builder"'],
+    ["history", 'data-view-button="history"']
+  ];
+  for (const [stableTab, betaMarker] of navigationMap) {
+    assert.match(stableHtml, new RegExp(`data-tab="${stableTab}"`, "u"), `${stableTab} tab must still exist in Stable`);
+    assert.ok(betaHtml.includes(betaMarker), `${stableTab} tab must have a reachable Beta equivalent`);
   }
 });
 
@@ -413,6 +460,34 @@ test("beta insights dedupe saved sessions and bound active-session duration", ()
   assert.equal(insights.sessions.some((session) => session.id === "empty-unknown"), false);
   assert.match(betaInsightsModel.recap(insights, "7 дней"), /Сессий: 2/u);
   assert.match(betaInsightsModel.recap(insights, "7 дней"), /Повторных встреч: 1/u);
+  assert.match(betaInsightsModel.recap(insights, "7 days", "en"), /Sessions: 2/u);
+  assert.match(betaInsightsModel.recap(insights, "7 days", "en"), /Repeat encounters: 1/u);
+  assert.equal(betaInsightsModel.formatDuration(90 * 60_000, "en"), "1 h 30 min");
+});
+
+test("beta localization keeps Russian as default and translates English UI text", () => {
+  const rendererSource = read("apps/client-beta/renderer/app.js");
+  const i18nSource = read("apps/client-beta/renderer/i18n.js");
+  const sessionForms = { enOne: "session", enMany: "sessions", ruOne: "сессия", ruFew: "сессии", ruMany: "сессий" };
+  assert.equal(betaI18n.normalizeLanguage(), "ru");
+  assert.equal(betaI18n.normalizeLanguage("en"), "en");
+  assert.equal(betaI18n.normalizeLanguage("de"), "ru");
+  assert.equal(betaI18n.translate("Настройки", "ru"), "Настройки");
+  assert.equal(betaI18n.translate("Настройки", "en"), "Settings");
+  assert.equal(betaI18n.translate("57 событий", "en"), "57 events");
+  assert.equal(betaI18n.translate("Группа: full white", "en"), "Group: full white");
+  assert.equal(betaI18n.count(1, sessionForms, "en"), "1 session");
+  assert.equal(betaI18n.count(2, sessionForms, "en"), "2 sessions");
+  assert.equal(betaI18n.count(1, sessionForms, "ru"), "1 сессия");
+  assert.equal(betaI18n.count(2, sessionForms, "ru"), "2 сессии");
+  assert.equal(betaI18n.count(5, sessionForms, "ru"), "5 сессий");
+  assert.equal(betaI18n.count(11, sessionForms, "ru"), "11 сессий");
+  assert.equal(betaI18n.count(21, sessionForms, "ru"), "21 сессия");
+  assert.match(rendererSource, /function userTextElement\(/u);
+  assert.match(rendererSource, /element\.dataset\.i18nSkip = "true"/u);
+  assert.match(i18nSource, /closest\?\.\("\[data-i18n-skip\]"\)/u);
+  assert.doesNotMatch(rendererSource, /function localizedText\(/u);
+  assert.match(rendererSource, /english \? "\*\*Online players:\*\*" : "\*\*Онлайн игроки:\*\*"/u);
 });
 
 test("beta player-note helpers normalize server rows and keep one saved record", () => {
@@ -452,6 +527,88 @@ test("beta player-note helpers normalize server rows and keep one saved record",
   assert.equal(merged[0].userId, "usr_demo_nova");
   assert.equal(merged[0].status, "warned");
   assert.equal(merged[1].userId, "usr_demo_mira");
+});
+
+test("beta Admin Tools card derives session and avatar activity from the local log", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/styles.css"), "utf8");
+
+  assert.match(renderer, /function playerActivity\(record\)/u);
+  assert.match(renderer, /sessionModel\.eventBelongsToPlayer\(event, record\)/u);
+  assert.match(renderer, /linkedPlayer = sessionStats\(\)\.players\.find/u);
+  assert.match(renderer, /row\.dataset\.eventType/u);
+  assert.match(renderer, /event\.type === "avatar-changed" \|\| event\.type === "avatar-data"/u);
+  assert.match(renderer, /data\.adminAvatarKey|dataset\.adminAvatarKey/u);
+  assert.match(renderer, /renderPlayerActivity\(content, record\)/u);
+  assert.match(styles, /\.adminPlayerActivity/u);
+});
+
+test("beta links name-only avatar events back to the matching session player", () => {
+  const player = { userId: "usr_demo_kirito", displayName: "Кирито" };
+
+  assert.equal(betaSessionModel.eventBelongsToPlayer({ type: "avatar-changed", playerName: "Кирито" }, player), true);
+  assert.equal(betaSessionModel.eventBelongsToPlayer({ type: "avatar-changed", playerName: "Другой" }, player), false);
+  assert.equal(betaSessionModel.eventBelongsToPlayer({ type: "avatar-changed", userId: "usr_demo_kirito", playerName: "Старое имя" }, player), true);
+  assert.equal(betaSessionModel.eventBelongsToPlayer({ type: "avatar-changed", userId: "usr_other", playerName: "Кирито" }, player), false);
+});
+
+test("beta auto setting analyzes today's logs instead of starting an empty tail", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const markup = read("apps/client-beta/renderer/index.html");
+
+  assert.match(markup, /name="autoAnalyzeToday"/u);
+  assert.match(markup, /Автоматически анализировать логи за текущий день/u);
+  assert.doesNotMatch(markup, /name="autoStart"/u);
+  assert.match(renderer, /autoAnalyzeToday: false/u);
+  assert.match(renderer, /mode: "today"/u);
+  assert.match(renderer, /scope: "all"/u);
+  assert.match(renderer, /analyzeTodayLogs\(\)/u);
+  assert.doesNotMatch(renderer, /state\.uiSettings\.autoStart/u);
+});
+
+test("beta Builder supports header-only movement, corner resize, presets, and per-block font size", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/app.js"), "utf8");
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/styles.css"), "utf8");
+
+  assert.match(markup, /option value="freeform"/u);
+  assert.match(markup, /data-builder-apply-preset/u);
+  assert.match(renderer, /header\.dataset\.builderMove = kind/u);
+  assert.match(renderer, /for \(const corner of \["nw", "ne", "sw", "se"\]\)/u);
+  assert.match(renderer, /function startBuilderInteraction\(event\)/u);
+  assert.match(renderer, /function moveBuilderInteraction\(event\)/u);
+  assert.match(renderer, /betaBuilderGeometry/u);
+  assert.match(renderer, /betaBuilderQueries/u);
+  assert.match(renderer, /dataset\.builderFontAdjust/u);
+  assert.match(renderer, /dataset\.builderAdminUser = item\.userId/u);
+  assert.match(renderer, /dataset\.builderSessionUser = item\.userId/u);
+  assert.match(renderer, /dataset\.builderAvatarKey = avatarModel\.key/u);
+  assert.match(renderer, /function renderBuilderBlockRows\(kind\)/u);
+  assert.match(styles, /\.builderResizeHandle\.se/u);
+  assert.match(styles, /\.betaBuilder\.freeform/u);
+  assert.match(styles, /\.builderBlockSearch/u);
+});
+
+test("beta avatar catalog visibly reflects the server-enforced key scope", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/app.js"), "utf8");
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/index.html"), "utf8");
+
+  assert.match(markup, /data-avatar-catalog-scope/u);
+  assert.match(renderer, /state\.settings\?\.license\?\.canViewFullAvatarCatalog/u);
+  assert.match(renderer, /fullCatalog \? "Каталог команды" : "Личный каталог"/u);
+});
+
+test("beta Owner preserves Stable watchlist, incident copy, and moderation overview actions", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/styles.css"), "utf8");
+
+  assert.match(renderer, /function renderOwnerOverview\(\)/u);
+  assert.match(renderer, /function toggleOwnerWatch\(userId\)/u);
+  assert.match(renderer, /function ownerIncidentReport\(userId\)/u);
+  assert.match(renderer, /dataset\.ownerWatch = player\.userId/u);
+  assert.match(renderer, /dataset\.ownerCopyIncident = player\.userId/u);
+  assert.match(styles, /\.ownerOverviewMetrics/u);
+  assert.match(styles, /\.ownerWatchRow/u);
 });
 
 test("beta imports a private copy of the Stable session without changing Stable", async (context) => {
@@ -508,4 +665,7 @@ test("beta has a real renderer performance smoke check", () => {
   assert.match(performanceCheck, /eventTotal !== 2000/u);
   assert.match(performanceCheck, /playerRows > 40/u);
   assert.match(performanceCheck, /totalDomNodes > 1200/u);
+  assert.match(performanceCheck, /BETA_PREVIEW_CLICK_SELECTOR/u);
+  assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_TEXT/u);
+  assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_SELECTOR/u);
 });

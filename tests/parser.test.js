@@ -8,34 +8,34 @@ const { createParser } = require("../packages/parser");
 
 test("parses player join and leave events", () => {
   const parser = createParser();
-  const joined = parser.parseLine("2026.06.09 13:37:39 Debug      -  [Behaviour] OnPlayerJoined ExampleUser (usr_11111111-1111-4111-8111-111111111111)");
-  const left = parser.parseLine("2026.06.09 13:37:55 Debug      -  [Behaviour] OnPlayerLeft ExampleUser (usr_11111111-1111-4111-8111-111111111111)");
+  const joined = parser.parseLine("2026.06.09 13:37:39 Debug      -  [Behaviour] OnPlayerJoined Rose337 (usr_3d586656-15eb-4702-9ab2-759a70b2f543)");
+  const left = parser.parseLine("2026.06.09 13:37:55 Debug      -  [Behaviour] OnPlayerLeft Rose337 (usr_3d586656-15eb-4702-9ab2-759a70b2f543)");
 
   assert.equal(joined.type, "player-joined");
-  assert.equal(joined.playerName, "ExampleUser");
-  assert.equal(joined.userId, "usr_11111111-1111-4111-8111-111111111111");
+  assert.equal(joined.playerName, "Rose337");
+  assert.equal(joined.userId, "usr_3d586656-15eb-4702-9ab2-759a70b2f543");
   assert.equal(left.type, "player-left");
 });
 
 test("parses the authenticated and local VRChat user from the log", () => {
   const parser = createParser();
-  const authenticated = parser.parseLine("2026.08.08 21:48:10 Debug      -  User Authenticated: ExampleUser (usr_11111111-1111-4111-8111-111111111111)");
-  const local = parser.parseLine('2026.08.08 21:49:00 Debug      -  [Behaviour] Initialized PlayerAPI "ExampleUser" is local');
+  const authenticated = parser.parseLine("2026.08.08 21:48:10 Debug      -  User Authenticated: Rose337 (usr_3d586656-15eb-4702-9ab2-759a70b2f543)");
+  const local = parser.parseLine('2026.08.08 21:49:00 Debug      -  [Behaviour] Initialized PlayerAPI "Rose337" is local');
 
   assert.equal(authenticated.type, "user-authenticated");
-  assert.equal(authenticated.playerName, "ExampleUser");
-  assert.equal(authenticated.userId, "usr_11111111-1111-4111-8111-111111111111");
+  assert.equal(authenticated.playerName, "Rose337");
+  assert.equal(authenticated.userId, "usr_3d586656-15eb-4702-9ab2-759a70b2f543");
   assert.equal(local.type, "local-player");
-  assert.equal(local.playerName, "ExampleUser");
+  assert.equal(local.playerName, "Rose337");
 });
 
 test("parses avatar switch lines", () => {
   const parser = createParser();
-  const event = parser.parseLine("2026.06.09 13:38:07 Debug      -  [Behaviour] Switching ExampleUser to avatar Example Avatar");
+  const event = parser.parseLine("2026.06.09 13:38:07 Debug      -  [Behaviour] Switching Kapitan Clark to avatar Pirate Clark / Captain Clark - BACKROOMS MOVIE");
 
   assert.equal(event.type, "avatar-changed");
-  assert.equal(event.playerName, "ExampleUser");
-  assert.equal(event.avatarName, "Example Avatar");
+  assert.equal(event.playerName, "Kapitan Clark");
+  assert.equal(event.avatarName, "Pirate Clark / Captain Clark - BACKROOMS MOVIE");
   assert.equal(event.correlationConfidence, "direct");
 });
 

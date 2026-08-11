@@ -160,7 +160,7 @@
     return value.filter((incident) => incident && incident.id && incident.createdAt).slice(0, MAX_INCIDENTS);
   }
 
-  function report(incident) {
+  function report(incident, language = "ru") {
     if (!incident) return "Crash Analyzer: инцидентов нет";
     const suspects = (incident.suspects || []).map((candidate, index) => {
       const who = candidate.playerName || candidate.userId || "неизвестно";
@@ -174,7 +174,7 @@
     }).join("\n") || "нет данных";
     return [
       "**VRChat Crash Risk Report**",
-      `Время: ${new Date(incident.createdAt).toLocaleString("ru-RU")}`,
+      `Время: ${new Date(incident.createdAt).toLocaleString(language === "en" ? "en-US" : "ru-RU")}`,
       `Причина: ${incident.reason}`,
       `Мир: ${incident.worldName}`,
       "",

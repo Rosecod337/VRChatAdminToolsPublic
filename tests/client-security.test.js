@@ -35,6 +35,42 @@ test("automatic log access stays inside the VRChat log directory", () => {
   assert.equal(isVrchatLogPath(path.resolve(logs, "..", "output_log_stolen.txt"), logs), false);
 });
 
+test("today player catalog uses a pathless Electron bridge and exposes online filters", () => {
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(markup, /id="adminOnlineFilter"/u);
+  assert.match(markup, /id="ownerOnlineFilter"/u);
+  assert.match(markup, /id="adminReadTodayPlayersBtn"/u);
+  assert.match(renderer, /clientApi\.readTodayPlayers\(\)/u);
+  assert.match(preload, /readTodayPlayers:\s*\(\) => ipcRenderer\.invoke\("tail:read-today-players"\)/u);
+  assert.match(main, /tail:read-today-players[\s\S]*?readTodayPlayers\(defaultLogDirectory\(\)/u);
+});
+
+test("Stable announces the separate Beta download without replacing Stable", () => {
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(markup, /id="betaPromo"/u);
+  assert.match(markup, /Stable останется отдельным приложением/u);
+  assert.match(renderer, /https:\/\/vrchatadmintools\.ru\/download-beta/u);
+  assert.match(renderer, /stableBetaPromoDismissed-1\.2/u);
+  assert.match(main, /"vrchatadmintools\.ru"/u);
+});
+
+test("large historical player catalogs are paged and cached before rendering", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+
+  assert.match(renderer, /PLAYER_LIST_PAGE_SIZE = 100/u);
+  assert.match(renderer, /BUILDER_PLAYER_LIMIT = 250/u);
+  assert.match(renderer, /paged\.rows\.map\(\(summary\) =>/u);
+  assert.match(renderer, /historicalPlayerSummaryList\(\)[\s\S]*?mergePlayerSummaries/u);
+  assert.match(renderer, /rememberKnownPlayer\(event, \{ invalidateHistory: false \}\)/u);
+});
+
 test("renderer copies text through the Electron bridge", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "../apps/client/src/preload.js"), "utf8");
@@ -148,8 +184,16 @@ test("owner moderation dashboard uses IPC for retries, reports, and watch state"
   assert.match(renderer, /MODERATION_REASON_TEMPLATES/u);
   assert.match(renderer, /function moderationDurationMinutes\(\)/u);
   assert.match(renderer, /minutes < 5 \|\| minutes > 30 \* 24 \* 60/u);
+  assert.match(renderer, /data-owner-unban/u);
+  assert.match(renderer, /eventAction--success/u);
+  assert.match(renderer, /moderationRequestAction:\s*"ban"/u);
+  assert.match(renderer, /requestGroupUnban/u);
+  assert.match(renderer, /revoked: "Разбанен"/u);
+  assert.match(renderer, /moderationAction\(request\) === "ban"[\s\S]*?request\.status === "succeeded"/u);
   assert.match(renderer, /retryGroupBanRequest/u);
+  assert.match(preload, /requestGroupUnban:[\s\S]*?moderation:request-group-unban/u);
   assert.match(preload, /moderation:retry-group-ban-request/u);
+  assert.match(main, /moderation:request-group-unban[\s\S]*?\/moderation\/unban-requests/u);
   assert.match(main, /\/moderation\/ban-requests\/\$\{encodeURIComponent\(safeRequestId\)\}\/retry/u);
 });
 
@@ -176,7 +220,50 @@ test("owner group management stays behind IPC and requires explicit confirmation
   assert.doesNotMatch(renderer, /api\.vrchat\.cloud/u);
 });
 
-test("public client does not expose the internal moderation bot name", () => {
+test("license admin separates bans from granular group management permissions", () => {
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/renderer.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/styles.css"), "utf8");
+
+  assert.match(renderer, /data-owner-ban-access/u);
+  assert.match(renderer, /data-group-view/u);
+  assert.match(renderer, /data-group-roles/u);
+  assert.match(renderer, /data-group-kick/u);
+  assert.match(renderer, /data-save-group-access/u);
+  assert.match(renderer, /canViewGroupMembers/u);
+  assert.match(renderer, /canManageGroupRoles/u);
+  assert.match(renderer, /canKickGroupMembers/u);
+  assert.match(markup, /id="licenseSearch"/u);
+  assert.match(markup, /value="attention"/u);
+  assert.match(markup, /id="licenseSort"[\s\S]*value="newest"[\s\S]*value="oldest"/u);
+  assert.match(renderer, /const sortMode = licenseSort\?\.value \|\| "newest"/u);
+  assert.match(renderer, /sortMode === "attention"/u);
+  assert.match(renderer, /sortMode === "oldest"/u);
+  assert.match(renderer, /class="licensePermissionDetails"/u);
+  assert.match(renderer, /class="licenseSupportDetails"/u);
+  assert.match(renderer, /popoverSummary/u);
+  assert.match(styles, /\.ownerCell\s*\{[^}]*position:\s*absolute/isu);
+  assert.match(styles, /\.ownerCell\s*\{[^}]*grid-template-columns:\s*repeat\(2/isu);
+  assert.match(styles, /\.licenseSupportDetails\s*>\s*div\s*\{[^}]*position:\s*absolute/isu);
+  assert.match(styles, /\.groupAccessCard\s*\{[^}]*border:[^}]*217,\s*83,\s*79/isu);
+  assert.match(styles, /\.groupAccessButton/isu);
+});
+
+test("ordinary licensed users get personal VRChat insights without Owner access", () => {
+  const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const insights = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/my-vrchat-insights.js"), "utf8");
+
+  assert.match(markup, /data-tab="insights"[^>]*>Мой VRChat</u);
+  assert.match(markup, /data-pane="insights"/u);
+  assert.match(markup, /my-vrchat-insights\.js/u);
+  assert.match(renderer, /window\.myVrchatInsights\.buildMyVrchatInsights/u);
+  assert.match(renderer, /window\.clientApi\.listPlaySessions/u);
+  assert.match(renderer, /const playerStats = computePlayerStats\(state\.events\);/u);
+  assert.match(insights, /recurringPlayerCount/u);
+});
+
+test("public client does not expose an internal moderation bot name", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
   const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
 

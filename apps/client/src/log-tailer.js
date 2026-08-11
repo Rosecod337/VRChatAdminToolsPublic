@@ -290,7 +290,9 @@ class LogTailer extends EventEmitter {
       if (lines.length > maxLines) lines = lines.slice(-maxLines);
     }
 
-    const boundary = findCurrentInstanceStartIndex(lines, options.expectedLocation);
+    const boundary = options.scope === "all"
+      ? { startIndex: 0, type: "full-history" }
+      : findCurrentInstanceStartIndex(lines, options.expectedLocation);
     const startIndex = boundary.startIndex;
     const boundaryType = boundary.type;
 

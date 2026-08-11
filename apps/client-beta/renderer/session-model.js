@@ -15,6 +15,20 @@
     return String(event.display || event.playerName || event.userId || "Игрок");
   }
 
+  function normalizedPlayerName(value) {
+    return String(value || "").trim().toLocaleLowerCase("ru-RU");
+  }
+
+  function eventBelongsToPlayer(event = {}, player = {}) {
+    const eventUserId = String(event.userId || "").trim();
+    const playerUserId = String(player.userId || player.id || "").trim();
+    if (eventUserId && playerUserId) return eventUserId === playerUserId;
+    if (eventUserId || !playerUserId) return false;
+    const eventPlayerName = normalizedPlayerName(event.display || event.playerName);
+    const playerName = normalizedPlayerName(player.displayName || player.playerName || player.display || player.name);
+    return Boolean(eventPlayerName && playerName && eventPlayerName === playerName);
+  }
+
   function buildSessionStats(events = []) {
     const statusByUser = new Map();
     const displayByUser = new Map();
@@ -162,5 +176,5 @@
     };
   }
 
-  return { MAX_BUFFERED_EVENTS, PLAYER_MODES, buildSessionStats, buildPlaySessionStats, filterPlayers, buildAvatarSummary, buildDashboard, importantEvents, virtualWindow };
+  return { MAX_BUFFERED_EVENTS, PLAYER_MODES, buildSessionStats, buildPlaySessionStats, filterPlayers, eventBelongsToPlayer, buildAvatarSummary, buildDashboard, importantEvents, virtualWindow };
 });
