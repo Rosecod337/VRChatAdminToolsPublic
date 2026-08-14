@@ -91,6 +91,7 @@
     }
     for (const event of events) {
       if (event?.type !== "avatar-changed" && event?.type !== "avatar-data") continue;
+      if (event.avatarRedacted || event.avatarProtected) continue;
       merge({
         avatarName: clean(event.avatarName, 240),
         avatarId: clean(event.avatarId, 120),
@@ -120,5 +121,16 @@
     });
   }
 
-  return { clean, nameKey, idKey, key, normalizeCatalog, normalizeNote, normalizeGlobal, buildRows, filterRows };
+  function paginateRows(rows, page = 1, pageSize = 50) {
+    const source = Array.isArray(rows) ? rows : [];
+    const allowedSizes = [25, 50, 100, 200];
+    const safePageSize = allowedSizes.includes(Number(pageSize)) ? Number(pageSize) : 50;
+    const pages = Math.max(1, Math.ceil(source.length / safePageSize));
+    const safePage = Math.min(pages, Math.max(1, Math.trunc(Number(page) || 1)));
+    const start = (safePage - 1) * safePageSize;
+    const end = Math.min(source.length, start + safePageSize);
+    return { rows: source.slice(start, end), page: safePage, pageSize: safePageSize, pages, total: source.length, start, end };
+  }
+
+  return { clean, nameKey, idKey, key, normalizeCatalog, normalizeNote, normalizeGlobal, buildRows, filterRows, paginateRows };
 });

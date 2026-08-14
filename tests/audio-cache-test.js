@@ -39,15 +39,15 @@ test("parses CacheComponents for a cached avatar", () => {
 
 test("links Avatar ID after CacheComponents to the same unambiguous context", () => {
   const parser = createParser();
-  parser.parseLine("2026.06.29 15:31:00 Debug      -  [Behaviour] Switching ExampleUser to avatar Example Avatar");
+  parser.parseLine("2026.06.29 15:31:00 Debug      -  [Behaviour] Switching Rose337 to avatar Bright Silence by Yinothy //ink");
   const cache = parser.parseLine("2026.06.29 15:31:02 Debug      -  [Behaviour] CacheComponents: ParticleSystems 1, AudioSources 3");
-  const data = parser.parseLine("2026.06.29 15:31:03 Debug      -  Loading Avatar Data:avtr_11111111-1111-4111-8111-111111111111");
+  const data = parser.parseLine("2026.06.29 15:31:03 Debug      -  Loading Avatar Data:avtr_0b1c11da-f3af-4937-816c-5ba6d39ad993");
 
-  assert.equal(cache.playerName, "ExampleUser");
+  assert.equal(cache.playerName, "Rose337");
   assert.equal(data.type, "avatar-data");
-  assert.equal(data.playerName, "ExampleUser");
-  assert.equal(data.avatarName, "Example Avatar");
-  assert.equal(data.avatarId, "avtr_11111111-1111-4111-8111-111111111111");
+  assert.equal(data.playerName, "Rose337");
+  assert.equal(data.avatarName, "Bright Silence by Yinothy //ink");
+  assert.equal(data.avatarId, "avtr_0b1c11da-f3af-4937-816c-5ba6d39ad993");
 });
 
 test("keeps same-second avatar events unique", () => {

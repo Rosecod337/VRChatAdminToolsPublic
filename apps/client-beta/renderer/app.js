@@ -18,8 +18,8 @@ const activationStatus = document.querySelector("[data-activation-status]");
 const authorAliasField = document.querySelector("[data-author-alias-field]");
 const authorAliasInput = activationForm?.elements.namedItem("authorAlias");
 const vrchatAuthCookieInput = activationForm?.elements.namedItem("vrchatAuthCookie");
-const checkVrchatButton = document.querySelector("[data-check-vrchat]");
 const importStableButton = document.querySelector("[data-import-stable]");
+const continueFreeButton = document.querySelector("[data-continue-free]");
 const appView = document.querySelector("[data-app-view]");
 const runtimeState = document.querySelector(".runtimeState");
 const runtimeStatus = document.querySelector("[data-runtime-status]");
@@ -40,6 +40,10 @@ const avatarSessionList = document.querySelector("[data-avatar-session-list]");
 const avatarDetail = document.querySelector("[data-avatar-detail]");
 const avatarSearch = document.querySelector("[data-avatar-search]");
 const avatarFilter = document.querySelector("[data-avatar-filter]");
+const avatarPageSize = document.querySelector("[data-avatar-page-size]");
+const avatarPageStatus = document.querySelector("[data-avatar-page-status]");
+const avatarPagePrev = document.querySelector("[data-avatar-page-prev]");
+const avatarPageNext = document.querySelector("[data-avatar-page-next]");
 const avatarOnlineResults = document.querySelector("[data-avatar-online-results]");
 const dashboardBars = document.querySelector("[data-dashboard-bars]");
 const dashboardRecent = document.querySelector("[data-dashboard-recent]");
@@ -57,6 +61,8 @@ const ownerNavButton = document.querySelector('[data-view-button="owner"]');
 const ownerList = document.querySelector("[data-owner-list]");
 const ownerCard = document.querySelector("[data-owner-card]");
 const ownerSearch = document.querySelector("[data-owner-search]");
+let rose337SelectionSound = null;
+const ROSE337_USER_ID = "usr_3d586656-15eb-4702-9ab2-759a70b2f543";
 const ownerDialog = document.querySelector("[data-owner-dialog]");
 const ownerModerationForm = document.querySelector("[data-owner-moderation-form]");
 const crashList = document.querySelector("[data-crash-list]");
@@ -64,10 +70,25 @@ const crashDetail = document.querySelector("[data-crash-detail]");
 const insightsPeriod = document.querySelector("[data-insights-period]");
 const insightSessionList = document.querySelector("[data-session-list]");
 const insightSessionDetail = document.querySelector("[data-insight-session-detail]");
+const companionSearch = document.querySelector("[data-companion-search]");
+const companionSearchLayout = document.querySelector("[data-companion-search-layout]");
+const companionSearchResults = document.querySelector("[data-companion-search-results]");
+const companionSearchCount = document.querySelector("[data-companion-search-count]");
+const companionSearchDetail = document.querySelector("[data-companion-search-detail]");
+const directoryPanels = [...document.querySelectorAll("[data-directory-kind]")];
+const socialSummary = document.querySelector("[data-social-summary]");
+const socialStatus = document.querySelector("[data-social-status]");
+const socialDetailDialog = document.querySelector("[data-social-detail-dialog]");
+const socialDetailBody = document.querySelector("[data-social-detail-body]");
+const socialDetailTitle = document.querySelector("[data-social-detail-title]");
 const builderGrid = document.querySelector("[data-builder]");
+const builderWorkspace = document.querySelector("[data-builder-workspace]");
+const builderInspector = document.querySelector("[data-builder-inspector]");
 const builderLayout = document.querySelector("[data-builder-layout]");
 const builderPreset = document.querySelector("[data-builder-preset]");
 const builderOpacity = document.querySelector("[data-builder-opacity]");
+const builderDashboard = document.querySelector("[data-builder-dashboard]");
+const builderDashboardName = document.querySelector("[data-builder-dashboard-name]");
 const historyList = document.querySelector("[data-history-list]");
 const historyDetail = document.querySelector("[data-history-detail]");
 const historySearch = document.querySelector("[data-history-search]");
@@ -75,13 +96,32 @@ const historyDate = document.querySelector("[data-history-date]");
 const historyState = document.querySelector("[data-history-state]");
 const settingsDialog = document.querySelector("[data-settings-dialog]");
 const settingsForm = document.querySelector("[data-settings-form]");
+const uiChromeResize = document.querySelector("[data-ui-chrome-resize]");
+const railActionsToggle = document.querySelector("[data-rail-actions-toggle]");
 let settingsReturnFocus = null;
 let ownerDialogReturnFocus = null;
 let playerDrawerReturnFocus = null;
-const BUILDER_KINDS = Object.freeze(["players", "avatars", "portals", "worlds", "admin"]);
+const BUILDER_KINDS = Object.freeze(["players", "avatars", "portals", "worlds", "instance", "friends", "friendlog", "admin"]);
+const BUILDER_LAYOUTS = Object.freeze(["grid", "adaptive", "rows", "freeform"]);
 const BUILDER_MIN_WIDTH = 260;
 const BUILDER_MIN_HEIGHT = 150;
+const BUILDER_SNAP_SIZE = 12;
+const BUILDER_ROW_LIMITS = Object.freeze([5, 10, 20, 40, 60, 80]);
 const SESSION_EVENT_FILTERS = Object.freeze(["joins", "leaves", "avatars", "worlds", "other"]);
+const AVATAR_PAGE_SIZES = Object.freeze([25, 50, 100, 200]);
+const AVATAR_RENDER_THROTTLE_MS = 180;
+const UI_SIDEBAR_COLLAPSED_WIDTH = 84;
+const UI_SIDEBAR_MIN_WIDTH = 220;
+const UI_SIDEBAR_MAX_WIDTH = 360;
+const UI_SIDEBAR_SNAP_WIDTH = 150;
+const WORLD_ID_RE = /^wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const AVATAR_ID_RE = /^avtr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+document.querySelectorAll("[data-ui-chrome] button").forEach((button) => {
+  const label = button.textContent.trim();
+  if (label && !button.title) button.title = label;
+  if (label && !button.getAttribute("aria-label")) button.setAttribute("aria-label", label);
+});
 const ACTION_PENDING_LABELS = Object.freeze({
   choose: "Выбираем…",
   analyze: "Анализируем…",
@@ -117,6 +157,8 @@ function loadLocalJson(key, fallback) {
 
 const DEFAULT_UI_SETTINGS = Object.freeze({
   language: "ru",
+  uiPlacement: "top",
+  uiSidebarWidth: 272,
   startView: "session",
   density: "comfortable",
   scale: 100,
@@ -136,8 +178,10 @@ function normalizedUiSettings(value = {}) {
   const next = { ...DEFAULT_UI_SETTINGS, ...(value && typeof value === "object" ? value : {}) };
   delete next.autoStart;
   if (!["ru", "en"].includes(next.language)) next.language = "ru";
-  if (!["session", "admin", "owner", "crash", "insights", "history", "builder"].includes(next.startView)) next.startView = "session";
-  if (!["comfortable", "compact"].includes(next.density)) next.density = "comfortable";
+  if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = "top";
+  next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || 272));
+  if (!["session", "insights", "players", "worlds", "local-avatars", "social", "admin", "owner", "crash", "history", "builder"].includes(next.startView)) next.startView = "session";
+  if (!["comfortable", "compact", "vr"].includes(next.density)) next.density = "comfortable";
   next.scale = [100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
   if (!["online-first", "online-only", "all"].includes(next.sessionPlayerMode)) next.sessionPlayerMode = "online-first";
@@ -148,6 +192,7 @@ function normalizedUiSettings(value = {}) {
 const state = {
   settings: null,
   events: [],
+  sessionStatsCache: null,
   filePath: "",
   running: false,
   startedAt: null,
@@ -166,6 +211,8 @@ const state = {
   statusUnread: 0,
   statusCenterOpen: false,
   view: "session",
+  workspaceMode: localStorage.getItem("betaWorkspaceMode") === "team" ? "team" : "personal",
+  workspaceLastView: loadLocalJson("betaWorkspaceLastView", { personal: "session", team: "admin" }),
   sessionPlayerMode: "online-first",
   sessionPlayerQuery: "",
   sessionEventFilters: loadLocalJson("betaSessionEventFilters", ["all"]),
@@ -179,6 +226,14 @@ const state = {
   globalAvatarNotes: [],
   avatarRows: [],
   avatarVisibleRows: [],
+  avatarPageRows: [],
+  avatarSummary: null,
+  avatarDataDirty: true,
+  avatarFilterDirty: true,
+  avatarLastBuildAt: 0,
+  avatarRenderTimer: 0,
+  avatarPage: 1,
+  avatarPageSize: AVATAR_PAGE_SIZES.includes(Number(localStorage.getItem("betaAvatarPageSize"))) ? Number(localStorage.getItem("betaAvatarPageSize")) : 50,
   selectedAvatarKey: "",
   avatarCandidates: [],
   avatarQuery: "",
@@ -249,16 +304,47 @@ const state = {
   insightsRequestId: 0,
   insightsPeriod: localStorage.getItem("betaInsightsPeriod") || "30",
   selectedInsightSessionKey: "",
+  companionQuery: "",
+  companionResults: { players: [], worlds: [] },
+  companionSelectedKind: "",
+  companionSelectedKey: "",
+  companionDetails: null,
+  companionLoading: false,
+  companionError: "",
+  companionRequestId: 0,
+  companionSearchTimer: 0,
+  directoryQueries: { player: "", world: "", avatar: "" },
+  directoryResults: { player: [], world: [], avatar: [] },
+  directorySelected: { player: "", world: "", avatar: "" },
+  directoryDetails: { player: null, world: null, avatar: null },
+  directoryAvatarProfile: null,
+  directoryLoading: { player: false, world: false, avatar: false },
+  directoryRequestId: { player: 0, world: 0, avatar: 0 },
+  directorySearchTimers: { player: 0, world: 0, avatar: 0 },
+  social: null,
+  socialTab: localStorage.getItem("betaSocialTab") || "overview",
+  socialEvents: [],
+  socialPreferences: [],
+  socialCollections: {},
+  socialLoading: false,
+  socialError: "",
   currentVrchatUser: null,
   currentVrchatInstance: null,
   builderOrder: loadLocalJson("betaBuilderOrder", BUILDER_KINDS),
   builderVisible: loadLocalJson("betaBuilderVisible", BUILDER_KINDS),
-  builderLayout: ["rows", "freeform"].includes(localStorage.getItem("betaBuilderLayout")) ? localStorage.getItem("betaBuilderLayout") : "grid",
+  builderLayout: BUILDER_LAYOUTS.includes(localStorage.getItem("betaBuilderLayout")) ? localStorage.getItem("betaBuilderLayout") : "grid",
   builderGeometry: loadLocalJson("betaBuilderGeometry", {}),
   builderQueries: loadLocalJson("betaBuilderQueries", {}),
+  builderBlockSettings: loadLocalJson("betaBuilderBlockSettings", {}),
+  builderSnap: localStorage.getItem("betaBuilderSnap") !== "false",
   builderAlwaysOnTop: localStorage.getItem("betaBuilderAlwaysOnTop") === "true",
   builderOpacity: Math.min(100, Math.max(40, Number(localStorage.getItem("betaBuilderOpacity")) || 100)),
   builderCompact: localStorage.getItem("betaBuilderCompact") === "true",
+  builderCompactMenuOpen: false,
+  builderOverlayHidden: false,
+  builderInspector: null,
+  builderDashboards: loadLocalJson("betaBuilderDashboards", []),
+  builderDashboardId: localStorage.getItem("betaBuilderDashboardId") || "",
   builderDraggedKind: "",
   builderInteraction: null,
   builderRenderFrame: 0,
@@ -281,10 +367,37 @@ const state = {
   uiSettings: normalizedUiSettings(loadLocalJson("betaUiSettings", DEFAULT_UI_SETTINGS))
 };
 
+if (!["overview", "locations", "favorites", "journal", "groups", "vrchat-favorites", "notifications"].includes(state.socialTab)) state.socialTab = "overview";
+state.builderDashboards = (Array.isArray(state.builderDashboards) ? state.builderDashboards : []).filter((dashboard) => dashboard && typeof dashboard === "object" && dashboard.id).slice(0, 12);
+if (!state.builderDashboards.length) {
+  state.builderDashboards = [{
+    id: "default",
+    name: "Основной",
+    order: state.builderOrder,
+    visible: state.builderVisible,
+    layout: state.builderLayout,
+    geometry: state.builderGeometry,
+    queries: state.builderQueries,
+    blockSettings: state.builderBlockSettings,
+    snap: state.builderSnap
+  }];
+}
+if (!state.builderDashboards.some((dashboard) => dashboard.id === state.builderDashboardId)) state.builderDashboardId = state.builderDashboards[0].id;
+const initialDashboard = state.builderDashboards.find((dashboard) => dashboard.id === state.builderDashboardId);
+if (initialDashboard) {
+  state.builderOrder = initialDashboard.order || state.builderOrder;
+  state.builderVisible = initialDashboard.visible || state.builderVisible;
+  state.builderLayout = BUILDER_LAYOUTS.includes(initialDashboard.layout) ? initialDashboard.layout : state.builderLayout;
+  state.builderGeometry = initialDashboard.geometry || state.builderGeometry;
+  state.builderQueries = initialDashboard.queries || state.builderQueries;
+  state.builderBlockSettings = initialDashboard.blockSettings || state.builderBlockSettings;
+  state.builderSnap = initialDashboard.snap !== false;
+}
 state.builderOrder = [...new Set((Array.isArray(state.builderOrder) ? state.builderOrder : []).filter((kind) => BUILDER_KINDS.includes(kind)))];
 for (const kind of BUILDER_KINDS) if (!state.builderOrder.includes(kind)) state.builderOrder.push(kind);
 state.builderVisible = [...new Set((Array.isArray(state.builderVisible) ? state.builderVisible : []).filter((kind) => BUILDER_KINDS.includes(kind)))];
 state.builderQueries = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, String(state.builderQueries?.[kind] || "").slice(0, 120)]));
+state.builderBlockSettings = normalizedBuilderBlockSettings(state.builderBlockSettings);
 state.sessionEventFilters = [...new Set((Array.isArray(state.sessionEventFilters) ? state.sessionEventFilters : []).filter((kind) => kind === "all" || SESSION_EVENT_FILTERS.includes(kind)))];
 if (!state.sessionEventFilters.length || state.sessionEventFilters.includes("all")) state.sessionEventFilters = ["all"];
 
@@ -321,6 +434,10 @@ function rememberSelections() {
 const viewTitles = {
   session: "Живая сессия",
   insights: "Мой VRChat",
+  players: "Игроки",
+  social: "Социальное",
+  worlds: "Миры",
+  "local-avatars": "Аватары",
   admin: "Admin Tools",
   owner: "Owner",
   crash: "Crash Analyzer",
@@ -331,6 +448,10 @@ const viewTitles = {
 const viewEyebrows = {
   session: "Текущая сессия",
   insights: "Личная статистика",
+  players: "Локальная история игроков",
+  social: "Друзья и группы VRChat",
+  worlds: "Локальная история миров",
+  "local-avatars": "Локальные наблюдения аватаров",
   admin: "Командная работа",
   owner: "Управление VRChat-группой",
   crash: "Диагностика",
@@ -347,6 +468,8 @@ function baselineStatus() {
 function friendlyStatusMessage(message, error = false) {
   const value = String(message || "").trim();
   if (!error) return value || "Готово";
+  const vrchatAuthMessage = formatVrchatAuthError(value, true);
+  if (vrchatAuthMessage) return vrchatAuthMessage;
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network/iu.test(value)) {
     return "Не удалось связаться с сервером. Проверьте интернет и повторите действие.";
   }
@@ -466,9 +589,22 @@ function applyUiSettings({ persist = false } = {}) {
   if (persist) localStorage.setItem("betaUiSettings", JSON.stringify(state.uiSettings));
   document.documentElement.lang = state.uiSettings.language;
   appView.classList.toggle("densityCompact", state.uiSettings.density === "compact");
+  appView.classList.toggle("densityVr", state.uiSettings.density === "vr");
   appView.classList.toggle("animationsOff", !state.uiSettings.animations);
   appView.classList.toggle("headerHidden", !state.uiSettings.showHeader);
   appView.classList.toggle("toolbarHidden", !state.uiSettings.showToolbar && !state.builderCompact);
+  const sideNavigation = state.uiSettings.uiPlacement === "left" && !state.builderCompact;
+  const collapsedSideNavigation = sideNavigation && state.uiSettings.uiSidebarWidth < UI_SIDEBAR_SNAP_WIDTH;
+  appView.classList.toggle("uiChromeLeft", sideNavigation);
+  appView.classList.toggle("uiChromeCollapsed", collapsedSideNavigation);
+  if (!collapsedSideNavigation) appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", String(collapsedSideNavigation && appView.classList.contains("railActionsOpen")));
+  appView.style.setProperty("--ui-chrome-width", `${state.uiSettings.uiSidebarWidth}px`);
+  if (uiChromeResize) {
+    uiChromeResize.setAttribute("aria-valuemin", String(UI_SIDEBAR_COLLAPSED_WIDTH));
+    uiChromeResize.setAttribute("aria-valuemax", String(UI_SIDEBAR_MAX_WIDTH));
+    uiChromeResize.setAttribute("aria-valuenow", String(Math.round(state.uiSettings.uiSidebarWidth)));
+  }
   const scale = state.uiSettings.scale / 100;
   appView.style.zoom = String(scale);
   appView.style.width = "";
@@ -478,16 +614,29 @@ function applyUiSettings({ persist = false } = {}) {
 function fillSettingsForm(settings = state.uiSettings) {
   if (!settingsForm) return;
   const value = normalizedUiSettings(settings);
+  const adminStartOption = settingsForm.elements.startView.querySelector('option[value="admin"]');
+  if (adminStartOption) {
+    adminStartOption.disabled = !hasPaidAccess();
+    adminStartOption.title = adminStartOption.disabled ? "Доступно по платному ключу" : "";
+  }
   const ownerStartOption = settingsForm.elements.startView.querySelector('option[value="owner"]');
   if (ownerStartOption) {
     ownerStartOption.disabled = !hasOwnerAccess();
     ownerStartOption.title = ownerStartOption.disabled ? "Недоступно для текущего ключа" : "";
   }
-  const safeStartView = value.startView === "owner" && !hasOwnerAccess() ? "session" : value.startView;
+  const paidStartView = value.startView === "admin" && !hasPaidAccess() ? "session" : value.startView;
+  const safeStartView = paidStartView === "owner" && !hasOwnerAccess() ? "session" : paidStartView;
   settingsForm.elements.language.value = value.language;
   settingsForm.elements.startView.value = safeStartView;
-  for (const name of ["density", "scale", "sessionPlayerMode", "eventLimit"]) settingsForm.elements[name].value = String(value[name]);
+  for (const name of ["uiPlacement", "density", "scale", "sessionPlayerMode", "eventLimit"]) settingsForm.elements[name].value = String(value[name]);
   for (const name of ["animations", "showHeader", "showToolbar", "autoAnalyzeToday", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) settingsForm.elements[name].checked = value[name];
+  const cookieInput = settingsForm.elements.vrchatAuthCookie;
+  if (cookieInput) {
+    cookieInput.value = "";
+    cookieInput.dataset.dirty = "false";
+    cookieInput.placeholder = state.settings?.hasVrchatAuthCookie ? "Cookie сохранён безопасно" : "auth=...";
+  }
+  setStoredCookieState(Boolean(state.settings?.hasVrchatAuthCookie));
   const status = settingsForm.querySelector("[data-settings-status]");
   if (status) status.textContent = "";
 }
@@ -553,6 +702,42 @@ function openSettings() {
   fillSettingsForm();
   settingsDialog.showModal();
   settingsForm.elements.startView.focus();
+  void refreshLocalStorageSettings();
+}
+
+async function refreshLocalStorageSettings() {
+  const label = settingsForm?.querySelector("[data-local-storage-stats]");
+  const retention = settingsForm?.querySelector("[data-local-retention]");
+  if (!label || !api.getLocalStorageStats) return;
+  try {
+    const stats = await api.getLocalStorageStats();
+    label.textContent = `${stats.sessions} сессий · ${stats.players} игроков · ${stats.worlds} миров · ${stats.avatars} аватаров`;
+    if (retention) retention.value = String(stats.retentionDays || 0);
+  } catch {
+    label.textContent = "Локальное хранилище недоступно.";
+  }
+}
+
+function exportableUiSettings() {
+  return {
+    uiSettings: state.uiSettings,
+    workspaceMode: state.workspaceMode,
+    workspaceLastView: state.workspaceLastView,
+    sessionEventFilters: state.sessionEventFilters
+  };
+}
+
+function applyImportedUiSettings(value = {}) {
+  if (!value || typeof value !== "object") return;
+  if (value.uiSettings) state.uiSettings = normalizedUiSettings(value.uiSettings);
+  if (["personal", "team"].includes(value.workspaceMode)) state.workspaceMode = value.workspaceMode;
+  if (value.workspaceLastView && typeof value.workspaceLastView === "object") state.workspaceLastView = value.workspaceLastView;
+  if (Array.isArray(value.sessionEventFilters)) state.sessionEventFilters = value.sessionEventFilters;
+  localStorage.setItem("betaWorkspaceMode", state.workspaceMode);
+  localStorage.setItem("betaWorkspaceLastView", JSON.stringify(state.workspaceLastView));
+  localStorage.setItem("betaSessionEventFilters", JSON.stringify(state.sessionEventFilters));
+  applyUiSettings({ persist: true });
+  syncWorkspaceNavigation();
 }
 
 function closeSettings() {
@@ -565,6 +750,8 @@ function closeSettings() {
 function readSettingsForm() {
   return normalizedUiSettings({
     language: settingsForm.elements.language.value,
+    uiPlacement: settingsForm.elements.uiPlacement.value,
+    uiSidebarWidth: state.uiSettings.uiSidebarWidth,
     startView: settingsForm.elements.startView.value,
     density: settingsForm.elements.density.value,
     scale: Number(settingsForm.elements.scale.value),
@@ -593,13 +780,13 @@ function stopNotificationMonitoring({ clearCache = false } = {}) {
 
 async function refreshNotificationReferences({ announceError = false } = {}) {
   const requests = [];
+  state.notificationPlayerNotes = [];
+  state.notificationAvatarNotes = [];
   if (state.uiSettings.notifyMarkedPlayers) {
-    requests.push({
-      kind: "players",
-      promise: Promise.resolve().then(() => api.listPlayerNotes())
-    });
+    if (api.listLocalWatchedPlayers) requests.push({ kind: "players", promise: Promise.resolve().then(() => api.listLocalWatchedPlayers()) });
+    if (hasPaidAccess()) requests.push({ kind: "players", promise: Promise.resolve().then(() => api.listPlayerNotes()) });
   }
-  if (state.uiSettings.notifyCrashAvatars) {
+  if (state.uiSettings.notifyCrashAvatars && hasPaidAccess()) {
     requests.push({
       kind: "avatars",
       promise: Promise.resolve().then(() => api.listAvatarNotes())
@@ -619,7 +806,10 @@ async function refreshNotificationReferences({ announceError = false } = {}) {
     }
     loaded += 1;
     if (kind === "players") {
-      state.notificationPlayerNotes = (result.value || []).map(noteTools.normalizeNote).filter((row) => row.userId);
+      const incoming = (result.value || []).map(noteTools.normalizeNote).filter((row) => row.userId);
+      const merged = new Map(state.notificationPlayerNotes.map((row) => [row.userId, row]));
+      for (const row of incoming) merged.set(row.userId, row);
+      state.notificationPlayerNotes = [...merged.values()];
     } else {
       state.notificationAvatarNotes = (result.value || []).map((row) => avatarModel.normalizeNote(row)).filter((row) => row.avatarKey);
     }
@@ -710,14 +900,33 @@ function formatActivationError(error) {
   return ACTIVATION_ERROR_MESSAGES[code] || code || "Не удалось активировать лицензию.";
 }
 
-function formatVrchatAuthError(error) {
+function formatVrchatAuthError(error, matchOnly = false) {
   const message = String(error?.message || error || "");
-  if (/VRChat API HTTP 401|HTTP 401/u.test(message)) {
-    return "VRChat cookie не подошёл или устарел. Вставьте его в формате auth=authcookie_...";
+  const known = {
+    vrchat_login_username_required: "Введите логин или почту VRChat.",
+    vrchat_login_password_required: "Введите пароль VRChat.",
+    vrchat_login_invalid_credentials: "VRChat не принял логин или пароль.",
+    vrchat_login_rate_limited: "VRChat временно ограничил попытки входа. Не повторяйте вход сразу и попробуйте позже.",
+    vrchat_login_session_missing: "VRChat не выдал сессию. Повторите вход позже.",
+    vrchat_login_not_pending: "Запрос входа истёк. Введите логин и пароль заново.",
+    vrchat_login_2fa_method_invalid: "Выберите доступный способ подтверждения.",
+    vrchat_login_2fa_code_required: "Введите код подтверждения VRChat.",
+    vrchat_login_2fa_invalid: "VRChat не принял код подтверждения. Проверьте код и повторите попытку."
+  };
+  for (const [code, friendly] of Object.entries(known)) if (message.includes(code)) return friendly;
+  if (/VRChat auth cookie is not configured/iu.test(message)) {
+    return "Аккаунт VRChat не подключён. Войдите в него через Настройки и повторите действие.";
   }
-  if (/not configured|session is invalid/u.test(message)) {
-    return "VRChat cookie не указан или недействителен. Скопируйте auth через Cookie-Editor.";
+  if (/VRChat (?:account )?session is invalid/iu.test(message)) {
+    return "Сессия VRChat истекла. Войдите в аккаунт заново через Настройки.";
   }
+  if (/VRChat user profile is unavailable|VRChat API HTTP 401/iu.test(message)) {
+    return "VRChat не открыл запрошенные данные. Ваша сессия сохранена.";
+  }
+  if (/VRChat API HTTP 403/iu.test(message)) {
+    return "VRChat API не разрешил это действие для текущего аккаунта.";
+  }
+  if (matchOnly) return "";
   return message || "Не удалось проверить VRChat аккаунт.";
 }
 
@@ -726,11 +935,20 @@ function submittedVrchatCookie() {
 }
 
 function setStoredCookieState(hasStoredCookie) {
-  if (!vrchatAuthCookieInput) return;
-  vrchatAuthCookieInput.value = "";
-  vrchatAuthCookieInput.dataset.dirty = "false";
-  vrchatAuthCookieInput.dataset.stored = hasStoredCookie ? "true" : "false";
-  vrchatAuthCookieInput.placeholder = hasStoredCookie ? "Cookie сохранён безопасно" : "auth=...";
+  if (vrchatAuthCookieInput) {
+    vrchatAuthCookieInput.value = "";
+    vrchatAuthCookieInput.dataset.dirty = "false";
+    vrchatAuthCookieInput.dataset.stored = hasStoredCookie ? "true" : "false";
+    vrchatAuthCookieInput.placeholder = hasStoredCookie ? "Сессия сохранена безопасно" : "auth=...";
+  }
+  document.querySelectorAll("[data-vrchat-account-connect]").forEach((panel) => {
+    const disconnect = panel.querySelector("[data-vrchat-disconnect]");
+    const status = panel.querySelector("[data-vrchat-account-status]");
+    if (disconnect) disconnect.hidden = !hasStoredCookie;
+    panel.dataset.connected = hasStoredCookie ? "true" : "false";
+    if (hasStoredCookie && !status?.dataset.busy) hideVrchatTwoFactor(panel);
+    if (status && !status.dataset.busy) status.textContent = hasStoredCookie ? "Аккаунт VRChat подключён." : "";
+  });
 }
 
 function setAuthorAliasRequested(requested) {
@@ -796,10 +1014,54 @@ function hasOwnerAccess() {
   return hasPermission && Boolean(license.moderationGroupId);
 }
 
+function hasPaidAccess() {
+  return state.settings?.accessMode === "paid" && Boolean(state.settings?.license);
+}
+
+function syncPaidAccess() {
+  const paid = hasPaidAccess();
+  const adminNavButton = document.querySelector('[data-view-button="admin"]');
+  if (adminNavButton) {
+    adminNavButton.disabled = !paid;
+    adminNavButton.dataset.locked = paid ? "false" : "true";
+    adminNavButton.setAttribute("aria-disabled", paid ? "false" : "true");
+    adminNavButton.title = paid ? "Командные инструменты" : "Admin Tools доступны по платному ключу";
+  }
+  playerDrawer?.querySelector("[data-session-player-admin]")?.toggleAttribute("hidden", !paid);
+  const builderAdminToggle = document.querySelector('[data-builder-blocks] input[value="admin"]');
+  if (builderAdminToggle) {
+    builderAdminToggle.disabled = !paid;
+    if (!paid && state.builderVisible.includes("admin")) {
+      state.builderVisible = state.builderVisible.filter((kind) => kind !== "admin");
+      persistBuilderSettings();
+    }
+  }
+  if (!paid && state.view === "admin") selectView("session");
+  for (const selector of ["[data-avatar-online-search]", "[data-avatar-prismic]", "[data-avatar-refresh]"]) {
+    document.querySelector(selector)?.toggleAttribute("hidden", !paid);
+  }
+  if (!paid && avatarOnlineResults) {
+    state.avatarOnlineRows = [];
+    state.avatarOnlineQuery = "";
+    state.avatarOnlineError = "";
+    state.avatarOnlineLoading = false;
+    avatarOnlineResults.hidden = true;
+    avatarOnlineResults.replaceChildren();
+  }
+  const teamModeButton = document.querySelector('[data-workspace-mode="team"]');
+  if (teamModeButton) {
+    teamModeButton.dataset.locked = paid ? "false" : "true";
+    teamModeButton.setAttribute("aria-disabled", paid ? "false" : "true");
+    teamModeButton.title = paid ? "Открыть командные инструменты" : "Командный режим доступен по платному ключу";
+  }
+  if (!paid && state.workspaceMode === "team") state.workspaceMode = "personal";
+  syncWorkspaceNavigation();
+}
+
 function syncOwnerAccess() {
   const enabled = hasOwnerAccess();
   if (ownerNavButton) {
-    ownerNavButton.hidden = false;
+    ownerNavButton.hidden = state.workspaceMode !== "team";
     ownerNavButton.disabled = !enabled;
     ownerNavButton.dataset.locked = enabled ? "false" : "true";
     ownerNavButton.setAttribute("aria-disabled", enabled ? "false" : "true");
@@ -811,18 +1073,60 @@ function syncOwnerAccess() {
   if (groupSourceButton) groupSourceButton.disabled = !canViewGroupMembers();
   const group = document.querySelector("[data-owner-group]");
   if (group) group.textContent = enabled ? `Группа: ${ownerLicense().moderationGroupId}` : "VRChat-группа не настроена";
-  if (!enabled && state.view === "owner") selectView("session");
+  if (!enabled && state.view === "owner") selectView(hasPaidAccess() ? "admin" : "session");
+  syncWorkspaceNavigation();
+}
+
+function viewWorkspaceMode(view) {
+  if (view === "admin" || view === "owner") return "team";
+  if (view === "players" || view === "worlds" || view === "local-avatars" || view === "social") return "personal";
+  return "shared";
+}
+
+function syncWorkspaceNavigation() {
+  const mode = state.workspaceMode === "team" && hasPaidAccess() ? "team" : "personal";
+  state.workspaceMode = mode;
+  document.querySelectorAll("[data-workspace-mode]").forEach((button) => {
+    const active = button.dataset.workspaceMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  document.querySelectorAll("[data-nav-scope]").forEach((button) => {
+    const scope = button.dataset.navScope;
+    button.hidden = scope !== "shared" && scope !== mode;
+  });
+  document.querySelector(".topNavigation")?.setAttribute("data-workspace-navigation", mode);
+  localStorage.setItem("betaWorkspaceMode", mode);
+}
+
+function switchWorkspaceMode(mode) {
+  if (mode === "team" && !hasPaidAccess()) {
+    setStatus("Командный режим доступен по платному ключу.", false, { kind: "warning" });
+    return;
+  }
+  const safeMode = mode === "team" ? "team" : "personal";
+  state.workspaceMode = safeMode;
+  syncWorkspaceNavigation();
+  let nextView = state.workspaceLastView[safeMode];
+  const nextScope = viewWorkspaceMode(nextView);
+  if (!viewTitles[nextView] || (nextScope !== "shared" && nextScope !== safeMode)) nextView = safeMode === "team" ? "admin" : "session";
+  if (nextView === "owner" && !hasOwnerAccess()) nextView = "admin";
+  selectView(nextView);
 }
 
 async function showApp() {
   activationView.hidden = true;
   appView.hidden = false;
   if (appVersionLabel) {
-    appVersionLabel.textContent = state.settings?.appVersion ? `Beta · ${state.settings.appVersion}` : "Beta";
+    const version = String(state.settings?.appVersion || "").trim();
+    const publicVersion = version.match(/^(\d+)\.(\d+)\.0-beta(?:\.\d+)?$/iu);
+    appVersionLabel.textContent = publicVersion ? `Beta · ${publicVersion[1]}.${publicVersion[2]}` : (version ? `Beta · ${version}` : "Beta");
   }
   const latest = await api.latestFile().catch(() => ({ filePath: "" }));
   if (latest.filePath) setFilePath(latest.filePath);
   syncOwnerAccess();
+  syncPaidAccess();
+  syncWorkspaceNavigation();
   renderCrash();
   syncBuilderControls();
   if (!state.dashboardClockTimer) {
@@ -834,9 +1138,18 @@ async function showApp() {
   await api.setCompactMode?.(state.builderCompact).catch(() => {});
   if (state.builderAlwaysOnTop) await api.setAlwaysOnTop?.(true, state.builderOpacity / 100).catch(() => {});
   if (state.builderCompact) selectView("builder");
-  else selectView(state.uiSettings.startView === "owner" && !hasOwnerAccess() ? "session" : state.uiSettings.startView);
+  else {
+    const configuredView = state.uiSettings.startView;
+    const modeView = state.workspaceLastView[state.workspaceMode];
+    const configuredScope = viewWorkspaceMode(configuredView);
+    const requestedView = configuredScope === "shared" || configuredScope === state.workspaceMode
+      ? configuredView
+      : (viewTitles[modeView] ? modeView : (state.workspaceMode === "team" ? "admin" : "session"));
+    const paidStartView = requestedView === "admin" && !hasPaidAccess() ? "session" : requestedView;
+    selectView(paidStartView === "owner" && !hasOwnerAccess() ? (hasPaidAccess() ? "admin" : "session") : paidStartView);
+  }
   if (state.crashEnabled) startCrashAnalyzer();
-  setStatus(previewMode ? "Безопасный Chrome preview · вымышленные данные" : "Готово к запуску", false, { record: false });
+  setStatus(previewMode ? "Безопасный Chrome preview · вымышленные данные" : (hasPaidAccess() ? "Платный доступ активен" : "Бесплатный локальный режим"), false, { record: false });
   showRuntimeConfigNotice(state.runtimeConfig);
   await syncNotificationMonitoring({ refreshNow: true, announceError: true });
   requestAnimationFrame(() => renderSession());
@@ -847,6 +1160,9 @@ async function showApp() {
     const previewParams = new URLSearchParams(window.location.search);
     const previewScale = Number(previewParams.get("scale"));
     if ([100, 125, 150, 175, 200].includes(previewScale)) state.uiSettings.scale = previewScale;
+    if (["top", "left"].includes(previewParams.get("ui"))) state.uiSettings.uiPlacement = previewParams.get("ui");
+    if (previewParams.get("rail") === "collapsed") state.uiSettings.uiSidebarWidth = UI_SIDEBAR_COLLAPSED_WIDTH;
+    if (previewParams.get("rail") === "expanded") state.uiSettings.uiSidebarWidth = 272;
     if (previewParams.get("header") === "0") state.uiSettings.showHeader = false;
     if (previewParams.get("toolbar") === "0") state.uiSettings.showToolbar = false;
     if (previewParams.get("animations") === "0") state.uiSettings.animations = false;
@@ -886,7 +1202,7 @@ async function showApp() {
     const previewAvatar = previewParams.get("avatar");
     if (previewView === "session" && state.sessionSection === "avatars" && previewAvatar) {
       state.selectedAvatarKey = previewAvatar;
-      renderAvatarSession();
+      renderAvatarSession({ force: true });
     }
     if (previewView === "owner" && state.ownerSource === "group") await requestOwnerGroupMembers();
     const previewPlayer = previewParams.get("player");
@@ -977,10 +1293,12 @@ function createPreviewApi() {
   }
   return {
     getSettings: async () => ({
-      appVersion: "1.2.0-beta.5",
+      appVersion: "2.0.0-beta",
       hasSession: !activationPreviewMode,
       hasVrchatAuthCookie: previewHasVrchatAuthCookie,
       serverUrl: "https://api.vrchatadmintools.ru",
+      accessMode: "paid",
+      freeMode: false,
       license: {
         teamId: "team_preview_beta",
         authorAlias: "Beta Preview",
@@ -994,16 +1312,41 @@ function createPreviewApi() {
       }
     }),
     getRuntimeConfig: async () => ({ revision: 1, notice: null, source: "preview" }),
+    continueFree: async () => ({ ok: true, accessMode: "free" }),
     importStableSettings: async () => ({ imported: true, reason: "stable_settings_imported" }),
     saveSettings: async (settings = {}) => {
       if (settings.vrchatAuthCookie !== undefined) previewHasVrchatAuthCookie = Boolean(settings.vrchatAuthCookie);
       return { hasVrchatAuthCookie: previewHasVrchatAuthCookie };
+    },
+    loginVrchatAccount: async () => {
+      previewHasVrchatAuthCookie = true;
+      return { authenticated: true, requiresTwoFactorAuth: [], user: { userId: "usr_demo_current", displayName: "Rose337" } };
+    },
+    verifyVrchatAccount: async () => ({ authenticated: true, requiresTwoFactorAuth: [], user: { userId: "usr_demo_current", displayName: "Rose337" } }),
+    cancelVrchatAccountLogin: async () => ({ ok: true }),
+    disconnectVrchatAccount: async () => {
+      previewHasVrchatAuthCookie = false;
+      return { ok: true, hasVrchatAuthCookie: false };
     },
     validate: async () => ({ ok: true }),
     activate: async () => ({ ok: true }),
     logout: async () => ({ ok: true }),
     getVrchatCurrentUser: async () => ({ id: "usr_demo_current", displayName: "Rose337" }),
     getVrchatCurrentInstance: async () => ({ worldName: "Group Public", nUsers: 5, capacity: 40 }),
+    getVrchatSocialSummary: async () => ({
+      user: { userId: "usr_demo_current", displayName: "Rose337" },
+      friends: [
+        { userId: "usr_demo_nova", displayName: "Nova", status: "active", statusDescription: "В VRChat", platform: "standalonewindows", online: true, location: "wrld_preview:123", worldId: "wrld_preview" },
+        { userId: "usr_demo_mira", displayName: "Mira", status: "offline", statusDescription: "", platform: "android", online: false }
+      ],
+      groups: [{ groupId: "grp_preview_full_white", name: "full white", shortCode: "FULL", memberCount: 300, isRepresenting: true }],
+      fetchedAt: new Date().toISOString(),
+      truncatedFriends: false
+    }),
+    getVrchatUserProfile: async (userId) => ({ userId, displayName: userId === "usr_demo_nova" ? "Nova" : "Mira", bio: "Публичное описание профиля", status: "active", statusDescription: "В VRChat", platform: "standalonewindows", location: "wrld_preview:123", worldId: "", isFriend: true, allowAvatarCopying: true, dateJoined: "2024-01-01", groups: [{ groupId: "grp_preview_full_white", name: "full white", shortCode: "FULL" }] }),
+    getVrchatGroup: async (groupId) => ({ groupId, name: "full white", shortCode: "FULL", description: "Публичное описание группы", memberCount: 300, onlineMemberCount: 25, privacy: "default", joinState: "open", announcement: { title: "Новости группы", text: "Публичное объявление сообщества." }, instances: [{ worldId: "wrld_preview", instanceId: "123", location: "wrld_preview:123", worldName: "Group Public", memberCount: 12 }], rules: [{ title: "Уважение", text: "Соблюдайте правила сообщества." }] }),
+    getVrchatPersonalCollection: async (kind) => ({ kind, rows: kind === "favorite-worlds" ? [{ worldId: "wrld_preview", worldName: "Group Public", authorName: "Preview", occupants: 12, capacity: 40 }] : kind === "favorite-avatars" ? [{ avatarId: "avtr_preview", avatarName: "Preview Avatar", authorName: "Preview", releaseStatus: "public" }] : [{ id: "not_preview", type: "invite", message: "Приглашение в инстанс", senderUserId: "usr_demo_nova", senderUsername: "Nova", createdAt: new Date().toISOString(), seen: false }], truncated: false }),
+    listLocalSocialEvents: async () => [{ id: 1, event_type: "online", user_id: "usr_demo_nova", display_name: "Nova", occurred_at: new Date().toISOString(), current_value: "online" }],
     latestFile: async () => ({ filePath: "C:\\VRChat\\output_log_preview.txt" }),
     chooseFile: async () => ({ filePath: "C:\\VRChat\\output_log_preview.txt" }),
     prepareAnalyzeOptions: async ({ filePath }) => ({ filePath, sourceLabel: "текущий лог", loadProfileLabel: "быстро", canceled: false }),
@@ -1035,6 +1378,36 @@ function createPreviewApi() {
       { id: "preview-session-2", startedAt: "2026-08-07T18:00:00.000Z", endedAt: "2026-08-07T19:15:00.000Z", worldName: "The Great Pug", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_nova", displayName: "Nova" }, { userId: "usr_demo_alex", displayName: "Alex" }] }) },
       { id: "preview-session-3", startedAt: "2026-08-05T21:10:00.000Z", endedAt: "2026-08-05T22:00:00.000Z", worldName: "Midnight Rooftop", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_mira", displayName: "Mira" }] }) }
     ],
+    searchCompanion: async (query) => {
+      const normalized = String(query || "").toLocaleLowerCase("ru-RU");
+      const players = [
+        { user_id: "usr_demo_nova", display_name: "Nova", first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 3 },
+        { user_id: "usr_demo_mira", display_name: "Mira", first_seen_at: "2026-08-05T21:10:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }
+      ].filter((row) => `${row.display_name} ${row.user_id}`.toLocaleLowerCase("ru-RU").includes(normalized));
+      const worlds = [
+        { world_key: "wrld_preview", world_id: "", world_name: "Group Public", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }
+      ].filter((row) => `${row.world_name} ${row.world_id}`.toLocaleLowerCase("ru-RU").includes(normalized));
+      const avatars = [
+        { avatar_key: "name:preview avatar", avatar_id: "", avatar_name: "Preview Avatar", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2, observation_count: 3 }
+      ].filter((row) => `${row.avatar_name} ${row.avatar_id}`.toLocaleLowerCase("ru-RU").includes(normalized));
+      return { players, worlds, avatars };
+    },
+    getCompanionDetails: async (kind, key) => {
+      const sessions = [
+        { id: "preview-session-1", startedAt: "2026-08-08T20:30:00.000Z", endedAt: "2026-08-08T22:00:00.000Z", worldName: "Group Public", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_nova", displayName: "Nova" }, { userId: "usr_demo_mira", displayName: "Mira" }] }) },
+        { id: "preview-session-2", startedAt: "2026-08-07T18:00:00.000Z", endedAt: "2026-08-07T19:15:00.000Z", worldName: "The Great Pug", snapshot: JSON.stringify({ players: [{ userId: "usr_demo_nova", displayName: "Nova" }] }) }
+      ];
+      if (kind === "player") return { kind, entity: { user_id: key, display_name: key === "usr_demo_nova" ? "Nova" : "Mira", first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }, sessions };
+      if (kind === "world") return { kind, entity: { world_key: key, world_id: "", world_name: "Group Public", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }, sessions };
+      return { kind, entity: { avatar_key: key, avatar_id: "", avatar_name: "Preview Avatar", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2, observation_count: 3 }, sessions, users: [{ user_id: "usr_demo_nova", display_name: "Nova", last_seen_at: "2026-08-08T22:00:00.000Z" }] };
+    },
+    saveLocalPlayerPreference: async (preference) => ({ kind: "player", entity: { user_id: preference.userId, display_name: "Nova", ...preference, first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: new Date().toISOString(), session_count: 2 }, sessions: [], names: [], events: [], worlds: [] }),
+    listLocalWatchedPlayers: async () => [],
+    saveLocalWorldPreference: async (preference) => ({ kind: "world", entity: { world_key: preference.worldKey, world_name: "Group Public", ...preference, first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: new Date().toISOString(), session_count: 2 }, sessions: [] }),
+    getLocalStorageStats: async () => ({ sessions: 2, players: 2, worlds: 2, avatars: 1, retentionDays: 0 }),
+    setLocalRetention: async (retentionDays) => ({ ok: true, retentionDays, removed: 0 }),
+    exportLocalData: async () => ({ ok: true, filePath: "C:\\VRChat-Admin-Tools-backup.json" }),
+    importLocalData: async () => ({ ok: true, importedSessions: 2, uiSettings: {} }),
     listPlayerNotes: async () => previewNotes.map((row) => ({ ...row })),
     listGlobalPlayerNotes: async () => previewGlobalNotes.map((row) => ({ ...row })),
     saveGlobalPlayerNote: async (payload) => {
@@ -1149,7 +1522,8 @@ function createPreviewApi() {
 
 function setFilePath(filePath) {
   state.filePath = String(filePath || "");
-  filePathLabel.textContent = state.filePath || "Лог ещё не выбран";
+  const fileName = state.filePath.split(/[\\/]/u).filter(Boolean).pop() || "";
+  filePathLabel.textContent = fileName || "Лог ещё не выбран";
   filePathLabel.title = state.filePath;
 }
 
@@ -1160,10 +1534,12 @@ function eventTime(event) {
 
 function eventName(event) {
   const profile = event?.userId ? state.profiles.get(String(event.userId)) : null;
-  return String(profile?.displayName || event.display || event.playerName || event.worldName || event.avatarName || "Событие");
+  return String(profile?.displayName || event.display || event.playerName || event.worldName || event.avatarName || (event.avatarProtected ? "Игрок" : "Событие"));
 }
 
 function eventKind(event) {
+  if (event?.avatarProtected) return "сменил защищённый аватар";
+  if (event?.avatarRedacted) return "сменил аватар";
   const labels = {
     "player-joined": "вошёл",
     "player-left": "вышел",
@@ -1179,6 +1555,8 @@ function eventKind(event) {
 }
 
 function eventDetail(event) {
+  if (event?.avatarProtected) return "Данные скрыты настройками владельца";
+  if (event?.avatarRedacted) return "Данные аватара скрыты: источник не подтверждён";
   return String(event.avatarName || event.worldName || event.userId || event.raw || "—");
 }
 
@@ -1249,7 +1627,26 @@ function updateDashboardClock() {
 }
 
 function sessionStats() {
-  return sessionModel.buildSessionStats(state.events);
+  if (!state.sessionStatsCache) state.sessionStatsCache = sessionModel.buildSessionStats(state.events);
+  return state.sessionStatsCache;
+}
+
+function isAvatarEvent(event) {
+  return event?.type === "avatar-changed" || event?.type === "avatar-data";
+}
+
+function invalidateAvatarData() {
+  state.avatarDataDirty = true;
+  state.avatarFilterDirty = true;
+}
+
+function invalidateAvatarFilter() {
+  state.avatarFilterDirty = true;
+}
+
+function invalidateSessionData({ avatars = false } = {}) {
+  state.sessionStatsCache = null;
+  if (avatars) invalidateAvatarData();
 }
 
 function currentPlaySessionStats() {
@@ -1373,6 +1770,56 @@ function playerMarker(online = false, large = false) {
   return marker;
 }
 
+function userIdFromInteractiveTarget(target) {
+  const button = target?.closest?.([
+    "[data-session-player-id]",
+    "[data-event-user-id]",
+    "[data-admin-user-id]",
+    "[data-owner-user-id]",
+    "[data-builder-admin-user]",
+    "[data-builder-session-user]",
+    "[data-insight-profile]",
+    "[data-history-profile]",
+    "[data-history-owner]",
+    "[data-admin-owner]",
+    "[data-owner-profile]",
+    "[data-owner-admin]",
+    "[data-owner-watch]",
+    "[data-owner-copy-incident]",
+    "[data-crash-profile]",
+    "[data-crash-admin]",
+    "[data-crash-owner]"
+  ].join(", "));
+  if (!button) return "";
+  return String(
+    button.dataset.sessionPlayerId
+    || button.dataset.eventUserId
+    || button.dataset.adminUserId
+    || button.dataset.ownerUserId
+    || button.dataset.builderAdminUser
+    || button.dataset.builderSessionUser
+    || button.dataset.insightProfile
+    || button.dataset.historyProfile
+    || button.dataset.historyOwner
+    || button.dataset.adminOwner
+    || button.dataset.ownerProfile
+    || button.dataset.ownerAdmin
+    || button.dataset.ownerWatch
+    || button.dataset.ownerCopyIncident
+    || button.dataset.crashProfile
+    || button.dataset.crashAdmin
+    || button.dataset.crashOwner
+    || ""
+  );
+}
+
+function playRose337SelectionSound(target) {
+  if (userIdFromInteractiveTarget(target) !== ROSE337_USER_ID) return;
+  rose337SelectionSound ??= new Audio("assets/rose337-selection.ogg");
+  rose337SelectionSound.currentTime = 0;
+  rose337SelectionSound.play().catch(() => {});
+}
+
 function playerRowElement(event) {
   const row = document.createElement("button");
   row.type = "button";
@@ -1434,12 +1881,14 @@ function renderVirtualEventRows(force = false) {
   const emptyText = state.events.length
     ? "Событий выбранных типов пока нет."
     : "Запустите чтение лога — новые события появятся здесь.";
-  renderVirtualRows(eventFeed, state.sessionVisibleEvents, 54, eventRowElement, emptyText, force);
+  const rowHeight = state.uiSettings.density === "compact" ? 48 : state.uiSettings.density === "vr" ? 64 : 54;
+  renderVirtualRows(eventFeed, state.sessionVisibleEvents, rowHeight, eventRowElement, emptyText, force);
 }
 
 function renderVirtualPlayerRows(force = false) {
   const emptyText = state.sessionPlayerQuery ? "По этому запросу игроки не найдены." : "Пока никого нет.";
-  renderVirtualRows(playerList, state.sessionVisiblePlayers, 58, playerRowElement, emptyText, force);
+  const rowHeight = state.uiSettings.density === "compact" ? 50 : state.uiSettings.density === "vr" ? 68 : 58;
+  renderVirtualRows(playerList, state.sessionVisiblePlayers, rowHeight, playerRowElement, emptyText, force);
 }
 
 function scheduleSessionRender() {
@@ -1475,6 +1924,7 @@ function openAvatarFromEvent(avatarKey) {
   if (!key) return;
   state.avatarQuery = "";
   state.avatarFilter = "all";
+  invalidateAvatarFilter();
   state.selectedAvatarKey = key;
   state.avatarCandidates = [];
   state.avatarError = "";
@@ -1511,14 +1961,58 @@ function avatarRowElement(row) {
 }
 
 function renderAvatarRows(force = false) {
-  renderVirtualRows(avatarSessionList, state.avatarVisibleRows, 68, avatarRowElement, state.avatarQuery ? "Аватары по запросу не найдены." : "Событий аватаров пока нет.", force);
+  renderVirtualRows(avatarSessionList, state.avatarPageRows, 68, avatarRowElement, state.avatarQuery ? "Аватары по запросу не найдены." : "Событий аватаров пока нет.", force);
 }
 
-function renderAvatarSession() {
-  const summary = sessionModel.buildAvatarSummary(state.events);
-  state.avatarRows = avatarModel.buildRows(state.events, state.avatarCatalog, state.avatarNotes);
-  state.avatarVisibleRows = avatarModel.filterRows(state.avatarRows, state.avatarQuery, state.avatarFilter);
-  state.sessionAvatarRows = state.avatarVisibleRows;
+function renderAvatarPage(force = true) {
+  const pagination = avatarModel.paginateRows(state.avatarVisibleRows, state.avatarPage, state.avatarPageSize);
+  state.avatarPage = pagination.page;
+  state.avatarPageSize = pagination.pageSize;
+  state.avatarPageRows = pagination.rows;
+  state.sessionAvatarRows = pagination.rows;
+  if (avatarPageSize) avatarPageSize.value = String(pagination.pageSize);
+  if (avatarPageStatus) avatarPageStatus.textContent = `${pagination.page} / ${pagination.pages}`;
+  if (avatarPagePrev) avatarPagePrev.disabled = pagination.page <= 1;
+  if (avatarPageNext) avatarPageNext.disabled = pagination.page >= pagination.pages;
+  renderAvatarRows(force);
+}
+
+function scheduleAvatarRender(delayMs) {
+  if (state.avatarRenderTimer) return;
+  state.avatarRenderTimer = window.setTimeout(() => {
+    state.avatarRenderTimer = 0;
+    if (state.view === "session" && state.sessionSection === "avatars") renderAvatarSession({ force: true });
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+function renderAvatarSession({ force = false } = {}) {
+  const dataDirty = state.avatarDataDirty;
+  const filterDirty = state.avatarFilterDirty;
+  if (!force && !dataDirty && !filterDirty) return;
+
+  const now = Date.now();
+  const elapsed = now - state.avatarLastBuildAt;
+  if (!force && dataDirty && state.avatarLastBuildAt && elapsed < AVATAR_RENDER_THROTTLE_MS) {
+    scheduleAvatarRender(AVATAR_RENDER_THROTTLE_MS - elapsed);
+    return;
+  }
+  if (force && state.avatarRenderTimer) {
+    window.clearTimeout(state.avatarRenderTimer);
+    state.avatarRenderTimer = 0;
+  }
+
+  if (dataDirty) {
+    state.avatarSummary = sessionModel.buildAvatarSummary(state.events);
+    state.avatarRows = avatarModel.buildRows(state.events, state.avatarCatalog, state.avatarNotes);
+    state.avatarDataDirty = false;
+    state.avatarFilterDirty = true;
+    state.avatarLastBuildAt = now;
+  }
+  if (state.avatarFilterDirty) {
+    state.avatarVisibleRows = avatarModel.filterRows(state.avatarRows, state.avatarQuery, state.avatarFilter);
+    state.avatarFilterDirty = false;
+  }
+  const summary = state.avatarSummary || { events: 0, unique: 0, resolved: 0, players: 0 };
   for (const [key, value] of Object.entries({ events: summary.events, unique: summary.unique, resolved: summary.resolved, players: summary.players })) {
     const target = document.querySelector(`[data-avatar-metric="${key}"]`);
     if (target) target.textContent = String(value);
@@ -1527,14 +2021,20 @@ function renderAvatarSession() {
   if (count) count.textContent = state.avatarLoading ? "загрузка…" : `${state.avatarVisibleRows.length} записей`;
   const scope = document.querySelector("[data-avatar-catalog-scope]");
   if (scope) {
-    const fullCatalog = Boolean(state.settings?.license?.canViewFullAvatarCatalog);
-    scope.textContent = fullCatalog ? "Каталог команды" : "Личный каталог";
-    scope.classList.toggle("full", fullCatalog);
-    scope.title = fullCatalog
-      ? "Ключу разрешено видеть весь каталог команды"
-      : "Показаны записи, созданные этим ключом";
+    if (!hasPaidAccess()) {
+      scope.textContent = "Локальный журнал";
+      scope.classList.remove("full");
+      scope.title = "Аватары обнаружены только в локальных логах этого устройства";
+    } else {
+      const fullCatalog = Boolean(state.settings?.license?.canViewFullAvatarCatalog);
+      scope.textContent = fullCatalog ? "Каталог команды" : "Личный каталог";
+      scope.classList.toggle("full", fullCatalog);
+      scope.title = fullCatalog
+        ? "Ключу разрешено видеть весь каталог команды"
+        : "Показаны записи, созданные этим ключом";
+    }
   }
-  renderAvatarRows(true);
+  renderAvatarPage(true);
   renderAvatarDetail();
   renderAvatarOnlineResults();
 }
@@ -1618,8 +2118,8 @@ async function searchOnlineAvatars() {
     state.avatarOnlineRows = Array.isArray(result?.candidates) ? result.candidates : [];
     setStatus(`Расширенный поиск завершён: ${state.avatarOnlineRows.length} результатов.`, false, { kind: "success" });
   } catch (error) {
-    state.avatarOnlineError = error.message || "Расширенный поиск аватаров недоступен.";
-    throw error;
+    state.avatarOnlineError = friendlyStatusMessage(error?.message, true);
+    throw new Error(state.avatarOnlineError || "Расширенный поиск аватаров недоступен.");
   } finally {
     state.avatarOnlineLoading = false;
     renderAvatarOnlineResults();
@@ -1684,19 +2184,27 @@ function renderAvatarDetail() {
   const identity = adminElement("div");
   identity.append(adminElement("span", "eyebrow", record.status === "crash" ? "Требует внимания" : "Каталог аватаров"), userOrUiElement("h2", "", record.avatarName, "Неизвестный аватар"), userOrUiElement("code", "", record.avatarId, "Avatar ID не подтверждён"));
   const actions = adminElement("div", "avatarDetailActions");
-  if (record.avatarId) {
-    const open = adminElement("button", "", "Страница аватара");
-    open.type = "button";
-    open.dataset.avatarOpen = record.avatarId;
-    actions.append(open);
+  if (hasPaidAccess()) {
+    if (record.avatarId) {
+      const open = adminElement("button", "", "Страница аватара");
+      open.type = "button";
+      open.dataset.avatarOpen = record.avatarId;
+      actions.append(open);
+    }
+    const resolve = adminElement("button", "", record.avatarId ? "Проверить ID" : "Найти Avatar ID");
+    resolve.type = "button";
+    resolve.dataset.avatarResolve = record.avatarKey;
+    actions.append(resolve);
   }
-  const resolve = adminElement("button", "", record.avatarId ? "Проверить ID" : "Найти Avatar ID");
-  resolve.type = "button";
-  resolve.dataset.avatarResolve = record.avatarKey;
-  actions.append(resolve);
   header.append(identity, actions);
   content.append(header);
   if (state.avatarError) content.append(adminElement("p", "adminError", state.avatarError));
+
+  if (!hasPaidAccess()) {
+    content.append(adminElement("p", "ownerAccessNotice", "Бесплатный режим показывает только данные локального лога. Проверка Avatar ID, каталог и командные заметки доступны по платному ключу."));
+    avatarDetail.append(content);
+    return;
+  }
 
   const form = adminElement("form", "adminNoteForm");
   form.dataset.avatarNoteForm = record.avatarKey;
@@ -1776,19 +2284,34 @@ async function refreshAvatars() {
   const requestId = ++state.avatarRequestId;
   state.avatarLoading = true;
   state.avatarError = "";
-  renderAvatarSession();
+  renderAvatarSession({ force: true });
+  if (!hasPaidAccess()) {
+    state.avatarCatalog = [];
+    state.avatarNotes = [];
+    state.globalAvatarNotes = [];
+    state.avatarLoading = false;
+    invalidateAvatarData();
+    renderAvatarSession({ force: true });
+    return;
+  }
   const results = await Promise.allSettled([api.listAvatarCatalog(), api.listAvatarNotes(), api.listGlobalAvatarNotes()]);
   if (requestId !== state.avatarRequestId) return;
-  if (results[0].status === "fulfilled") state.avatarCatalog = results[0].value || [];
+  let derivedChanged = false;
+  if (results[0].status === "fulfilled") {
+    state.avatarCatalog = results[0].value || [];
+    derivedChanged = true;
+  }
   if (results[1].status === "fulfilled") {
     state.avatarNotes = (results[1].value || []).map((row) => avatarModel.normalizeNote(row));
+    derivedChanged = true;
     if (state.uiSettings.notifyCrashAvatars) state.notificationAvatarNotes = [...state.avatarNotes];
   }
   if (results[2].status === "fulfilled") state.globalAvatarNotes = (results[2].value || []).map((row) => avatarModel.normalizeGlobal(row));
   const failed = results.find((result) => result.status === "rejected");
   state.avatarError = failed ? (failed.reason?.message || "Часть данных аватаров недоступна.") : "";
   state.avatarLoading = false;
-  renderAvatarSession();
+  if (derivedChanged) invalidateAvatarData();
+  renderAvatarSession({ force: true });
 }
 
 async function saveAvatarNote(form) {
@@ -1802,6 +2325,7 @@ async function saveAvatarNote(form) {
   try {
     const saved = avatarModel.normalizeNote(await api.saveAvatarNote(payload), payload);
     state.avatarNotes = [saved, ...state.avatarNotes.filter((row) => row.avatarKey !== saved.avatarKey)];
+    invalidateAvatarData();
     if (state.uiSettings.notifyCrashAvatars) state.notificationAvatarNotes = [saved, ...state.notificationAvatarNotes.filter((row) => row.avatarKey !== saved.avatarKey)];
     setStatus("Заметка об аватаре сохранена.");
   } catch (error) {
@@ -1809,7 +2333,7 @@ async function saveAvatarNote(form) {
     setStatus(state.avatarError, true);
   } finally {
     state.avatarSaving = false;
-    renderAvatarSession();
+    renderAvatarSession({ force: true });
   }
 }
 
@@ -1821,27 +2345,29 @@ async function resolveSelectedAvatar() {
   if (record.avatarId) {
     const resolved = await api.resolveVrchatAvatar(record.avatarId);
     const avatarName = resolved?.avatarName || resolved?.name || record.avatarName;
-    const payload = await api.saveAvatarCatalog({ avatarName, avatarId: record.avatarId });
+    const payload = await api.saveAvatarCatalog({ avatarName, avatarId: record.avatarId, sourceUserId: record.userId });
     state.avatarCatalog = [payload?.avatar || payload || { avatarName, avatarId: record.avatarId }, ...state.avatarCatalog.filter((row) => (row.avatar_id || row.avatarId) !== record.avatarId)];
+    invalidateAvatarData();
     setStatus("Avatar ID проверен и каталог обновлён.");
   } else {
     const result = await api.findVrchatAvatarCandidates(record.avatarName);
     state.avatarCandidates = (result?.candidates || []).filter((candidate) => candidate?.avatarId).slice(0, 10);
     if (!state.avatarCandidates.length) setStatus("Точных кандидатов по названию не найдено.", true);
   }
-  renderAvatarSession();
+  renderAvatarSession({ force: true });
 }
 
 async function confirmAvatarCandidate(avatarId) {
   const record = selectedAvatar();
   if (!record || !avatarId) return;
-  const payload = await api.saveAvatarCatalog({ avatarName: record.avatarName, avatarId });
+  const payload = await api.saveAvatarCatalog({ avatarName: record.avatarName, avatarId, sourceUserId: record.userId });
   state.avatarCatalog = [payload?.avatar || payload || { avatarName: record.avatarName, avatarId }, ...state.avatarCatalog.filter((row) => (row.avatar_id || row.avatarId) !== avatarId)];
   state.events = state.events.map((event) => (!event.avatarId && event.avatarName === record.avatarName ? { ...event, avatarId } : event));
+  invalidateSessionData({ avatars: true });
   state.selectedAvatarKey = avatarModel.idKey(avatarId);
   state.avatarCandidates = [];
   setStatus("Avatar ID подтверждён и сохранён в каталоге.");
-  renderAvatarSession();
+  renderAvatarSession({ force: true });
 }
 
 async function publishGlobalAvatar(record) {
@@ -1948,6 +2474,7 @@ async function openSessionPlayerProfile() {
 }
 
 function openPlayerInAdmin(player) {
+  if (!hasPaidAccess()) throw new Error("Admin Tools доступны по платному ключу.");
   const userId = String(player?.userId || "");
   if (!userId) throw new Error("Для игрока не найден User ID.");
   state.adminDraftPlayer = noteTools.normalizeNote({
@@ -2011,22 +2538,21 @@ function renderSession() {
     if (target) target.textContent = String(value);
   }
   if (onlineBadge) onlineBadge.textContent = String(stats.online);
-  document.querySelectorAll("[data-session-player-mode]").forEach((button) => {
-    const active = button.dataset.sessionPlayerMode === state.sessionPlayerMode;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-  syncSessionEventFilters();
-
   eventCount.textContent = `${state.events.length} событий`;
-  state.sessionVisibleEvents = visibleSessionEvents();
-  const feedCount = document.querySelector("[data-feed-count]");
-  if (feedCount) feedCount.textContent = state.sessionVisibleEvents.length === state.events.length
-    ? `${state.events.length} записей`
-    : `${state.sessionVisibleEvents.length} из ${state.events.length}`;
-  state.sessionVisiblePlayers = visibleSessionPlayers(stats.players);
-  if (playerCount) playerCount.textContent = `${state.sessionVisiblePlayers.length} игроков`;
   if (state.sessionSection === "feed") {
+    document.querySelectorAll("[data-session-player-mode]").forEach((button) => {
+      const active = button.dataset.sessionPlayerMode === state.sessionPlayerMode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    syncSessionEventFilters();
+    state.sessionVisibleEvents = visibleSessionEvents();
+    const feedCount = document.querySelector("[data-feed-count]");
+    if (feedCount) feedCount.textContent = state.sessionVisibleEvents.length === state.events.length
+      ? `${state.events.length} записей`
+      : `${state.sessionVisibleEvents.length} из ${state.events.length}`;
+    state.sessionVisiblePlayers = visibleSessionPlayers(stats.players);
+    if (playerCount) playerCount.textContent = `${state.sessionVisiblePlayers.length} игроков`;
     renderVirtualEventRows(true);
     renderVirtualPlayerRows(true);
   } else if (state.sessionSection === "avatars") {
@@ -2042,13 +2568,63 @@ const BUILDER_DEFINITIONS = Object.freeze({
   avatars: { title: "Аватары", icon: "◇", empty: "Смен аватаров пока нет." },
   portals: { title: "Порталы", icon: "◌", empty: "Событий порталов пока нет." },
   worlds: { title: "Миры", icon: "◎", empty: "Переходов между мирами пока нет." },
+  instance: { title: "Текущий инстанс", icon: "I", empty: "Данные инстанса пока не загружены." },
+  friends: { title: "Друзья", icon: "F", empty: "Откройте раздел «Социальное», чтобы загрузить друзей." },
+  friendlog: { title: "Журнал друзей", icon: "J", empty: "Изменений друзей пока нет." },
   admin: { title: "Admin Tools", icon: "A", empty: "Игроков и заметок пока нет." }
 });
 
+function defaultBuilderBlockSetting(kind) {
+  return {
+    collapsed: false,
+    locked: false,
+    opacity: 100,
+    rowLimit: kind === "instance" ? 5 : 20
+  };
+}
+
+function normalizedBuilderBlockSetting(kind, value = {}) {
+  const defaults = defaultBuilderBlockSetting(kind);
+  const requestedLimit = Number(value?.rowLimit);
+  const rowLimit = BUILDER_ROW_LIMITS.includes(requestedLimit) ? requestedLimit : defaults.rowLimit;
+  return {
+    collapsed: value?.collapsed === true,
+    locked: value?.locked === true,
+    opacity: Math.min(100, Math.max(40, Number(value?.opacity) || defaults.opacity)),
+    rowLimit
+  };
+}
+
+function normalizedBuilderBlockSettings(value = {}) {
+  return Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, normalizedBuilderBlockSetting(kind, value?.[kind])]));
+}
+
+function builderBlockSetting(kind) {
+  const setting = normalizedBuilderBlockSetting(kind, state.builderBlockSettings?.[kind]);
+  state.builderBlockSettings[kind] = setting;
+  return setting;
+}
+
+function builderRowLimit(kind) {
+  return builderBlockSetting(kind).rowLimit;
+}
+
 function builderRows(kind) {
   const query = String(state.builderQueries[kind] || "").trim().toLocaleLowerCase(uiLocale());
+  const limit = builderRowLimit(kind);
   if (kind === "admin") {
-    return adminPlayers().filter((player) => !query || `${player.displayName || ""} ${player.userId || ""} ${adminStatusLabel(player.status)} ${player.note || ""}`.toLocaleLowerCase(uiLocale()).includes(query)).slice(0, 60);
+    return adminPlayers().filter((player) => !query || `${player.displayName || ""} ${player.userId || ""} ${adminStatusLabel(player.status)} ${player.note || ""}`.toLocaleLowerCase(uiLocale()).includes(query)).slice(0, limit);
+  }
+  if (kind === "instance") {
+    const instance = state.currentVrchatInstance;
+    if (!instance) return [];
+    return [{ title: instance.worldName || instance.worldId || "Текущий мир", detail: `${instance.nUsers ?? "—"}/${instance.capacity ?? "—"}`, timestamp: instance.fetchedAt, worldId: instance.worldId }];
+  }
+  if (kind === "friends") {
+    return (state.social?.friends || []).filter((friend) => !query || `${friend.displayName || ""} ${friend.userId || ""} ${friend.statusDescription || ""}`.toLocaleLowerCase(uiLocale()).includes(query)).sort((a, b) => Number(socialFriendOnline(b)) - Number(socialFriendOnline(a)) || a.displayName.localeCompare(b.displayName, uiLocale())).slice(0, limit);
+  }
+  if (kind === "friendlog") {
+    return state.socialEvents.filter((entry) => !query || `${entry.display_name || ""} ${entry.user_id || ""} ${entry.event_type || ""}`.toLocaleLowerCase(uiLocale()).includes(query)).slice(0, limit);
   }
   const matches = {
     players: (event) => event.type === "player-joined" || event.type === "player-left",
@@ -2058,19 +2634,198 @@ function builderRows(kind) {
   }[kind];
   return [...state.events].reverse().filter(matches || (() => false)).filter((event) => (
     !query || `${eventName(event)} ${eventDetail(event)} ${event.type || ""}`.toLocaleLowerCase(uiLocale()).includes(query)
-  )).slice(0, 60);
+  )).slice(0, limit);
+}
+
+function builderItemKey(kind, item) {
+  if (kind === "admin" || kind === "players" || kind === "friends") return String(item?.userId || "");
+  if (kind === "friendlog") return String(item?.user_id || "");
+  if (kind === "avatars") return item?.avatarRedacted || item?.avatarProtected ? "" : avatarModel.key(item?.avatarName, item?.avatarId);
+  return String(item?.worldId || item?.timestamp || item?.capturedAt || item?.title || item?.type || "");
+}
+
+function builderInspectorRecord() {
+  const selection = state.builderInspector;
+  if (!selection) return null;
+  if (selection.kind === "admin") return adminPlayers().find((row) => row.userId === selection.key) || selection.item;
+  if (selection.kind === "players") return sessionStats().players.find((row) => row.userId === selection.key) || selection.item;
+  if (selection.kind === "friends") return (state.social?.friends || []).find((row) => row.userId === selection.key) || selection.item;
+  if (selection.kind === "friendlog") return state.socialEvents.find((row) => row.user_id === selection.key) || selection.item;
+  if (selection.kind === "avatars") return state.avatarRows.find((row) => row.avatarKey === selection.key) || selection.item;
+  return selection.item;
+}
+
+function builderInspectorAction(label, dataName, value = "true", className = "") {
+  const button = adminElement("button", className, label);
+  button.type = "button";
+  button.dataset[dataName] = value;
+  return button;
+}
+
+function builderInspectorAdminForm(userId) {
+  const record = adminNote(userId);
+  if (!record || !hasPaidAccess()) return null;
+  const form = adminElement("form", "adminNoteForm builderInspectorNoteForm");
+  form.dataset.playerNoteForm = "true";
+  form.dataset.userId = record.userId;
+  const statusField = adminElement("label", "adminField");
+  statusField.append(adminElement("span", "", "Метка"));
+  const select = adminElement("select");
+  select.name = "status";
+  const options = noteTools.STATUS_OPTIONS.some((option) => option.value === record.status)
+    ? noteTools.STATUS_OPTIONS
+    : [...noteTools.STATUS_OPTIONS, { value: record.status, label: record.status }];
+  for (const option of options) {
+    const element = adminElement("option", "", option.label);
+    element.value = option.value;
+    element.selected = option.value === record.status;
+    select.append(element);
+  }
+  statusField.append(select);
+  const noteField = adminElement("label", "adminField");
+  noteField.append(adminElement("span", "", "Заметка команды"));
+  const textarea = adminElement("textarea");
+  textarea.name = "note";
+  textarea.maxLength = 2000;
+  textarea.rows = 4;
+  textarea.value = record.note || "";
+  textarea.placeholder = "Заметка для вашей команды…";
+  noteField.append(textarea);
+  const save = adminElement("button", "primaryButton", state.adminSaving ? "Сохранение…" : "Сохранить");
+  save.type = "submit";
+  save.disabled = state.adminSaving;
+  form.append(statusField, noteField, save);
+  return form;
+}
+
+function renderBuilderInspector() {
+  if (!builderInspector) return;
+  const selection = state.builderInspector;
+  const record = builderInspectorRecord();
+  const open = Boolean(selection && record);
+  builderInspector.hidden = !open;
+  builderWorkspace?.classList.toggle("inspectorOpen", open);
+  builderInspector.replaceChildren();
+  if (!open) return;
+
+  const definition = BUILDER_DEFINITIONS[selection.kind] || { title: "Рабочее место", icon: "•" };
+  const header = adminElement("header", "builderInspectorHeader");
+  const identity = adminElement("div", "builderInspectorIdentity");
+  identity.append(adminElement("span", "builderBlockIcon", definition.icon));
+  const heading = adminElement("div");
+  heading.append(adminElement("span", "eyebrow", "Инспектор рабочего места"));
+  const close = builderInspectorAction("×", "builderInspectorClose", "true", "adminCardClose");
+  close.setAttribute("aria-label", "Закрыть карточку");
+  close.title = "Закрыть карточку";
+
+  const userId = String(record.userId || record.user_id || "").trim();
+  const userKind = ["admin", "players", "friends", "friendlog"].includes(selection.kind);
+  const actions = adminElement("div", "builderInspectorActions");
+  const body = adminElement("div", "builderInspectorBody");
+
+  if (userKind) {
+    const displayName = String(record.displayName || record.display_name || record.display || record.playerName || userId || "Игрок");
+    heading.append(userTextElement("h2", "", displayName), userOrUiElement("code", "", userId, "User ID не найден"));
+    if (userId) {
+      actions.append(builderInspectorAction("Профиль VRChat", "builderInspectorProfile", userId));
+      if (selection.kind === "friends" || selection.kind === "friendlog") actions.append(builderInspectorAction("Карточка профиля", "builderInspectorFull", "social"));
+      if (hasPaidAccess()) actions.append(builderInspectorAction("Admin Tools", "builderInspectorFull", "admin"));
+      else if (selection.kind === "players") actions.append(builderInspectorAction("Сессия", "builderInspectorFull", "session"));
+      if (hasOwnerAccess()) actions.append(builderInspectorAction("Owner", "builderInspectorOwner", userId, "ownerActionButton"));
+    }
+    const metrics = adminElement("div", "builderInspectorMetrics");
+    appendAdminMeta(metrics, "Статус", record.online || socialFriendOnline(record) ? "В сети" : "Не в сети");
+    appendAdminMeta(metrics, "Источник", definition.title);
+    if (selection.kind === "friendlog") {
+      appendAdminMeta(metrics, "Событие", record.event_type || "—");
+      appendAdminMeta(metrics, "Время", adminDate(record.occurred_at));
+    } else if (selection.kind === "friends") {
+      appendAdminMeta(metrics, "Платформа", record.platform || "—");
+      appendAdminMeta(metrics, "Состояние", record.statusDescription || record.status || "—");
+    } else {
+      const activity = playerActivity(record);
+      appendAdminMeta(metrics, "Мир", activity.worldName || "Не определён");
+      appendAdminMeta(metrics, "Текущий аватар", activity.currentAvatar?.avatarName || "Нет данных");
+      appendAdminMeta(metrics, "Последнее событие", eventKind(record));
+      appendAdminMeta(metrics, "Время", eventTime(record));
+    }
+    body.append(metrics);
+    const noteForm = builderInspectorAdminForm(userId);
+    if (noteForm) body.append(noteForm);
+  } else if (selection.kind === "avatars") {
+    const avatarName = String(record.avatarName || "Неизвестный аватар");
+    const safeAvatarId = !record.avatarRedacted && !record.avatarProtected && AVATAR_ID_RE.test(String(record.avatarId || "")) ? String(record.avatarId) : "";
+    heading.append(userTextElement("h2", "", avatarName), userOrUiElement("code", "", safeAvatarId, "Avatar ID не подтверждён"));
+    actions.append(builderInspectorAction("Открыть полностью", "builderInspectorFull", "avatar"));
+    if (safeAvatarId && hasPaidAccess()) {
+      const page = builderInspectorAction("Страница аватара", "avatarOpen", safeAvatarId);
+      actions.prepend(page);
+    }
+    const metrics = adminElement("div", "builderInspectorMetrics");
+    appendAdminMeta(metrics, "Игрок", record.playerName || record.display || "—");
+    appendAdminMeta(metrics, "Метка", record.status === "crash" ? "Crash / сильные лаги" : "Без отметки");
+    appendAdminMeta(metrics, "Время", record.timestamp ? adminDate(record.timestamp) : eventTime(record));
+    appendAdminMeta(metrics, "Avatar ID", safeAvatarId || "Не подтверждён");
+    body.append(metrics);
+    if (record.note) body.append(userTextElement("p", "builderInspectorNote", record.note));
+  } else {
+    const worldName = String(record.worldName || record.title || eventName(record) || "Событие");
+    const worldId = normalizedWorldId(record.worldId);
+    heading.append(userTextElement("h2", "", worldName), userOrUiElement("code", "", worldId, "World ID не подтверждён"));
+    const worldActions = savedWorldActions(worldId);
+    if (worldActions) actions.append(worldActions);
+    const metrics = adminElement("div", "builderInspectorMetrics");
+    appendAdminMeta(metrics, "Тип", eventKind(record));
+    appendAdminMeta(metrics, "Время", record.timestamp ? adminDate(record.timestamp) : "—");
+    appendAdminMeta(metrics, "Детали", record.detail || eventDetail(record));
+    body.append(metrics);
+    if (!worldId) body.append(adminElement("p", "builderInspectorNotice", "В событии нет подтверждённого World ID."));
+  }
+
+  identity.append(heading);
+  header.append(identity, close);
+  builderInspector.append(header, actions, body);
+}
+
+function openBuilderInspector(kind, key) {
+  if (!BUILDER_KINDS.includes(kind) || !key) return;
+  const item = builderRows(kind).find((row) => builderItemKey(kind, row) === key);
+  if (!item) return;
+  state.builderInspector = { kind, key, item };
+  builderGrid?.querySelectorAll("[data-builder-inspector-kind]").forEach((row) => {
+    const selected = row.dataset.builderInspectorKind === kind && row.dataset.builderInspectorKey === key;
+    row.classList.toggle("active", selected);
+    row.setAttribute("aria-pressed", String(selected));
+  });
+  renderBuilderInspector();
+  builderInspector?.querySelector("[data-builder-inspector-close]")?.focus();
+}
+
+function closeBuilderInspector() {
+  state.builderInspector = null;
+  builderGrid?.querySelectorAll("[data-builder-inspector-kind]").forEach((row) => {
+    row.classList.remove("active");
+    row.setAttribute("aria-pressed", "false");
+  });
+  renderBuilderInspector();
 }
 
 function builderRowElement(kind, item) {
-  const actionable = (kind === "admin" && item.userId)
-    || (kind === "players" && item.userId)
-    || kind === "avatars";
+  const inspectorKey = builderItemKey(kind, item);
+  const actionable = Boolean(inspectorKey);
   const row = adminElement(actionable ? "button" : "div", "builderRow");
-  if (actionable) row.type = "button";
+  if (actionable) {
+    row.type = "button";
+    row.dataset.builderInspectorKind = kind;
+    row.dataset.builderInspectorKey = inspectorKey;
+    const selected = state.builderInspector?.kind === kind && state.builderInspector?.key === inspectorKey;
+    row.classList.toggle("active", selected);
+    row.setAttribute("aria-pressed", String(selected));
+  }
   if (kind === "admin") {
     row.dataset.online = String(Boolean(item.online));
     row.dataset.builderAdminUser = item.userId;
-    row.title = `Открыть ${item.displayName || item.userId} в Admin Tools`;
+    row.title = `${t("Показать карточку")}: ${item.displayName || item.userId}`;
     row.append(
       userTextElement("strong", "", item.displayName || item.userId),
       appendSeparated(adminElement("span"), [{ text: adminStatusLabel(item.status) }, { text: item.note, user: true }]),
@@ -2078,13 +2833,25 @@ function builderRowElement(kind, item) {
     );
     return row;
   }
+  if (kind === "friends") {
+    row.append(userTextElement("strong", "", item.displayName || item.userId), userTextElement("span", "", item.statusDescription || item.platform || item.userId), adminElement("time", "", socialFriendOnline(item) ? "онлайн" : "офлайн"));
+    return row;
+  }
+  if (kind === "friendlog") {
+    row.append(userTextElement("strong", "", item.display_name || item.user_id), adminElement("span", "", item.event_type || "событие"), adminElement("time", "", adminDate(item.occurred_at)));
+    return row;
+  }
+  if (kind === "instance") {
+    row.append(userTextElement("strong", "", item.title), userTextElement("span", "", item.detail), adminElement("time", "", item.timestamp ? adminDate(item.timestamp) : "сейчас"));
+    return row;
+  }
   if (kind === "players" && item.userId) {
     row.dataset.builderSessionUser = item.userId;
-    row.title = `Открыть карточку ${eventName(item)}`;
+    row.title = `${t("Показать карточку")}: ${eventName(item)}`;
   }
   if (kind === "avatars") {
     row.dataset.builderAvatarKey = avatarModel.key(item.avatarName, item.avatarId);
-    row.title = "Открыть аватар в каталоге";
+    row.title = t("Показать карточку аватара");
   }
   const title = kind === "worlds" ? (item.worldName || eventName(item)) : eventName(item);
   row.append(
@@ -2146,12 +2913,13 @@ function applyBuilderBlockGeometry(block, geometry) {
 }
 
 function updateBuilderBoardHeight() {
-  if (!builderGrid || state.builderLayout !== "freeform") return;
+  if (!builderGrid || state.builderCompact || state.builderLayout !== "freeform") return;
   const bottom = BUILDER_KINDS
     .filter((kind) => state.builderVisible.includes(kind))
     .reduce((maximum, kind) => {
       const geometry = normalizedBuilderGeometry(kind);
-      return Math.max(maximum, geometry.y + geometry.height);
+      const height = builderBlockSetting(kind).collapsed ? 50 : geometry.height;
+      return Math.max(maximum, geometry.y + height);
     }, 0);
   builderGrid.style.minHeight = `${Math.max(620, Math.ceil(bottom + 24))}px`;
 }
@@ -2160,26 +2928,79 @@ function builderBlock(kind) {
   const definition = BUILDER_DEFINITIONS[kind];
   const rows = builderRows(kind);
   const geometry = normalizedBuilderGeometry(kind);
+  const setting = builderBlockSetting(kind);
   const block = adminElement("article", "panel builderBlock");
   block.dataset.builderKind = kind;
+  block.dataset.builderLocked = String(setting.locked);
+  block.classList.toggle("collapsed", setting.collapsed);
+  block.classList.toggle("locked", setting.locked);
+  block.style.setProperty("--builder-block-opacity", String(setting.opacity / 100));
   applyBuilderBlockFont(block, geometry);
   const header = adminElement("header");
-  header.dataset.builderMove = kind;
-  header.draggable = state.builderLayout !== "freeform";
+  if (!setting.locked && !state.builderCompact) header.dataset.builderMove = kind;
+  header.draggable = state.builderLayout !== "freeform" && !setting.locked && !state.builderCompact;
   if (header.draggable) header.dataset.builderOrderHandle = kind;
   const title = adminElement("div", "builderBlockTitle");
   title.append(adminElement("span", "builderBlockIcon", definition.icon), adminElement("h2", "", definition.title));
   const tools = adminElement("div", "builderBlockTools");
-  const fontDown = adminElement("button", "builderFontButton", "−");
-  fontDown.type = "button";
-  fontDown.dataset.builderFontAdjust = "-10";
-  fontDown.title = "Уменьшить шрифт блока";
-  const fontValue = adminElement("span", "builderFontValue", `${geometry.fontScale}%`);
-  const fontUp = adminElement("button", "builderFontButton", "+");
-  fontUp.type = "button";
-  fontUp.dataset.builderFontAdjust = "10";
-  fontUp.title = "Увеличить шрифт блока";
-  tools.append(fontDown, fontValue, fontUp, adminElement("span", "builderBlockCount", `${rows.length}`));
+  tools.append(adminElement("span", "builderBlockCount", `${rows.length}`));
+  if (!state.builderCompact) {
+    const editorTools = adminElement("div", "builderEditorTools");
+    const fontDown = adminElement("button", "builderFontButton", "−");
+    fontDown.type = "button";
+    fontDown.dataset.builderFontAdjust = "-10";
+    fontDown.title = "Уменьшить шрифт блока";
+    const fontValue = adminElement("span", "builderFontValue", `${geometry.fontScale}%`);
+    const fontUp = adminElement("button", "builderFontButton", "+");
+    fontUp.type = "button";
+    fontUp.dataset.builderFontAdjust = "10";
+    fontUp.title = "Увеличить шрифт блока";
+
+    const menu = adminElement("details", "builderBlockMenu");
+    const summary = adminElement("summary", "builderMenuButton", "•••");
+    summary.title = "Настройки блока";
+    summary.setAttribute("aria-label", "Настройки блока");
+    const menuBody = adminElement("div", "builderBlockMenuBody");
+    const opacityLabel = adminElement("label", "builderBlockOption");
+    const opacityCopy = adminElement("span", "", "Прозрачность блока");
+    const opacityOutput = adminElement("output", "", `${setting.opacity}%`);
+    opacityOutput.dataset.builderBlockOpacityOutput = kind;
+    opacityCopy.append(" ", opacityOutput);
+    const opacity = document.createElement("input");
+    opacity.type = "range";
+    opacity.min = "40";
+    opacity.max = "100";
+    opacity.step = "5";
+    opacity.value = String(setting.opacity);
+    opacity.dataset.builderBlockOpacity = kind;
+    opacityLabel.append(opacityCopy, opacity);
+    const limitLabel = adminElement("label", "builderBlockOption");
+    limitLabel.append(adminElement("span", "", "Строк в блоке"));
+    const limit = document.createElement("select");
+    limit.dataset.builderBlockLimit = kind;
+    for (const value of BUILDER_ROW_LIMITS) {
+      const option = adminElement("option", "", String(value));
+      option.value = String(value);
+      option.selected = value === setting.rowLimit;
+      limit.append(option);
+    }
+    limitLabel.append(limit);
+    const actions = adminElement("div", "builderBlockMenuActions");
+    const collapse = adminElement("button", "", setting.collapsed ? "Развернуть" : "Свернуть");
+    collapse.type = "button";
+    collapse.dataset.builderBlockAction = "collapse";
+    const lock = adminElement("button", "", setting.locked ? "Открепить блок" : "Закрепить блок");
+    lock.type = "button";
+    lock.dataset.builderBlockAction = "lock";
+    const hide = adminElement("button", "dangerAction", "Скрыть блок");
+    hide.type = "button";
+    hide.dataset.builderBlockAction = "hide";
+    actions.append(collapse, lock, hide);
+    menuBody.append(opacityLabel, limitLabel, actions);
+    menu.append(summary, menuBody);
+    editorTools.append(fontDown, fontValue, fontUp, menu);
+    tools.append(editorTools);
+  }
   header.append(title, tools);
   const search = document.createElement("input");
   search.className = "builderBlockSearch";
@@ -2194,14 +3015,17 @@ function builderBlock(kind) {
   for (const row of rows) content.append(builderRowElement(kind, row));
   if (!rows.length) content.append(adminElement("p", "builderEmpty", definition.empty));
   block.append(header, search, content);
-  if (state.builderLayout === "freeform") {
+  if (state.builderLayout === "freeform" && !state.builderCompact) {
     state.builderGeometry[kind] = geometry;
     applyBuilderBlockGeometry(block, geometry);
-    for (const corner of ["nw", "ne", "sw", "se"]) {
-      const handle = adminElement("span", `builderResizeHandle ${corner}`);
-      handle.dataset.builderResize = corner;
-      handle.setAttribute("aria-hidden", "true");
-      block.append(handle);
+    if (setting.collapsed) block.style.height = "50px";
+    if (!state.builderCompact && !setting.locked && !setting.collapsed) {
+      for (const corner of ["nw", "ne", "sw", "se"]) {
+        const handle = adminElement("span", `builderResizeHandle ${corner}`);
+        handle.dataset.builderResize = corner;
+        handle.setAttribute("aria-hidden", "true");
+        block.append(handle);
+      }
     }
   }
   return block;
@@ -2226,33 +3050,132 @@ function persistBuilderSettings() {
   localStorage.setItem("betaBuilderLayout", state.builderLayout);
   localStorage.setItem("betaBuilderGeometry", JSON.stringify(state.builderGeometry));
   localStorage.setItem("betaBuilderQueries", JSON.stringify(state.builderQueries));
+  localStorage.setItem("betaBuilderBlockSettings", JSON.stringify(state.builderBlockSettings));
+  localStorage.setItem("betaBuilderSnap", String(state.builderSnap));
   localStorage.setItem("betaBuilderAlwaysOnTop", String(state.builderAlwaysOnTop));
   localStorage.setItem("betaBuilderOpacity", String(state.builderOpacity));
   localStorage.setItem("betaBuilderCompact", String(state.builderCompact));
+  const selected = state.builderDashboards.find((dashboard) => dashboard.id === state.builderDashboardId);
+  if (selected) Object.assign(selected, currentBuilderDashboardSnapshot());
+  localStorage.setItem("betaBuilderDashboards", JSON.stringify(state.builderDashboards));
+  localStorage.setItem("betaBuilderDashboardId", state.builderDashboardId);
+}
+
+function currentBuilderDashboardSnapshot() {
+  return {
+    order: [...state.builderOrder],
+    visible: [...state.builderVisible],
+    layout: state.builderLayout,
+    geometry: structuredClone(state.builderGeometry || {}),
+    queries: { ...state.builderQueries },
+    blockSettings: structuredClone(state.builderBlockSettings || {}),
+    snap: state.builderSnap
+  };
+}
+
+function syncBuilderDashboardControls() {
+  if (!builderDashboard) return;
+  builderDashboard.replaceChildren();
+  for (const dashboard of state.builderDashboards) {
+    const option = adminElement("option", "", dashboard.name || "Дашборд");
+    option.value = dashboard.id;
+    option.selected = dashboard.id === state.builderDashboardId;
+    builderDashboard.append(option);
+  }
+  const selected = state.builderDashboards.find((dashboard) => dashboard.id === state.builderDashboardId);
+  if (builderDashboardName) builderDashboardName.value = selected?.name || "";
+  const remove = document.querySelector("[data-builder-dashboard-delete]");
+  if (remove) remove.disabled = state.builderDashboards.length <= 1;
+}
+
+function loadBuilderDashboard(id) {
+  const dashboard = state.builderDashboards.find((row) => row.id === id);
+  if (!dashboard) return;
+  state.builderDashboardId = dashboard.id;
+  state.builderOrder = [...new Set((dashboard.order || BUILDER_KINDS).filter((kind) => BUILDER_KINDS.includes(kind)))];
+  for (const kind of BUILDER_KINDS) if (!state.builderOrder.includes(kind)) state.builderOrder.push(kind);
+  state.builderVisible = [...new Set((dashboard.visible || []).filter((kind) => BUILDER_KINDS.includes(kind)))];
+  state.builderLayout = BUILDER_LAYOUTS.includes(dashboard.layout) ? dashboard.layout : "grid";
+  state.builderGeometry = structuredClone(dashboard.geometry || {});
+  state.builderQueries = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, String(dashboard.queries?.[kind] || "").slice(0, 120)]));
+  state.builderBlockSettings = normalizedBuilderBlockSettings(dashboard.blockSettings || {});
+  state.builderSnap = dashboard.snap !== false;
+  localStorage.setItem("betaBuilderDashboardId", state.builderDashboardId);
+  renderBuilder();
+  void refreshBuilderSources();
+}
+
+function saveBuilderDashboard() {
+  const selected = state.builderDashboards.find((dashboard) => dashboard.id === state.builderDashboardId);
+  if (!selected) return;
+  selected.name = String(builderDashboardName?.value || selected.name || "Дашборд").trim().slice(0, 60) || "Дашборд";
+  Object.assign(selected, currentBuilderDashboardSnapshot());
+  persistBuilderSettings();
+  syncBuilderDashboardControls();
+  setStatus("Дашборд сохранён.");
+}
+
+function createBuilderDashboard() {
+  if (state.builderDashboards.length >= 12) throw new Error("Можно сохранить не более 12 дашбордов.");
+  const id = `dashboard-${Date.now()}`;
+  state.builderDashboards.push({ id, name: `Дашборд ${state.builderDashboards.length + 1}`, ...currentBuilderDashboardSnapshot() });
+  state.builderDashboardId = id;
+  persistBuilderSettings();
+  syncBuilderDashboardControls();
+}
+
+function deleteBuilderDashboard() {
+  if (state.builderDashboards.length <= 1) return;
+  state.builderDashboards = state.builderDashboards.filter((dashboard) => dashboard.id !== state.builderDashboardId);
+  loadBuilderDashboard(state.builderDashboards[0].id);
+  persistBuilderSettings();
 }
 
 function syncBuilderControls() {
   if (!builderGrid) return;
-  builderGrid.classList.toggle("rows", state.builderLayout === "rows");
-  builderGrid.classList.toggle("freeform", state.builderLayout === "freeform");
-  if (state.builderLayout !== "freeform") builderGrid.style.removeProperty("min-height");
+  syncBuilderDashboardControls();
+  const effectiveLayout = state.builderCompact ? "adaptive" : state.builderLayout;
+  builderGrid.classList.toggle("adaptive", effectiveLayout === "adaptive");
+  builderGrid.classList.toggle("rows", effectiveLayout === "rows");
+  builderGrid.classList.toggle("freeform", effectiveLayout === "freeform");
+  if (effectiveLayout !== "freeform") builderGrid.style.removeProperty("min-height");
   builderLayout.value = state.builderLayout;
   document.querySelectorAll("[data-builder-blocks] input").forEach((input) => {
     input.checked = state.builderVisible.includes(input.value);
   });
-  const onTop = document.querySelector("[data-builder-on-top]");
-  onTop.classList.toggle("active", state.builderAlwaysOnTop);
-  onTop.setAttribute("aria-pressed", String(state.builderAlwaysOnTop));
-  onTop.textContent = state.builderAlwaysOnTop ? "Открепить" : "Поверх окон";
+  const snap = document.querySelector("[data-builder-snap]");
+  if (snap) snap.checked = state.builderSnap;
+  document.querySelectorAll("[data-builder-on-top]").forEach((onTop) => {
+    onTop.classList.toggle("active", state.builderAlwaysOnTop);
+    onTop.setAttribute("aria-pressed", String(state.builderAlwaysOnTop));
+    onTop.textContent = t(state.builderAlwaysOnTop ? "Открепить" : "Поверх окон");
+  });
   const compact = document.querySelector("[data-builder-compact]");
   compact.classList.toggle("active", state.builderCompact);
   compact.setAttribute("aria-pressed", String(state.builderCompact));
-  compact.textContent = state.builderCompact ? "Обычный вид" : "Компактно";
+  compact.textContent = t(state.builderCompact ? "Обычный вид" : "Компактно");
   builderOpacity.disabled = !state.builderAlwaysOnTop;
   builderOpacity.value = String(state.builderOpacity);
   document.querySelector("[data-builder-opacity-output]").textContent = `${state.builderOpacity}%`;
   appView.classList.toggle("compactMode", state.builderCompact);
+  document.documentElement.classList.toggle("compactMode", state.builderCompact);
+  document.body.classList.toggle("compactMode", state.builderCompact);
+  appView.classList.toggle("builderOverlayHidden", state.builderCompact && state.builderOverlayHidden);
   appView.classList.toggle("toolbarHidden", !state.uiSettings.showToolbar && !state.builderCompact);
+  const compactMenu = document.querySelector("[data-compact-menu]");
+  const compactMenuToggle = document.querySelector("[data-compact-menu-toggle]");
+  const compactMenuPanel = document.querySelector("#compactMenuPanel");
+  const compactMenuOpen = state.builderCompact && state.builderCompactMenuOpen;
+  compactMenu?.classList.toggle("menuOpen", compactMenuOpen);
+  compactMenuToggle?.setAttribute("aria-expanded", String(compactMenuOpen));
+  compactMenuToggle?.setAttribute("aria-label", t(compactMenuOpen ? "Скрыть компактное меню" : "Показать компактное меню"));
+  compactMenuToggle?.setAttribute("title", t(compactMenuOpen ? "Скрыть компактное меню" : "Показать компактное меню"));
+  compactMenuPanel?.setAttribute("aria-hidden", String(!compactMenuOpen));
+  const overlayToggle = document.querySelector("[data-builder-overlay-toggle]");
+  if (overlayToggle) {
+    overlayToggle.setAttribute("aria-pressed", String(state.builderOverlayHidden));
+    overlayToggle.textContent = t(state.builderOverlayHidden ? "Показать · Ctrl+Shift+B" : "Скрыть · Ctrl+Shift+B");
+  }
 }
 
 function renderBuilder() {
@@ -2263,6 +3186,24 @@ function renderBuilder() {
   builderGrid.replaceChildren(fragment);
   if (!builderGrid.children.length) builderGrid.append(adminElement("p", "panel builderEmpty", "Включите хотя бы один блок в настройках выше."));
   updateBuilderBoardHeight();
+  renderBuilderInspector();
+}
+
+async function refreshBuilderSources() {
+  const visible = new Set(state.builderVisible || []);
+  const tasks = [];
+  if (visible.has("friendlog") && api.listLocalSocialEvents) {
+    tasks.push(api.listLocalSocialEvents(500).then((rows) => { state.socialEvents = rows || []; }));
+  }
+  const canLoadVrchat = previewMode || state.settings?.hasVrchatAuthCookie;
+  if (canLoadVrchat && visible.has("instance") && api.getVrchatCurrentInstance) {
+    tasks.push(api.getVrchatCurrentInstance().then((instance) => { state.currentVrchatInstance = instance || null; }));
+  }
+  if (canLoadVrchat && visible.has("friends") && api.getVrchatSocialSummary) {
+    tasks.push(refreshSocial(false));
+  }
+  await Promise.allSettled(tasks);
+  if (state.view === "builder") renderBuilder();
 }
 
 function scheduleBuilderRender() {
@@ -2286,9 +3227,17 @@ async function setBuilderCompact() {
   const next = !state.builderCompact;
   await api.setCompactMode(next);
   state.builderCompact = next;
+  state.builderCompactMenuOpen = false;
+  state.builderOverlayHidden = false;
   persistBuilderSettings();
-  syncBuilderControls();
+  renderBuilder();
   setStatus(next ? "Компактный режим включён." : "Обычный размер восстановлен.");
+}
+
+function setBuilderOverlayHidden(hidden = !state.builderOverlayHidden) {
+  if (!state.builderCompact) return;
+  state.builderOverlayHidden = hidden === true;
+  syncBuilderControls();
 }
 
 function applyBuilderPreset(name) {
@@ -2317,13 +3266,15 @@ function adjustBuilderFont(kind, delta) {
 }
 
 function startBuilderInteraction(event) {
-  if (state.builderLayout !== "freeform" || event.button !== 0) return;
+  if (state.builderLayout !== "freeform" || state.builderCompact || event.button !== 0) return;
   const resize = event.target.closest("[data-builder-resize]");
   const move = event.target.closest("[data-builder-move]");
-  if (!resize && (!move || event.target.closest("button"))) return;
+  if (!resize && (!move || event.target.closest("button, input, select, label, summary, details"))) return;
   const block = event.target.closest("[data-builder-kind]");
   if (!block) return;
   const kind = block.dataset.builderKind;
+  const setting = builderBlockSetting(kind);
+  if (setting.locked || setting.collapsed) return;
   const geometry = normalizedBuilderGeometry(kind);
   state.builderGeometry[kind] = geometry;
   state.builderInteraction = {
@@ -2350,6 +3301,12 @@ function moveBuilderInteraction(event) {
   if (interaction.mode === "move") {
     next.x = Math.max(0, Math.min(initial.x + dx, Math.max(0, boardWidth - initial.width)));
     next.y = Math.max(0, initial.y + dy);
+    if (state.builderSnap) {
+      next.x = Math.round(next.x / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+      next.y = Math.round(next.y / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+      if (Math.abs(next.x) <= BUILDER_SNAP_SIZE) next.x = 0;
+      if (Math.abs(boardWidth - (next.x + initial.width)) <= BUILDER_SNAP_SIZE) next.x = boardWidth - initial.width;
+    }
   } else {
     const west = interaction.corner.includes("w");
     const north = interaction.corner.includes("n");
@@ -2364,6 +3321,27 @@ function moveBuilderInteraction(event) {
       next.height = initial.height + initial.y - next.y;
     } else {
       next.height = Math.max(BUILDER_MIN_HEIGHT, initial.height + dy);
+    }
+    if (state.builderSnap) {
+      if (west) {
+        const right = initial.x + initial.width;
+        next.x = Math.round(next.x / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+        if (Math.abs(next.x) <= BUILDER_SNAP_SIZE) next.x = 0;
+        next.width = right - next.x;
+      } else {
+        next.width = Math.round(next.width / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+        if (Math.abs(boardWidth - (initial.x + next.width)) <= BUILDER_SNAP_SIZE) next.width = boardWidth - initial.x;
+      }
+      if (north) {
+        const bottom = initial.y + initial.height;
+        next.y = Math.round(next.y / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+        if (Math.abs(next.y) <= BUILDER_SNAP_SIZE) next.y = 0;
+        next.height = bottom - next.y;
+      } else {
+        next.height = Math.round(next.height / BUILDER_SNAP_SIZE) * BUILDER_SNAP_SIZE;
+      }
+      next.width = Math.max(BUILDER_MIN_WIDTH, Math.min(next.width, boardWidth - next.x));
+      next.height = Math.max(BUILDER_MIN_HEIGHT, next.height);
     }
   }
   state.builderGeometry[interaction.kind] = next;
@@ -2387,8 +3365,11 @@ async function resetBuilder() {
   state.builderLayout = "grid";
   state.builderGeometry = {};
   state.builderQueries = Object.fromEntries(BUILDER_KINDS.map((kind) => [kind, ""]));
+  state.builderBlockSettings = normalizedBuilderBlockSettings({});
+  state.builderSnap = true;
   state.builderOpacity = 100;
   state.builderCompact = false;
+  state.builderOverlayHidden = false;
   if (state.builderAlwaysOnTop) await api.setAlwaysOnTop(false, 1);
   await api.setCompactMode(false);
   state.builderAlwaysOnTop = false;
@@ -2399,6 +3380,7 @@ async function resetBuilder() {
 
 function addEvent(event) {
   if (!event || typeof event !== "object") return;
+  if (event.avatarRedacted || event.avatarProtected) event = { ...event, avatarName: "", avatarId: "", raw: "" };
   if (event.type === "user-authenticated") {
     state.currentVrchatUser = {
       id: String(event.userId || ""),
@@ -2423,9 +3405,12 @@ function addEvent(event) {
   state.playSessionDirty = true;
   void syncCurrentPlaySession();
   const eventLimit = Math.min(sessionModel.MAX_BUFFERED_EVENTS, state.uiSettings.eventLimit);
+  let trimmedEvents = false;
   if (state.events.length > eventLimit) {
     state.events.splice(0, state.events.length - eventLimit);
+    trimmedEvents = true;
   }
+  invalidateSessionData({ avatars: trimmedEvents || isAvatarEvent(event) });
   eventCount.textContent = `${state.events.length} событий`;
   if (state.view === "session") scheduleSessionRender();
   if (state.view === "admin") scheduleAdminRender();
@@ -2436,8 +3421,17 @@ function addEvent(event) {
 
 function selectView(view) {
   if (!viewTitles[view]) return;
+  if (view === "admin" && !hasPaidAccess()) return;
   if (view === "owner" && !hasOwnerAccess()) return;
+  const mode = viewWorkspaceMode(view);
+  if (mode === "team" && !hasPaidAccess()) return;
+  if (!state.builderCompact && mode !== "shared" && state.workspaceMode !== mode) {
+    state.workspaceMode = mode;
+    syncWorkspaceNavigation();
+  }
   state.view = view;
+  state.workspaceLastView[state.workspaceMode] = view;
+  localStorage.setItem("betaWorkspaceLastView", JSON.stringify(state.workspaceLastView));
   syncOwnerPolling();
   pageEyebrow.textContent = viewEyebrows[view];
   pageTitle.textContent = viewTitles[view];
@@ -2453,11 +3447,16 @@ function selectView(view) {
     panel.hidden = !active;
   });
   if (view === "insights") void refreshInsights();
+  if (view === "social") void refreshSocial();
+  if (["players", "worlds", "local-avatars"].includes(view)) void refreshLocalDirectory(view);
   if (view === "history") void refreshHistory();
   if (view === "admin") void refreshAdmin();
   if (view === "owner") void refreshOwner({ silent: true });
   if (view === "crash") void refreshCrash();
-  if (view === "builder") requestAnimationFrame(() => renderBuilder());
+  if (view === "builder") {
+    requestAnimationFrame(() => renderBuilder());
+    void refreshBuilderSources();
+  }
   if (view === "session") requestAnimationFrame(() => renderSession());
 }
 
@@ -2509,6 +3508,912 @@ function renderInsightsRuntime() {
   if (online) currentInstance.append(document.createTextNode(online));
 }
 
+function companionResultRows() {
+  const players = (state.companionResults.players || []).map((entity) => ({
+    kind: "player",
+    key: entity.user_id,
+    title: entity.display_name || entity.user_id,
+    subtitle: entity.user_id,
+    sessions: Number(entity.session_count) || 0
+  }));
+  const worlds = (state.companionResults.worlds || []).map((entity) => ({
+    kind: "world",
+    key: entity.world_key,
+    title: entity.world_name || entity.world_id,
+    subtitle: entity.world_id || "World ID не сохранён",
+    sessions: Number(entity.session_count) || 0
+  }));
+  const avatars = (state.companionResults.avatars || []).map((entity) => ({
+    kind: "avatar",
+    key: entity.avatar_key,
+    title: entity.avatar_name || entity.avatar_id,
+    subtitle: entity.avatar_id || "Avatar ID не сохранён",
+    sessions: Number(entity.session_count) || 0
+  }));
+  return [...players, ...worlds, ...avatars];
+}
+
+function renderCompanionDetails() {
+  if (!companionSearchDetail) return;
+  companionSearchDetail.replaceChildren();
+  if (state.companionLoading && state.companionSelectedKey) {
+    companionSearchDetail.classList.add("adminPreviewEmpty");
+    companionSearchDetail.append(adminElement("span", "profileAvatar", "…"), adminElement("h2", "", "Загружаем карточку"));
+    return;
+  }
+  const details = state.companionDetails;
+  if (!details?.entity) {
+    companionSearchDetail.classList.add("adminPreviewEmpty");
+    companionSearchDetail.append(adminElement("span", "profileAvatar", "⌕"), adminElement("h2", "", "Выберите результат"), adminElement("p", "", "Здесь появятся встречи, посещения и быстрые действия."));
+    return;
+  }
+  companionSearchDetail.classList.remove("adminPreviewEmpty");
+  const entity = details.entity;
+  const player = details.kind === "player";
+  const avatar = details.kind === "avatar";
+  const key = player ? entity.user_id : (avatar ? entity.avatar_key : entity.world_key);
+  const titleText = player ? (entity.display_name || entity.user_id) : (avatar ? (entity.avatar_name || entity.avatar_id) : (entity.world_name || entity.world_id));
+  const subtitleText = player ? entity.user_id : (avatar ? (entity.avatar_id || "Avatar ID не сохранён") : (entity.world_id || "World ID не сохранён"));
+  const content = adminElement("div", "companionDetailContent");
+  const header = adminElement("header");
+  const identity = adminElement("div");
+  identity.append(adminElement("span", "eyebrow", player ? "Игрок из локальной истории" : (avatar ? "Аватар из локальной истории" : "Мир из локальной истории")), userTextElement("h2", "", titleText), userTextElement("p", "", subtitleText));
+  header.append(identity);
+  if (player) {
+    const profile = adminElement("button", "", "Профиль VRChat");
+    profile.type = "button";
+    profile.dataset.insightProfile = entity.user_id;
+    header.append(profile);
+  } else if (!avatar) {
+    const actions = savedWorldActions(entity.world_id);
+    if (actions) header.append(actions);
+  }
+  content.append(header);
+  const metrics = adminElement("div", "companionDetailMetrics");
+  for (const [label, value] of [
+    [player ? "Встреч" : (avatar ? "Сессий" : "Посещений"), String(Number(entity.session_count) || 0)],
+    ["Впервые", adminDate(entity.first_seen_at)],
+    ["Последний раз", adminDate(entity.last_seen_at)]
+  ]) {
+    const metric = adminElement("article");
+    metric.append(adminElement("span", "", label), adminElement("strong", "", value));
+    metrics.append(metric);
+  }
+  content.append(metrics);
+  const sessions = insightsModel.dedupeSessions(details.sessions || []);
+  const list = adminElement("section", "companionDetailSessions");
+  list.append(adminElement("h3", "", player ? "Последние встречи" : (avatar ? "Последние наблюдения" : "Последние посещения")));
+  for (const session of sessions.slice(0, 20)) {
+    const row = adminElement("div", "companionDetailSession");
+    row.append(userOrUiElement("strong", "", session.worldName, "Неизвестный мир"), adminElement("span", "", `${session.players.length} участников`), adminElement("time", "", adminDate(session.startedAt)));
+    list.append(row);
+  }
+  if (!sessions.length) list.append(emptyMessage("Связанные сессии не найдены."));
+  content.append(list);
+  companionSearchDetail.append(content);
+  if (key !== state.companionSelectedKey) state.companionSelectedKey = key;
+}
+
+function renderCompanionSearch() {
+  if (!companionSearchLayout || !companionSearchResults) return;
+  const active = state.companionQuery.trim().length >= 2;
+  companionSearchLayout.hidden = !active;
+  if (!active) return;
+  const rows = companionResultRows();
+  companionSearchResults.replaceChildren();
+  companionSearchCount.textContent = state.companionLoading ? "поиск…" : `${rows.length} найдено`;
+  for (const result of rows) {
+    const row = adminElement("button", "companionSearchRow");
+    row.type = "button";
+    row.dataset.companionResultKind = result.kind;
+    row.dataset.companionResultKey = result.key;
+    row.classList.toggle("active", result.kind === state.companionSelectedKind && result.key === state.companionSelectedKey);
+    const copy = adminElement("div");
+    copy.append(userTextElement("strong", "", result.title), userTextElement("small", "", result.subtitle));
+    row.append(adminElement("span", "companionSearchIcon", result.kind === "player" ? "P" : (result.kind === "avatar" ? "A" : "W")), copy, adminElement("em", "", sessionCountText(result.sessions)));
+    companionSearchResults.append(row);
+  }
+  if (!rows.length && !state.companionLoading) companionSearchResults.append(emptyMessage(state.companionError || "В локальной истории ничего не найдено."));
+  renderCompanionDetails();
+}
+
+async function runCompanionSearch() {
+  const query = state.companionQuery.trim();
+  const requestId = ++state.companionRequestId;
+  state.companionError = "";
+  state.companionResults = { players: [], worlds: [], avatars: [] };
+  state.companionSelectedKind = "";
+  state.companionSelectedKey = "";
+  state.companionDetails = null;
+  if (query.length < 2) {
+    state.companionLoading = false;
+    renderCompanionSearch();
+    return;
+  }
+  state.companionLoading = true;
+  renderCompanionSearch();
+  try {
+    const result = await api.searchCompanion(query);
+    if (requestId !== state.companionRequestId) return;
+    state.companionResults = { players: result?.players || [], worlds: result?.worlds || [], avatars: result?.avatars || [] };
+  } catch (error) {
+    if (requestId !== state.companionRequestId) return;
+    state.companionError = error.message || "Локальный поиск недоступен.";
+  } finally {
+    if (requestId === state.companionRequestId) {
+      state.companionLoading = false;
+      renderCompanionSearch();
+    }
+  }
+}
+
+async function selectCompanionResult(kind, key) {
+  state.companionSelectedKind = kind;
+  state.companionSelectedKey = key;
+  state.companionDetails = null;
+  state.companionLoading = true;
+  renderCompanionSearch();
+  try {
+    state.companionDetails = await api.getCompanionDetails(kind, key);
+  } catch (error) {
+    state.companionError = error.message || "Не удалось загрузить локальную карточку.";
+  } finally {
+    state.companionLoading = false;
+    renderCompanionSearch();
+  }
+}
+
+function directoryKindForView(view) {
+  if (view === "players") return "player";
+  if (view === "worlds") return "world";
+  if (view === "local-avatars") return "avatar";
+  return "";
+}
+
+function directoryViewForKind(kind) {
+  if (kind === "player") return "players";
+  if (kind === "world") return "worlds";
+  if (kind === "avatar") return "local-avatars";
+  return "";
+}
+
+function directoryEntities(result, kind) {
+  if (kind === "player") return result?.players || [];
+  if (kind === "world") return result?.worlds || [];
+  return result?.avatars || [];
+}
+
+function directoryEntityKey(entity, kind) {
+  if (kind === "player") return String(entity?.user_id || "");
+  if (kind === "world") return String(entity?.world_key || "");
+  return String(entity?.avatar_key || "");
+}
+
+function directoryEntityTitle(entity, kind) {
+  if (kind === "player") return entity?.alias || entity?.display_name || entity?.user_id;
+  if (kind === "world") return entity?.world_name || entity?.world_id;
+  return entity?.avatar_name || entity?.avatar_id;
+}
+
+function directoryEntitySubtitle(entity, kind) {
+  if (kind === "player") return entity?.user_id;
+  if (kind === "world") return entity?.world_id || "World ID не сохранён";
+  return entity?.avatar_id || "Avatar ID не сохранён";
+}
+
+function renderLocalDirectory(kind) {
+  const panel = directoryPanels.find((item) => item.dataset.directoryKind === kind);
+  if (!panel) return;
+  const list = panel.querySelector("[data-directory-list]");
+  const count = panel.querySelector("[data-directory-count]");
+  const detail = panel.querySelector("[data-directory-detail]");
+  const rows = state.directoryResults[kind] || [];
+  count.textContent = state.directoryLoading[kind] ? "загрузка…" : `${rows.length} записей`;
+  list.replaceChildren();
+  for (const entity of rows) {
+    const key = directoryEntityKey(entity, kind);
+    const row = adminElement("button", "companionSearchRow");
+    row.type = "button";
+    row.dataset.directoryResultKind = kind;
+    row.dataset.directoryResultKey = key;
+    row.classList.toggle("active", state.directorySelected[kind] === key);
+    const copy = adminElement("div");
+    copy.append(userTextElement("strong", "", directoryEntityTitle(entity, kind)), userTextElement("small", "", directoryEntitySubtitle(entity, kind)));
+    const suffix = kind === "world" && Number(entity.favorite) ? `★ · ${sessionCountText(Number(entity.session_count) || 0)}`
+      : (kind === "player" && entity.status !== "none" ? `${entity.status === "watch" ? "Наблюдение" : "Избранное"} · ${sessionCountText(Number(entity.session_count) || 0)}` : sessionCountText(Number(entity.session_count) || 0));
+    row.append(adminElement("span", "companionSearchIcon", kind === "player" ? "P" : (kind === "world" ? "W" : "A")), copy, adminElement("em", "", suffix));
+    list.append(row);
+  }
+  if (!rows.length && !state.directoryLoading[kind]) list.append(emptyMessage(kind === "player" ? "История игроков пока пуста." : (kind === "world" ? "История миров пока пуста." : "Локальных наблюдений пока нет.")));
+
+  const details = state.directoryDetails[kind];
+  detail.replaceChildren();
+  if (!details?.entity) {
+    detail.classList.add("adminPreviewEmpty");
+    detail.append(adminElement("span", "profileAvatar", kind === "player" ? "P" : (kind === "world" ? "W" : "A")), adminElement("h2", "", kind === "player" ? "Выберите игрока" : (kind === "world" ? "Выберите мир" : "Выберите аватар")), adminElement("p", "", kind === "player" ? "История встреч появится здесь." : (kind === "world" ? "История посещений появится здесь." : "Локальная история наблюдений появится здесь.")));
+    return;
+  }
+  detail.classList.remove("adminPreviewEmpty");
+  const entity = details.entity;
+  const title = directoryEntityTitle(entity, kind);
+  const content = adminElement("div", "companionDetailContent");
+  const header = adminElement("header");
+  const identity = adminElement("div");
+  identity.append(adminElement("span", "eyebrow", kind === "player" ? "Игрок из локальной истории" : (kind === "world" ? "Мир из локальной истории" : "Аватар из локальной истории")), userTextElement("h2", "", title), userTextElement("p", "", directoryEntitySubtitle(entity, kind)));
+  header.append(identity);
+  if (kind === "player") {
+    const profile = adminElement("button", "", "Профиль VRChat");
+    profile.type = "button";
+    profile.dataset.insightProfile = entity.user_id;
+    header.append(profile);
+  } else if (kind === "world") {
+    const actions = savedWorldActions(entity.world_id);
+    if (actions) header.append(actions);
+  } else if (kind === "avatar" && entity.avatar_id) {
+    const actions = adminElement("div", "socialDetailActions");
+    const verify = adminElement("button", "", state.directoryAvatarProfile?.avatarId === entity.avatar_id ? "Обновить данные VRChat" : "Загрузить данные VRChat");
+    verify.type = "button";
+    verify.dataset.localAvatarProfile = entity.avatar_id;
+    const open = adminElement("button", "", "Страница аватара");
+    open.type = "button";
+    open.dataset.avatarOpen = entity.avatar_id;
+    actions.append(verify, open);
+    header.append(actions);
+  }
+  content.append(header);
+  const metrics = adminElement("div", "companionDetailMetrics");
+  for (const [label, value] of [[kind === "player" ? "Встреч" : (kind === "world" ? "Посещений" : "Наблюдений"), String(Number(kind === "avatar" ? entity.observation_count : entity.session_count) || 0)], ["Впервые", adminDate(entity.first_seen_at)], ["Последний раз", adminDate(entity.last_seen_at)]]) {
+    const metric = adminElement("article");
+    metric.append(adminElement("span", "", label), adminElement("strong", "", value));
+    metrics.append(metric);
+  }
+  content.append(metrics);
+  if (kind === "avatar" && state.directoryAvatarProfile?.avatarId === entity.avatar_id) {
+    const profile = state.directoryAvatarProfile;
+    const vrchat = adminElement("section", "socialDetailSection socialFacts");
+    vrchat.append(adminElement("h3", "", "Подтверждено VRChat API"));
+    const performance = Object.entries(profile.performance || {}).map(([platform, rating]) => `${platform}: ${rating}`).join(" · ");
+    for (const [label, value] of [["Автор", profile.authorName || profile.authorId || "—"], ["Статус", profile.releaseStatus || "—"], ["Версия", profile.version === null ? "—" : String(profile.version)], ["Платформы", profile.platforms?.join(", ") || "—"], ["Производительность", performance || "—"], ["Создан", adminDate(profile.createdAt)], ["Обновлён", adminDate(profile.updatedAt)]]) {
+      const row = adminElement("div", "socialFact");
+      row.append(adminElement("span", "", label), userTextElement("strong", "", value));
+      vrchat.append(row);
+    }
+    if (profile.description) vrchat.append(userTextElement("p", "", profile.description));
+    content.append(vrchat);
+  }
+  if (kind === "player") {
+    const form = adminElement("form", "companionPreferenceForm");
+    form.dataset.localPlayerPreference = entity.user_id;
+    const alias = adminElement("input");
+    alias.name = "alias";
+    alias.placeholder = "Локальное имя или пометка";
+    alias.maxLength = 160;
+    alias.value = entity.alias || "";
+    const status = adminElement("select");
+    status.name = "status";
+    for (const [value, label] of [["none", "Без отметки"], ["watch", "Наблюдение и уведомления"], ["favorite", "Избранный игрок и уведомления"]]) {
+      const option = adminElement("option", "", label);
+      option.value = value;
+      option.selected = value === entity.status;
+      status.append(option);
+    }
+    const note = adminElement("textarea");
+    note.name = "note";
+    note.maxLength = 4000;
+    note.placeholder = "Личная заметка — хранится только на этом ПК";
+    note.value = entity.note || "";
+    const save = adminElement("button", "primaryButton", "Сохранить локально");
+    save.type = "submit";
+    form.append(adminElement("h3", "", "Личная карточка"), alias, status, note, save);
+    content.append(form);
+    const names = adminElement("section", "companionDetailSessions");
+    names.append(adminElement("h3", "", "История ников"));
+    for (const entry of details.names || []) {
+      const row = adminElement("div", "companionDetailSession");
+      row.append(userTextElement("strong", "", entry.display_name), adminElement("span", "", adminDate(entry.first_seen_at)), adminElement("time", "", adminDate(entry.last_seen_at)));
+      names.append(row);
+    }
+    if (!details.names?.length) names.append(emptyMessage("Смена ника пока не зафиксирована."));
+    content.append(names);
+    const encounters = adminElement("section", "companionDetailSessions");
+    encounters.append(adminElement("h3", "", "Входы и выходы"));
+    for (const entry of details.events || []) {
+      const row = adminElement("div", "companionDetailSession");
+      row.append(adminElement("strong", "", entry.event_type === "player-joined" ? "Вошёл" : "Вышел"), userOrUiElement("span", "", entry.world_name, "Мир не определён"), adminElement("time", "", adminDate(entry.occurred_at)));
+      encounters.append(row);
+    }
+    if (!details.events?.length) encounters.append(emptyMessage("Подробные входы и выходы появятся после новой записи лога."));
+    content.append(encounters);
+    const sharedWorlds = adminElement("section", "companionDetailSessions");
+    sharedWorlds.append(adminElement("h3", "", "Общие миры"));
+    for (const world of details.worlds || []) {
+      const row = adminElement("button", "companionDetailSession");
+      row.type = "button";
+      row.dataset.localWorldKey = world.world_key;
+      row.append(userOrUiElement("strong", "", world.world_name, "Неизвестный мир"), adminElement("span", "", sessionCountText(world.session_count)), adminElement("time", "", adminDate(world.last_seen_at)));
+      sharedWorlds.append(row);
+    }
+    if (!details.worlds?.length) sharedWorlds.append(emptyMessage("Общие миры пока не определены."));
+    content.append(sharedWorlds);
+    const recentAvatars = adminElement("section", "companionDetailSessions");
+    recentAvatars.append(adminElement("h3", "", "Последние аватары"));
+    for (const avatar of details.avatars || []) {
+      const row = adminElement("button", "companionDetailSession");
+      row.type = "button";
+      row.dataset.localAvatarKey = avatar.avatar_key;
+      row.append(userOrUiElement("strong", "", avatar.avatar_name, "Неизвестный аватар"), userTextElement("span", "", avatar.avatar_id || "Avatar ID не сохранён"), adminElement("time", "", adminDate(avatar.last_seen_at)));
+      recentAvatars.append(row);
+    }
+    if (!details.avatars?.length) recentAvatars.append(emptyMessage("Аватары этого игрока пока не зафиксированы."));
+    content.append(recentAvatars);
+  } else if (kind === "world") {
+    const form = adminElement("form", "companionPreferenceForm");
+    form.dataset.localWorldPreference = entity.world_key;
+    const favoriteLabel = adminElement("label", "checkRow");
+    const favorite = adminElement("input");
+    favorite.type = "checkbox";
+    favorite.name = "favorite";
+    favorite.checked = Boolean(Number(entity.favorite));
+    favoriteLabel.append(favorite, adminElement("span", "", "Добавить мир в избранное"));
+    const note = adminElement("textarea");
+    note.name = "note";
+    note.maxLength = 4000;
+    note.placeholder = "Личная заметка о мире";
+    note.value = entity.note || "";
+    const save = adminElement("button", "primaryButton", "Сохранить локально");
+    save.type = "submit";
+    form.append(adminElement("h3", "", "Избранный мир"), favoriteLabel, note, save);
+    content.append(form);
+  }
+  const sessions = insightsModel.dedupeSessions(details.sessions || []);
+  const sessionList = adminElement("section", "companionDetailSessions");
+  sessionList.append(adminElement("h3", "", kind === "player" ? "Последние встречи" : (kind === "world" ? "История посещений" : "Последние наблюдения")));
+  if (kind === "world" && details.visits?.length) {
+    for (const visit of details.visits.slice(0, 30)) {
+      const row = adminElement("div", "companionDetailSession");
+      row.append(adminElement("strong", "", "Посещение"), userTextElement("span", "", visit.session_id), adminElement("time", "", adminDate(visit.seen_at)));
+      sessionList.append(row);
+    }
+  } else {
+    for (const session of sessions.slice(0, 30)) {
+      const row = adminElement("div", "companionDetailSession");
+      row.append(userOrUiElement("strong", "", session.worldName, "Неизвестный мир"), adminElement("span", "", `${session.players.length} участников`), adminElement("time", "", adminDate(session.startedAt)));
+      sessionList.append(row);
+    }
+  }
+  if (!(kind === "world" && details.visits?.length) && !sessions.length) sessionList.append(emptyMessage("Связанные сессии не найдены."));
+  content.append(sessionList);
+  detail.append(content);
+}
+
+async function refreshLocalDirectory(view = state.view) {
+  const kind = directoryKindForView(view);
+  if (!kind) return;
+  const requestId = ++state.directoryRequestId[kind];
+  state.directoryLoading[kind] = true;
+  renderLocalDirectory(kind);
+  try {
+    const result = await api.searchCompanion(state.directoryQueries[kind]);
+    if (requestId !== state.directoryRequestId[kind]) return;
+    state.directoryResults[kind] = directoryEntities(result, kind);
+    const selectedKey = state.directorySelected[kind];
+    if (selectedKey && !state.directoryResults[kind].some((entity) => directoryEntityKey(entity, kind) === selectedKey)) {
+      state.directorySelected[kind] = "";
+      state.directoryDetails[kind] = null;
+    }
+  } catch {
+    if (requestId === state.directoryRequestId[kind]) state.directoryResults[kind] = [];
+  } finally {
+    if (requestId === state.directoryRequestId[kind]) {
+      state.directoryLoading[kind] = false;
+      renderLocalDirectory(kind);
+    }
+  }
+}
+
+async function selectDirectoryResult(kind, key) {
+  state.directorySelected[kind] = key;
+  state.directoryDetails[kind] = null;
+  if (kind === "avatar") state.directoryAvatarProfile = null;
+  state.directoryLoading[kind] = true;
+  renderLocalDirectory(kind);
+  try {
+    state.directoryDetails[kind] = await api.getCompanionDetails(kind, key);
+  } finally {
+    state.directoryLoading[kind] = false;
+    renderLocalDirectory(kind);
+  }
+}
+
+async function openLocalPlayerCard(userId) {
+  const safeUserId = String(userId || "").trim();
+  if (!safeUserId) return;
+  selectView("players");
+  await selectDirectoryResult("player", safeUserId);
+}
+
+async function openLocalWorldCard(worldKey) {
+  const safeWorldKey = String(worldKey || "").trim();
+  if (!safeWorldKey) return;
+  selectView("worlds");
+  await selectDirectoryResult("world", safeWorldKey);
+}
+
+function renderSocial() {
+  if (!socialSummary) return;
+  document.querySelectorAll("[data-social-tab]").forEach((button) => button.classList.toggle("active", button.dataset.socialTab === state.socialTab));
+  socialSummary.replaceChildren();
+  if (socialStatus) socialStatus.textContent = state.socialLoading ? "Загружаем данные VRChat…" : state.socialError;
+  if (state.socialLoading && !state.social) {
+    socialSummary.append(emptyMessage("Подключаемся к VRChat…"));
+    return;
+  }
+  if (!state.social) {
+    const empty = adminElement("article", "panel adminPreviewEmpty");
+    empty.append(adminElement("h2", "", state.settings?.hasVrchatAuthCookie ? "Данные пока не загружены" : "Подключите аккаунт VRChat"), adminElement("p", "", state.socialError || "Войти в VRChat можно через настройки приложения."));
+    socialSummary.append(empty);
+    return;
+  }
+  const friends = Array.isArray(state.social.friends) ? state.social.friends : [];
+  const groups = Array.isArray(state.social.groups) ? state.social.groups : [];
+  const online = friends.filter((friend) => typeof friend.online === "boolean" ? friend.online : (friend.status && friend.status !== "offline")).length;
+  const metrics = adminElement("div", "companionDetailMetrics socialMetrics");
+  for (const [label, value] of [["Аккаунт", state.social.user?.displayName || state.social.user?.userId || "—"], ["Друзья", String(friends.length)], ["Не офлайн", String(online)], ["Публичные группы", String(groups.length)]]) {
+    const metric = adminElement("article");
+    metric.append(adminElement("span", "", label), userTextElement("strong", "", value));
+    metrics.append(metric);
+  }
+  socialSummary.append(metrics);
+  if (state.social.truncatedFriends) {
+    const warning = adminElement("p", "socialWarning", "Список достиг безопасного лимита. Журнал не будет считать отсутствующих друзей удалёнными.");
+    socialSummary.append(warning);
+  }
+  const favoriteIds = new Set((state.socialPreferences || []).filter((row) => row.status === "favorite").map((row) => row.user_id || row.userId));
+  const sortedFriends = [...friends].sort((a, b) => Number(socialFriendOnline(b)) - Number(socialFriendOnline(a)) || a.displayName.localeCompare(b.displayName, uiLocale()));
+  if (state.socialTab === "journal") {
+    const panel = socialPanel("Локально", "Журнал друзей", String(state.socialEvents.length));
+    const list = adminElement("div", "socialList socialJournal");
+    const labels = { "friend-added": "Добавлен в друзья", "friend-removed": "Удалён из друзей", online: "Появился онлайн", offline: "Ушёл офлайн", location: "Сменил локацию", renamed: "Сменил имя" };
+    for (const entry of state.socialEvents.slice(0, 500)) {
+      const row = adminElement("button", "socialRow socialEventRow");
+      row.type = "button";
+      row.dataset.socialProfile = entry.user_id;
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", labels[entry.event_type] || entry.event_type));
+      row.append(copy, adminElement("em", "", adminDate(entry.occurred_at)));
+      list.append(row);
+    }
+    if (!state.socialEvents.length) list.append(emptyMessage("Журнал начнёт заполняться после второго полного обновления списка друзей."));
+    panel.append(list);
+    socialSummary.append(panel);
+    return;
+  }
+  if (state.socialTab === "locations") {
+    const byLocation = new Map();
+    for (const friend of sortedFriends.filter((row) => socialFriendOnline(row))) {
+      const key = friend.location || "private";
+      if (!byLocation.has(key)) byLocation.set(key, []);
+      byLocation.get(key).push(friend);
+    }
+    const grid = adminElement("div", "socialLocationGrid");
+    for (const [location, rows] of byLocation) {
+      const title = socialLocationLabel(location, rows[0]);
+      const panel = socialPanel("Сейчас", title, `${rows.length}`);
+      const heading = panel.querySelector("h2");
+      if (heading && location && location !== title) heading.title = location;
+      const list = adminElement("div", "socialList");
+      for (const friend of rows) list.append(socialFriendRow(friend, favoriteIds));
+      panel.append(list);
+      grid.append(panel);
+    }
+    if (!byLocation.size) grid.append(emptyMessage("Друзей в доступных локациях сейчас нет."));
+    socialSummary.append(grid);
+    return;
+  }
+  if (state.socialTab === "favorites") {
+    const favorites = sortedFriends.filter((friend) => favoriteIds.has(friend.userId));
+    const panel = socialPanel("Локальная отметка", "Избранные друзья", String(favorites.length));
+    const list = adminElement("div", "socialList");
+    for (const friend of favorites) list.append(socialFriendRow(friend, favoriteIds));
+    if (!favorites.length) list.append(emptyMessage("Добавьте игрока в избранное через его локальную карточку."));
+    panel.append(list);
+    socialSummary.append(panel);
+    return;
+  }
+  if (state.socialTab === "groups") {
+    const panel = socialPanel("VRChat", "Группы", String(groups.length));
+    const list = adminElement("div", "socialList");
+    for (const group of groups) list.append(socialGroupRow(group));
+    if (!groups.length) list.append(emptyMessage("Публичные группы не найдены."));
+    panel.append(list);
+    socialSummary.append(panel);
+    return;
+  }
+  if (state.socialTab === "vrchat-favorites") {
+    const columns = adminElement("div", "socialColumns");
+    const worlds = state.socialCollections["favorite-worlds"]?.rows || [];
+    const avatars = state.socialCollections["favorite-avatars"]?.rows || [];
+    const worldPanel = socialPanel("Ваш аккаунт", "Избранные миры", String(worlds.length));
+    const worldList = adminElement("div", "socialList");
+    for (const world of worlds) {
+      const row = adminElement("button", "socialRow");
+      row.type = "button";
+      row.dataset.socialWorld = world.worldId;
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", world.worldName || world.worldId), userTextElement("small", "", world.authorName || world.worldId));
+      row.append(copy, adminElement("em", "", world.occupants === null ? "" : `${world.occupants} онлайн`));
+      worldList.append(row);
+    }
+    if (!worlds.length) worldList.append(emptyMessage("Избранные миры не загружены или список пуст."));
+    worldPanel.append(worldList);
+    const avatarPanel = socialPanel("Ваш аккаунт", "Избранные аватары", String(avatars.length));
+    const avatarList = adminElement("div", "socialList");
+    for (const avatar of avatars) {
+      const row = adminElement("button", "socialRow");
+      row.type = "button";
+      row.dataset.avatarOpen = avatar.avatarId;
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", avatar.avatarName || avatar.avatarId), userTextElement("small", "", avatar.authorName || avatar.avatarId));
+      row.append(copy, adminElement("em", "", avatar.releaseStatus || ""));
+      avatarList.append(row);
+    }
+    if (!avatars.length) avatarList.append(emptyMessage("Избранные аватары не загружены или список пуст."));
+    avatarPanel.append(avatarList);
+    columns.append(worldPanel, avatarPanel);
+    socialSummary.append(columns);
+    return;
+  }
+  if (state.socialTab === "notifications") {
+    const notifications = state.socialCollections.notifications?.rows || [];
+    const panel = socialPanel("Ваш аккаунт", "Уведомления VRChat", String(notifications.length));
+    const list = adminElement("div", "socialList");
+    for (const notification of notifications) {
+      const row = adminElement(notification.senderUserId ? "button" : "div", "socialRow socialEventRow");
+      if (notification.senderUserId) {
+        row.type = "button";
+        row.dataset.socialProfile = notification.senderUserId;
+      }
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", notification.senderUsername || notification.type), userTextElement("small", "", notification.message || notification.type));
+      row.append(copy, adminElement("em", "", adminDate(notification.createdAt)));
+      if (!notification.seen) row.classList.add("unread");
+      list.append(row);
+    }
+    if (!notifications.length) list.append(emptyMessage("Уведомлений VRChat нет."));
+    panel.append(list);
+    socialSummary.append(panel);
+    return;
+  }
+  const columns = adminElement("div", "socialColumns");
+  const friendPanel = socialPanel("VRChat", "Друзья", `${friends.length}${state.social.truncatedFriends ? "+" : ""}`);
+  const friendList = adminElement("div", "socialList");
+  for (const friend of sortedFriends.slice(0, 150)) friendList.append(socialFriendRow(friend, favoriteIds));
+  if (!friends.length) friendList.append(emptyMessage("Список друзей пуст или недоступен."));
+  friendPanel.append(friendList);
+  const groupPanel = socialPanel("Публичные данные", "Группы", String(groups.length));
+  const groupList = adminElement("div", "socialList");
+  for (const group of groups) groupList.append(socialGroupRow(group));
+  if (!groups.length) groupList.append(emptyMessage("Публичные группы не найдены."));
+  groupPanel.append(groupList);
+  columns.append(friendPanel, groupPanel);
+  socialSummary.append(columns);
+}
+
+function socialPanel(eyebrow, title, count = "") {
+  const panel = adminElement("article", "panel socialPanel");
+  const header = adminElement("header");
+  const copy = adminElement("div");
+  copy.append(adminElement("span", "eyebrow", eyebrow), adminElement("h2", "", title));
+  header.append(copy, adminElement("span", "", count));
+  panel.append(header);
+  return panel;
+}
+
+function socialFriendRow(friend, favoriteIds = new Set()) {
+  const row = adminElement("button", "socialRow");
+  row.type = "button";
+  row.dataset.socialProfile = friend.userId;
+  const copy = adminElement("span");
+  const title = favoriteIds.has(friend.userId) ? `★ ${friend.displayName || friend.userId}` : (friend.displayName || friend.userId);
+  const location = socialFriendOnline(friend) && friend.worldId ? friend.worldId : "";
+  copy.append(userTextElement("strong", "", title), userTextElement("small", "", friend.statusDescription || location || friend.platform || friend.userId));
+  const online = socialFriendOnline(friend);
+  const badge = adminElement("em", "", online ? (friend.status || "онлайн") : "офлайн");
+  badge.dataset.online = String(Boolean(online));
+  row.append(copy, badge);
+  return row;
+}
+
+function socialFriendOnline(friend) {
+  return typeof friend?.online === "boolean" ? friend.online : Boolean(friend?.status && friend.status !== "offline");
+}
+
+function socialLocationLabel(location, friend = null) {
+  const value = String(location || "").trim();
+  if (!value || value === "private") return "Приватная локация";
+  if (value === "traveling") return "Переходит между мирами";
+  if (value === "offline") return "Не в сети";
+  const worldId = String(friend?.worldId || value.match(/wrld_[0-9a-f-]+/iu)?.[0] || "");
+  if (!worldId) return value;
+  const shortId = worldId.replace(/^wrld_/iu, "").slice(0, 8);
+  return `Мир · ${shortId}${worldId.length > 13 ? "…" : ""}`;
+}
+
+function socialGroupRow(group) {
+  const row = adminElement("button", "socialRow");
+  row.type = "button";
+  row.dataset.socialGroup = group.groupId;
+  const copy = adminElement("span");
+  copy.append(userTextElement("strong", "", group.name || group.groupId), userTextElement("small", "", group.shortCode || group.groupId));
+  row.append(copy, adminElement("em", "", group.isRepresenting ? "представляется" : (group.memberCount == null ? "" : `${group.memberCount} участников`)));
+  return row;
+}
+
+async function refreshSocial(force = false) {
+  if (!api.getVrchatSocialSummary) return;
+  state.socialLoading = true;
+  state.socialError = "";
+  renderSocial();
+  try {
+    const [social, events, preferences] = await Promise.all([
+      api.getVrchatSocialSummary(force),
+      api.listLocalSocialEvents ? api.listLocalSocialEvents(500).catch(() => []) : [],
+      api.listLocalWatchedPlayers ? api.listLocalWatchedPlayers().catch(() => []) : []
+    ]);
+    state.social = social;
+    state.socialEvents = events || [];
+    state.socialPreferences = preferences || [];
+  } catch (error) {
+    state.socialError = formatVrchatAuthError(error);
+  } finally {
+    state.socialLoading = false;
+    renderSocial();
+  }
+}
+
+async function loadSocialCollection(tab, force = false) {
+  if (!api.getVrchatPersonalCollection) return;
+  const kinds = tab === "vrchat-favorites" ? ["favorite-worlds", "favorite-avatars"] : tab === "notifications" ? ["notifications"] : [];
+  if (!kinds.length) return;
+  state.socialLoading = true;
+  renderSocial();
+  const results = await Promise.allSettled(kinds.map((kind) => api.getVrchatPersonalCollection(kind, force)));
+  for (let index = 0; index < kinds.length; index += 1) {
+    if (results[index].status === "fulfilled") state.socialCollections[kinds[index]] = results[index].value;
+    else state.socialError = formatVrchatAuthError(results[index].reason);
+  }
+  state.socialLoading = false;
+  renderSocial();
+}
+
+async function openSocialProfile(userId) {
+  if (!socialDetailDialog || !api.getVrchatUserProfile) return;
+  const friend = state.social?.friends?.find((row) => row.userId === userId);
+  socialDetailTitle.textContent = friend?.displayName || userId;
+  socialDetailBody.replaceChildren(emptyMessage("Загружаем профиль и локальную историю…"));
+  if (!socialDetailDialog.open) socialDetailDialog.showModal();
+  const [profileResult, localResult] = await Promise.allSettled([
+    api.getVrchatUserProfile(userId),
+    api.getCompanionDetails ? api.getCompanionDetails("player", userId) : Promise.resolve(null)
+  ]);
+  const profile = profileResult.status === "fulfilled" ? profileResult.value : null;
+  const local = localResult.status === "fulfilled" ? localResult.value : null;
+  if (!profile && !local && !friend) {
+    socialDetailBody.replaceChildren(emptyMessage(formatVrchatAuthError(profileResult.reason || "Профиль недоступен")));
+    return;
+  }
+  socialDetailTitle.textContent = profile?.displayName || local?.entity?.display_name || friend?.displayName || userId;
+  const content = adminElement("div", "socialProfileContent");
+  const actions = adminElement("div", "socialDetailActions");
+  const site = adminElement("button", "", "Профиль VRChat");
+  site.type = "button";
+  site.dataset.socialExternalProfile = userId;
+  actions.append(site);
+  if (profile?.worldId) {
+    const launch = adminElement("button", "primaryButton", "Запустить текущий мир");
+    launch.type = "button";
+    launch.dataset.worldLaunch = profile.worldId;
+    actions.append(launch);
+  }
+  const actionMenu = adminElement("details", "socialProfileActionMenu");
+  const actionMenuToggle = adminElement("summary", "", "⋯");
+  actionMenuToggle.setAttribute("aria-label", "Действия с игроком");
+  actionMenuToggle.title = "Действия с игроком";
+  const actionMenuPanel = adminElement("div", "socialProfileActionMenuPanel");
+  const refreshProfile = adminElement("button", "", "Обновить профиль");
+  refreshProfile.type = "button";
+  refreshProfile.dataset.socialRefreshProfile = userId;
+  const copyUserId = adminElement("button", "", "Скопировать User ID");
+  copyUserId.type = "button";
+  copyUserId.dataset.socialCopyUser = userId;
+  const localCard = adminElement("button", "", "Открыть локальную карточку");
+  localCard.type = "button";
+  localCard.dataset.socialLocalPlayer = userId;
+  const currentLocalStatus = String(local?.entity?.status || "none");
+  const watchLocal = adminElement("button", currentLocalStatus === "watch" ? "active" : "", currentLocalStatus === "watch" ? "Снять локальное наблюдение" : "Наблюдать локально");
+  watchLocal.type = "button";
+  watchLocal.dataset.socialLocalStatus = userId;
+  watchLocal.dataset.localStatus = currentLocalStatus === "watch" ? "none" : "watch";
+  actionMenuPanel.append(refreshProfile, copyUserId, localCard, watchLocal);
+  if (profile?.worldId) {
+    const page = adminElement("button", "", "Открыть страницу текущего мира");
+    page.type = "button";
+    page.dataset.worldPage = profile.worldId;
+    actionMenuPanel.append(page);
+  }
+  if (hasPaidAccess()) {
+    const adminTools = adminElement("button", "", "Открыть в Admin Tools");
+    adminTools.type = "button";
+    adminTools.dataset.socialAdminPlayer = userId;
+    actionMenuPanel.append(adminTools);
+  }
+  if (hasOwnerAccess()) {
+    const owner = adminElement("button", "ownerActionButton", "Открыть в Owner");
+    owner.type = "button";
+    owner.dataset.socialOwnerPlayer = userId;
+    actionMenuPanel.append(owner);
+  }
+  actionMenu.append(actionMenuToggle, actionMenuPanel);
+  actions.append(actionMenu);
+  content.append(actions);
+  if (!profile && profileResult.status === "rejected") {
+    const warning = adminElement("div", "socialInlineWarning");
+    warning.append(
+      adminElement("strong", "", "Публичные данные VRChat временно недоступны"),
+      adminElement("span", "", formatVrchatAuthError(profileResult.reason || "Профиль недоступен"))
+    );
+    content.append(warning);
+  }
+  const metrics = adminElement("div", "companionDetailMetrics socialProfileMetrics");
+  const metricRows = [
+    ["Состояние", profile?.statusDescription || profile?.status || (friend?.online ? "онлайн" : "офлайн")],
+    ["Платформа", profile?.platform || friend?.platform || "—"],
+    ["Встреч", String(Number(local?.entity?.session_count) || 0)],
+    ["Клонирование", profile?.allowAvatarCopying ? "разрешено" : "не подтверждено"]
+  ];
+  for (const [label, value] of metricRows) {
+    const metric = adminElement("article");
+    metric.append(adminElement("span", "", label), userTextElement("strong", "", value));
+    metrics.append(metric);
+  }
+  content.append(metrics);
+  const profileColumns = adminElement("div", "socialProfileColumns");
+  const primaryColumn = adminElement("div", "socialProfileColumn");
+  const secondaryColumn = adminElement("div", "socialProfileColumn");
+  profileColumns.append(primaryColumn, secondaryColumn);
+  content.append(profileColumns);
+  if (profile?.bio) {
+    const bio = adminElement("section", "socialDetailSection socialProfileBio");
+    bio.append(adminElement("h3", "", "Описание"), userTextElement("p", "", profile.bio));
+    primaryColumn.append(bio);
+  }
+  if (profile?.badges?.length) {
+    const badges = adminElement("section", "socialDetailSection socialProfileBadges socialProfileScrollable");
+    badges.append(adminElement("h3", "", "Значки профиля"));
+    for (const badge of profile.badges) {
+      const row = adminElement("div", "socialRule");
+      row.append(userTextElement("strong", "", badge.name), userTextElement("p", "", badge.description || ""));
+      badges.append(row);
+    }
+    secondaryColumn.append(badges);
+  }
+  const details = adminElement("section", "socialDetailSection socialFacts");
+  details.append(adminElement("h3", "", "Доступные данные"));
+  for (const [label, value] of [["User ID", userId], ["Локация", profile?.location || friend?.location || "недоступна"], ["Последняя активность", adminDate(profile?.lastActivity || friend?.lastActivity)], ["Дата регистрации", profile?.dateJoined || "—"]]) {
+    const row = adminElement("div", "socialFact");
+    row.append(adminElement("span", "", label), userTextElement("strong", "", value));
+    details.append(row);
+  }
+  primaryColumn.append(details);
+  if (profile?.groups?.length) {
+    const groups = adminElement("section", "socialDetailSection socialProfileGroups socialProfileScrollable");
+    groups.append(adminElement("h3", "", "Группы"));
+    for (const group of profile.groups) groups.append(socialGroupRow(group));
+    secondaryColumn.append(groups);
+  }
+  if (profile?.mutualFriends?.length) {
+    const mutuals = adminElement("section", "socialDetailSection socialProfileMutuals socialProfileScrollable");
+    mutuals.append(adminElement("h3", "", `Общие друзья · ${profile.mutualFriends.length}`));
+    for (const friend of profile.mutualFriends) mutuals.append(socialFriendRow(friend));
+    primaryColumn.append(mutuals);
+  }
+  if (local?.avatars?.length) {
+    const avatars = adminElement("section", "socialDetailSection socialProfileAvatars socialProfileScrollable");
+    avatars.append(adminElement("h3", "", "Недавно замеченные аватары"));
+    for (const avatar of local.avatars.slice(0, 12)) {
+      const row = adminElement("button", "socialRow");
+      row.type = "button";
+      row.dataset.localAvatarKey = avatar.avatar_key;
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", avatar.avatar_name || avatar.avatar_id || "Аватар"), userOrUiElement("small", "", avatar.avatar_id, "Avatar ID не подтверждён"));
+      row.append(copy, adminElement("em", "", adminDate(avatar.last_seen_at)));
+      avatars.append(row);
+    }
+    primaryColumn.append(avatars);
+  }
+  if (local?.worlds?.length) {
+    const worlds = adminElement("section", "socialDetailSection socialProfileWorlds socialProfileScrollable");
+    worlds.append(adminElement("h3", "", "Миры из локальной истории"));
+    for (const world of local.worlds.slice(0, 12)) {
+      const row = adminElement("button", "socialRow");
+      row.type = "button";
+      row.dataset.localWorldKey = world.world_key;
+      const copy = adminElement("span");
+      copy.append(userTextElement("strong", "", world.world_name || world.world_id || "Мир"), userOrUiElement("small", "", world.world_id, "World ID не сохранён"));
+      row.append(copy, adminElement("em", "", sessionCountText(Number(world.session_count) || 0)));
+      worlds.append(row);
+    }
+    secondaryColumn.append(worlds);
+  }
+  if (!secondaryColumn.childElementCount) profileColumns.classList.add("single");
+  socialDetailBody.replaceChildren(content);
+}
+
+async function openSocialGroup(groupId) {
+  if (!socialDetailDialog || !api.getVrchatGroup) return;
+  const summary = state.social?.groups?.find((row) => row.groupId === groupId);
+  socialDetailTitle.textContent = summary?.name || groupId;
+  socialDetailBody.replaceChildren(emptyMessage("Загружаем публичные данные группы…"));
+  if (!socialDetailDialog.open) socialDetailDialog.showModal();
+  try {
+    const group = await api.getVrchatGroup(groupId);
+    socialDetailTitle.textContent = group.name || groupId;
+    const content = adminElement("div", "socialProfileContent");
+    const actions = adminElement("div", "socialDetailActions");
+    const site = adminElement("button", "primaryButton", "Открыть группу на сайте");
+    site.type = "button";
+    site.dataset.socialExternalGroup = groupId;
+    actions.append(site);
+    content.append(actions);
+    const metrics = adminElement("div", "companionDetailMetrics socialProfileMetrics");
+    for (const [label, value] of [["Код", group.shortCode || "—"], ["Участников", group.memberCount === null ? "—" : String(group.memberCount)], ["Онлайн", group.onlineMemberCount === null ? "—" : String(group.onlineMemberCount)], ["Вступление", group.joinState || "—"]]) {
+      const metric = adminElement("article");
+      metric.append(adminElement("span", "", label), userTextElement("strong", "", value));
+      metrics.append(metric);
+    }
+    content.append(metrics);
+    if (group.description) {
+      const description = adminElement("section", "socialDetailSection");
+      description.append(adminElement("h3", "", "Описание"), userTextElement("p", "", group.description));
+      content.append(description);
+    }
+    if (group.announcement?.text || group.announcement?.title) {
+      const announcement = adminElement("section", "socialDetailSection");
+      announcement.append(adminElement("h3", "", group.announcement.title || "Объявление"), userTextElement("p", "", group.announcement.text || ""));
+      content.append(announcement);
+    }
+    if (group.instances?.length) {
+      const instances = adminElement("section", "socialDetailSection");
+      instances.append(adminElement("h3", "", `Активные инстансы · ${group.instances.length}`));
+      for (const instance of group.instances) {
+        const row = adminElement(instance.worldId ? "button" : "div", "socialRow");
+        if (instance.worldId) {
+          row.type = "button";
+          row.dataset.socialWorld = instance.worldId;
+        }
+        const copy = adminElement("span");
+        copy.append(userTextElement("strong", "", instance.worldName || instance.worldId || "Инстанс группы"), userTextElement("small", "", instance.location || instance.instanceId || ""));
+        row.append(copy, adminElement("em", "", `${Number(instance.memberCount) || 0} онлайн`));
+        instances.append(row);
+      }
+      content.append(instances);
+    }
+    if (group.rules?.length) {
+      const rules = adminElement("section", "socialDetailSection");
+      rules.append(adminElement("h3", "", "Правила"));
+      for (const rule of group.rules) {
+        const row = adminElement("div", "socialRule");
+        row.append(userTextElement("strong", "", rule.title || "Правило"), userTextElement("p", "", rule.text || ""));
+        rules.append(row);
+      }
+      content.append(rules);
+    }
+    socialDetailBody.replaceChildren(content);
+  } catch (error) {
+    socialDetailBody.replaceChildren(emptyMessage(formatVrchatAuthError(error)));
+  }
+}
+
 function renderInsightSessionDetail(insights) {
   insightSessionDetail.replaceChildren();
   let selected = insights.sessions.find((session) => insightSessionKey(session) === state.selectedInsightSessionKey) || insights.sessions[0] || null;
@@ -2521,7 +4426,11 @@ function renderInsightSessionDetail(insights) {
   insightSessionDetail.classList.remove("adminPreviewEmpty");
   const content = adminElement("div", "insightSessionContent");
   const header = adminElement("header");
-  header.append(adminElement("span", "eyebrow", adminDate(selected.startedAt)), userOrUiElement("h2", "", selected.worldName, "Неизвестный мир"), adminElement("p", "", `${formatDuration(selected.endedAt - selected.startedAt)} · ${selected.complete ? "завершена" : "идёт сейчас"}`));
+  const title = adminElement("div");
+  title.append(adminElement("span", "eyebrow", adminDate(selected.startedAt)), userOrUiElement("h2", "", selected.worldName, "Неизвестный мир"), adminElement("p", "", `${formatDuration(selected.endedAt - selected.startedAt)} · ${selected.complete ? "завершена" : "идёт сейчас"}`));
+  header.append(title);
+  const worldActions = savedWorldActions(selected.worldId);
+  if (worldActions) header.append(worldActions);
   content.append(header);
   const players = adminElement("section", "insightSessionPlayers");
   players.append(adminElement("h3", "", `Сохранённые встречи · ${selected.players.length}`));
@@ -2551,6 +4460,7 @@ function renderInsights() {
     encounters: insights.totalEncounters
   })) document.querySelector(`[data-insight="${key}"]`).textContent = String(value);
   renderInsightsRuntime();
+  renderCompanionSearch();
 
   const playerRows = document.querySelector("[data-insight-players]");
   playerRows.replaceChildren();
@@ -2567,8 +4477,10 @@ function renderInsights() {
   const worldRows = document.querySelector("[data-insight-worlds]");
   worldRows.replaceChildren();
   for (const world of insights.topWorlds) {
-    const row = adminElement("div", "insightRow");
+    const row = adminElement("div", "insightRow insightWorldRow");
     row.append(userTextElement("strong", "", world.worldName), adminElement("span", "", `Последний раз: ${adminDate(world.lastSeenAt)}`), adminElement("em", "", sessionCountText(world.sessions)));
+    const actions = savedWorldActions(world.worldId, true);
+    if (actions) row.append(actions);
     worldRows.append(row);
   }
   if (!insights.topWorlds.length) worldRows.append(emptyMessage("Миры ещё не сохранены."));
@@ -2671,7 +4583,11 @@ function renderHistoryDetail() {
   const copyButton = adminElement("button", "", "Копировать");
   copyButton.type = "button";
   copyButton.dataset.historyCopy = insightSessionKey(session);
-  header.append(title, copyButton);
+  const headerActions = adminElement("div", "worldActions historyHeaderActions");
+  const worldActions = savedWorldActions(session.worldId);
+  if (worldActions) headerActions.append(...Array.from(worldActions.children));
+  headerActions.append(copyButton);
+  header.append(title, headerActions);
   content.append(header);
   const source = session.source || {};
   const stats = adminElement("div", "historyStats");
@@ -2762,6 +4678,37 @@ async function copyHistorySession(sessionKey) {
   ];
   await api.writeClipboardText(lines.join("\n"));
   setStatus("Сессия из истории скопирована.");
+}
+
+function normalizedWorldId(value) {
+  const worldId = String(value || "").trim();
+  return WORLD_ID_RE.test(worldId) ? worldId : "";
+}
+
+function savedWorldActions(worldId, compact = false) {
+  const safeWorldId = normalizedWorldId(worldId);
+  if (!safeWorldId) return null;
+  const actions = adminElement("div", `worldActions${compact ? " compact" : ""}`);
+  const page = adminElement("button", "", "Страница");
+  page.type = "button";
+  page.dataset.worldPage = safeWorldId;
+  page.title = "Открыть страницу мира на сайте VRChat";
+  const launch = adminElement("button", "primaryButton", "Запустить");
+  launch.type = "button";
+  launch.dataset.worldLaunch = safeWorldId;
+  launch.title = "Открыть мир через VRChat Launch";
+  actions.append(page, launch);
+  return actions;
+}
+
+async function openSavedWorld(worldId, launch = false) {
+  const safeWorldId = normalizedWorldId(worldId);
+  if (!safeWorldId) throw new Error("World ID для этой записи не сохранён.");
+  const url = launch
+    ? `https://vrchat.com/home/launch?worldId=${safeWorldId}`
+    : `https://vrchat.com/home/world/${safeWorldId}`;
+  await api.openExternal(url);
+  setStatus(launch ? "Открываем мир через VRChat." : "Страница мира открыта.", false, { kind: "success" });
 }
 
 function adminElement(tag, className = "", text = "") {
@@ -2938,7 +4885,7 @@ function playerActivity(record) {
     } else if (event.type === "player-left") {
       leftAt = event.timestamp || event.capturedAt || "";
       online = false;
-    } else if (event.type === "avatar-changed" || event.type === "avatar-data") {
+    } else if ((event.type === "avatar-changed" || event.type === "avatar-data") && !event.avatarRedacted && !event.avatarProtected) {
       const avatarName = String(event.avatarName || "").trim();
       const avatarId = String(event.avatarId || "").trim();
       if (!avatarName && !avatarId) continue;
@@ -3233,6 +5180,7 @@ async function saveAdminNote(form) {
   state.adminError = "";
   renderAdminList();
   renderAdminCard();
+  if (state.builderInspector) renderBuilderInspector();
   try {
     const saved = await api.savePlayerNote(payload);
     state.adminNotes = noteTools.mergeSavedNote(state.adminNotes, saved || payload, payload);
@@ -3247,6 +5195,7 @@ async function saveAdminNote(form) {
     state.adminSaving = false;
     renderAdminList();
     renderAdminCard();
+    if (state.builderInspector) renderBuilderInspector();
   }
 }
 
@@ -3289,7 +5238,11 @@ async function refreshAdmin() {
     ]);
     if (requestId !== state.adminListRequestId) return;
     state.adminNotes = (notes || []).map(noteTools.normalizeNote).filter((row) => row.userId);
-    if (state.uiSettings.notifyMarkedPlayers) state.notificationPlayerNotes = [...state.adminNotes];
+    if (state.uiSettings.notifyMarkedPlayers) {
+      const merged = new Map(state.notificationPlayerNotes.map((row) => [row.userId, row]));
+      for (const row of state.adminNotes) merged.set(row.userId, row);
+      state.notificationPlayerNotes = [...merged.values()];
+    }
     state.globalPlayerNotes = (globals.rows || []).map(normalizeGlobalPlayerNote).filter((row) => row.userId && row.sourceTeamId);
     state.globalPlayerNotesError = globals.error;
     if (state.adminDraftPlayer && state.adminNotes.some((row) => row.userId === state.adminDraftPlayer.userId)) state.adminDraftPlayer = null;
@@ -4030,15 +5983,18 @@ function crashSuspectCard(candidate, index) {
     userOrUiElement("span", "", candidateAvatar, "Аватар не определён")
   );
   const actions = adminElement("div", "crashSuspectActions");
-  if (candidate.userId) {
-    const profile = adminElement("button", "", "Профиль");
-    profile.type = "button";
-    profile.dataset.crashProfile = candidate.userId;
-    const admin = adminElement("button", "", "Admin");
-    admin.type = "button";
-    admin.dataset.crashAdmin = candidate.userId;
-    admin.dataset.crashName = candidate.playerName || candidate.userId;
-    actions.append(profile, admin);
+    if (candidate.userId) {
+      const profile = adminElement("button", "", "Профиль");
+      profile.type = "button";
+      profile.dataset.crashProfile = candidate.userId;
+      actions.append(profile);
+      if (hasPaidAccess()) {
+        const admin = adminElement("button", "", "Admin");
+        admin.type = "button";
+        admin.dataset.crashAdmin = candidate.userId;
+        admin.dataset.crashName = candidate.playerName || candidate.userId;
+        actions.append(admin);
+      }
     if (hasOwnerAccess()) {
       const owner = adminElement("button", "ownerActionButton", "Owner");
       owner.type = "button";
@@ -4332,6 +6288,7 @@ async function startTail() {
   state.startedAt = Date.now();
   state.stoppedAt = null;
   state.events = [];
+  invalidateSessionData({ avatars: true });
   renderSession();
   document.querySelector('[data-action="start"]').disabled = true;
   document.querySelector('[data-action="stop"]').disabled = false;
@@ -4361,6 +6318,141 @@ async function stopTail() {
   if (state.view === "crash") renderCrash();
   setStatus("Чтение лога остановлено");
 }
+
+const VRCHAT_TWO_FACTOR_LABELS = Object.freeze({
+  totp: "Код из приложения-аутентификатора",
+  emailOtp: "Код из письма",
+  otp: "Recovery-код"
+});
+
+function setVrchatAccountStatus(panel, message, error = false) {
+  const status = panel?.querySelector("[data-vrchat-account-status]");
+  if (!status) return;
+  status.textContent = t(message);
+  status.classList.toggle("error", Boolean(error));
+}
+
+function hideVrchatTwoFactor(panel) {
+  const container = panel?.querySelector("[data-vrchat-two-factor]");
+  if (container) container.hidden = true;
+  const code = panel?.querySelector("[data-vrchat-two-factor-code]");
+  if (code) code.value = "";
+}
+
+function showVrchatTwoFactor(panel, methods) {
+  const container = panel?.querySelector("[data-vrchat-two-factor]");
+  const select = panel?.querySelector("[data-vrchat-two-factor-method]");
+  const code = panel?.querySelector("[data-vrchat-two-factor-code]");
+  if (!container || !select) return;
+  const available = [...new Set((Array.isArray(methods) ? methods : []).filter((method) => VRCHAT_TWO_FACTOR_LABELS[method]))];
+  if (available.includes("totp") && !available.includes("otp")) available.push("otp");
+  select.replaceChildren(...available.map((method) => {
+    const option = document.createElement("option");
+    option.value = method;
+    option.textContent = t(VRCHAT_TWO_FACTOR_LABELS[method]);
+    return option;
+  }));
+  container.hidden = false;
+  code?.focus();
+}
+
+async function finishVrchatAccountLogin(panel, result) {
+  state.settings = await api.getSettings();
+  state.currentVrchatUser = result?.user || state.currentVrchatUser;
+  state.currentVrchatInstance = null;
+  state.social = null;
+  setStoredCookieState(Boolean(state.settings?.hasVrchatAuthCookie));
+  hideVrchatTwoFactor(panel);
+  setVrchatAccountStatus(panel, `Выполнен вход в VRChat: ${result?.user?.displayName || result?.user?.userId || "аккаунт подключён"}.`);
+  setStatus("Аккаунт VRChat подключён.", false, { kind: "success" });
+  if (state.view === "social") void refreshSocial(true);
+}
+
+function bindVrchatAccountPanel(panel) {
+  const username = panel.querySelector("[data-vrchat-username]");
+  const password = panel.querySelector("[data-vrchat-password]");
+  const login = panel.querySelector("[data-vrchat-login]");
+  const verify = panel.querySelector("[data-vrchat-verify]");
+  const cancel = panel.querySelector("[data-vrchat-login-cancel]");
+  const disconnect = panel.querySelector("[data-vrchat-disconnect]");
+  const code = panel.querySelector("[data-vrchat-two-factor-code]");
+
+  login?.addEventListener("click", () => {
+    runButtonOperation(login, async () => {
+      const status = panel.querySelector("[data-vrchat-account-status]");
+      if (status) status.dataset.busy = "true";
+      setVrchatAccountStatus(panel, "Входим в аккаунт VRChat…");
+      try {
+        const result = await api.loginVrchatAccount({ username: username?.value || "", password: password?.value || "" });
+        if (password) password.value = "";
+        if (result?.authenticated) await finishVrchatAccountLogin(panel, result);
+        else {
+          showVrchatTwoFactor(panel, result?.requiresTwoFactorAuth);
+          setVrchatAccountStatus(panel, "VRChat запросил подтверждение входа.");
+        }
+      } catch (error) {
+        if (password) password.value = "";
+        setVrchatAccountStatus(panel, formatVrchatAuthError(error), true);
+      } finally {
+        if (status) delete status.dataset.busy;
+      }
+    }, "Входим…");
+  });
+
+  verify?.addEventListener("click", () => {
+    runButtonOperation(verify, async () => {
+      const status = panel.querySelector("[data-vrchat-account-status]");
+      if (status) status.dataset.busy = "true";
+      setVrchatAccountStatus(panel, "Проверяем код…");
+      try {
+        const result = await api.verifyVrchatAccount({
+          method: panel.querySelector("[data-vrchat-two-factor-method]")?.value || "",
+          code: code?.value || ""
+        });
+        await finishVrchatAccountLogin(panel, result);
+      } catch (error) {
+        setVrchatAccountStatus(panel, formatVrchatAuthError(error), true);
+        code?.select();
+      } finally {
+        if (status) delete status.dataset.busy;
+      }
+    }, "Проверяем…");
+  });
+
+  cancel?.addEventListener("click", async () => {
+    await api.cancelVrchatAccountLogin();
+    hideVrchatTwoFactor(panel);
+    setVrchatAccountStatus(panel, "Подтверждение входа отменено.");
+  });
+
+  disconnect?.addEventListener("click", () => {
+    runButtonOperation(disconnect, async () => {
+      await api.disconnectVrchatAccount();
+      if (state.settings) state.settings.hasVrchatAuthCookie = false;
+      state.currentVrchatUser = null;
+      state.currentVrchatInstance = null;
+      state.social = null;
+      setStoredCookieState(false);
+      hideVrchatTwoFactor(panel);
+      setVrchatAccountStatus(panel, "Аккаунт VRChat отключён на этом устройстве.");
+      setStatus("Аккаунт VRChat отключён.");
+      if (state.view === "social") renderSocial();
+    }, "Отключаем…").catch((error) => setVrchatAccountStatus(panel, formatVrchatAuthError(error), true));
+  });
+
+  panel.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    if (event.target === code) {
+      event.preventDefault();
+      verify?.click();
+    } else if (event.target === username || event.target === password) {
+      event.preventDefault();
+      login?.click();
+    }
+  });
+}
+
+document.querySelectorAll("[data-vrchat-account-connect]").forEach(bindVrchatAccountPanel);
 
 activationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -4393,33 +6485,22 @@ activationForm.addEventListener("submit", async (event) => {
   }
 });
 
-vrchatAuthCookieInput?.addEventListener("input", () => {
-  vrchatAuthCookieInput.dataset.dirty = "true";
+continueFreeButton?.addEventListener("click", async () => {
+  continueFreeButton.disabled = true;
+  setActivationStatus("Запускаем бесплатный локальный режим…");
+  try {
+    await api.continueFree();
+    state.settings = await api.getSettings();
+    await showApp();
+  } catch (error) {
+    setActivationStatus(error?.message || "Не удалось запустить бесплатный режим.", true);
+  } finally {
+    continueFreeButton.disabled = false;
+  }
 });
 
-checkVrchatButton?.addEventListener("click", async () => {
-  checkVrchatButton.disabled = true;
-  setActivationStatus("Проверяем VRChat аккаунт…");
-  try {
-    const saved = await api.saveSettings({
-      serverUrl: state.settings?.serverUrl,
-      vrchatAuthCookie: submittedVrchatCookie()
-    });
-    const hasStoredCookie = Boolean(saved?.hasVrchatAuthCookie);
-    if (state.settings) state.settings.hasVrchatAuthCookie = hasStoredCookie;
-    setStoredCookieState(hasStoredCookie);
-    const user = await api.getVrchatCurrentUser();
-    const instance = await api.getVrchatCurrentInstance().catch(() => null);
-    const location = user?.location ? ` · ${user.location}` : "";
-    const online = Number.isFinite(Number(instance?.nUsers))
-      ? ` · онлайн ${Number(instance.nUsers)}${Number.isFinite(Number(instance?.capacity)) ? `/${Number(instance.capacity)}` : ""}`
-      : "";
-    setActivationStatus(`VRChat: ${user?.displayName || user?.id || "аккаунт найден"}${location}${online}`);
-  } catch (error) {
-    setActivationStatus(formatVrchatAuthError(error), true);
-  } finally {
-    checkVrchatButton.disabled = false;
-  }
+vrchatAuthCookieInput?.addEventListener("input", () => {
+  vrchatAuthCookieInput.dataset.dirty = "true";
 });
 
 importStableButton?.addEventListener("click", async () => {
@@ -4449,10 +6530,19 @@ settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const previousLanguage = state.uiSettings.language;
   state.uiSettings = readSettingsForm();
+  const cookieInput = settingsForm.elements.vrchatAuthCookie;
+  if (cookieInput?.dataset.dirty === "true") {
+    void api.saveSettings({ serverUrl: state.settings?.serverUrl, vrchatAuthCookie: cookieInput.value })
+      .then((saved) => { if (state.settings) state.settings.hasVrchatAuthCookie = Boolean(saved?.hasVrchatAuthCookie); })
+      .catch((error) => setStatus(formatVrchatAuthError(error), true));
+  }
   if (!state.uiSettings.rememberSelection) localStorage.removeItem("betaRememberedSelections");
   state.sessionPlayerMode = state.uiSettings.sessionPlayerMode;
   localStorage.setItem("betaSessionPlayerMode", state.sessionPlayerMode);
-  if (state.events.length > state.uiSettings.eventLimit) state.events.splice(0, state.events.length - state.uiSettings.eventLimit);
+  if (state.events.length > state.uiSettings.eventLimit) {
+    state.events.splice(0, state.events.length - state.uiSettings.eventLimit);
+    invalidateSessionData({ avatars: true });
+  }
   applyUiSettings({ persist: true });
   if (state.uiSettings.language !== previousLanguage) {
     window.location.reload();
@@ -4464,7 +6554,102 @@ settingsForm?.addEventListener("submit", (event) => {
   void syncNotificationMonitoring({ refreshNow: true, announceError: true });
 });
 
+settingsForm?.querySelector("[data-local-retention]")?.addEventListener("change", (event) => {
+  const days = Number(event.currentTarget.value) || 0;
+  api.setLocalRetention(days)
+    .then((result) => {
+      setStatus(result.removed ? `Удалено старых сессий: ${result.removed}.` : "Срок хранения сохранён.");
+      void refreshLocalStorageSettings();
+      if (["players", "worlds", "local-avatars"].includes(state.view)) void refreshLocalDirectory();
+    })
+    .catch((error) => setStatus(error.message || "Не удалось изменить срок хранения.", true));
+});
+
+settingsForm?.elements.vrchatAuthCookie?.addEventListener("input", (event) => {
+  event.currentTarget.dataset.dirty = "true";
+});
+
+settingsForm?.querySelector("[data-settings-check-vrchat]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, async () => {
+    const input = settingsForm.elements.vrchatAuthCookie;
+    const saved = await api.saveSettings({
+      serverUrl: state.settings?.serverUrl,
+      vrchatAuthCookie: input.dataset.dirty === "true" ? input.value : undefined
+    });
+    if (state.settings) state.settings.hasVrchatAuthCookie = Boolean(saved?.hasVrchatAuthCookie);
+    const user = await api.getVrchatCurrentUser();
+    input.value = "";
+    input.dataset.dirty = "false";
+    input.placeholder = "Cookie сохранён безопасно";
+    setStatus(`VRChat аккаунт: ${user.displayName || user.userId}.`);
+  }, "Проверяем…").catch((error) => setStatus(formatVrchatAuthError(error), true));
+});
+
+settingsForm?.querySelector("[data-settings-remove-vrchat]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, async () => {
+    await api.saveSettings({ serverUrl: state.settings?.serverUrl, vrchatAuthCookie: "" });
+    if (state.settings) state.settings.hasVrchatAuthCookie = false;
+    const input = settingsForm.elements.vrchatAuthCookie;
+    input.value = "";
+    input.dataset.dirty = "false";
+    input.placeholder = "auth=...";
+    state.social = null;
+    setStatus("VRChat cookie удалён с этого устройства.");
+  }, "Удаляем…").catch((error) => setStatus(error.message || "Не удалось удалить cookie.", true));
+});
+
+settingsForm?.querySelector("[data-local-export]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, () => api.exportLocalData(exportableUiSettings()), "Экспортируем…")
+    .then((result) => { if (result?.ok) setStatus("Локальная резервная копия сохранена."); })
+    .catch((error) => setStatus(error.message || "Не удалось экспортировать данные.", true));
+});
+
+settingsForm?.querySelector("[data-local-import]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, async () => {
+    const result = await api.importLocalData();
+    if (!result?.ok) return result;
+    applyImportedUiSettings(result.uiSettings);
+    await refreshLocalStorageSettings();
+    await refreshInsights();
+    if (["players", "worlds", "local-avatars"].includes(state.view)) await refreshLocalDirectory();
+    setStatus(`Импортировано сессий: ${result.importedSessions}.`);
+    return result;
+  }, "Импортируем…").catch((error) => setStatus(error.message || "Не удалось импортировать данные.", true));
+});
+
 document.addEventListener("submit", (event) => {
+  const localPlayerForm = event.target.closest("[data-local-player-preference]");
+  if (localPlayerForm) {
+    event.preventDefault();
+    const submit = localPlayerForm.querySelector('button[type="submit"]');
+    runButtonOperation(submit, async () => {
+      state.directoryDetails.player = await api.saveLocalPlayerPreference({
+        userId: localPlayerForm.dataset.localPlayerPreference,
+        alias: localPlayerForm.elements.alias.value,
+        note: localPlayerForm.elements.note.value,
+        status: localPlayerForm.elements.status.value
+      });
+      await refreshLocalDirectory("players");
+      if (state.uiSettings.notifyMarkedPlayers) await refreshNotificationReferences();
+      setStatus("Личная карточка игрока сохранена.");
+    }, "Сохраняем…").catch((error) => setStatus(error.message || "Не удалось сохранить личную карточку.", true));
+    return;
+  }
+  const localWorldForm = event.target.closest("[data-local-world-preference]");
+  if (localWorldForm) {
+    event.preventDefault();
+    const submit = localWorldForm.querySelector('button[type="submit"]');
+    runButtonOperation(submit, async () => {
+      state.directoryDetails.world = await api.saveLocalWorldPreference({
+        worldKey: localWorldForm.dataset.localWorldPreference,
+        favorite: localWorldForm.elements.favorite.checked,
+        note: localWorldForm.elements.note.value
+      });
+      await refreshLocalDirectory("worlds");
+      setStatus("Мир сохранён в локальном каталоге.");
+    }, "Сохраняем…").catch((error) => setStatus(error.message || "Не удалось сохранить мир.", true));
+    return;
+  }
   const avatarForm = event.target.closest("[data-avatar-note-form]");
   if (avatarForm) {
     event.preventDefault();
@@ -4478,6 +6663,7 @@ document.addEventListener("submit", (event) => {
     state.adminError = error.message || "Не удалось сохранить заметку.";
     setStatus(state.adminError, true);
     renderAdminCard();
+    if (state.builderInspector) renderBuilderInspector();
   });
 });
 
@@ -4497,6 +6683,11 @@ ownerModerationForm?.addEventListener("submit", (event) => {
 ownerModerationForm?.addEventListener("change", syncOwnerModerationFields);
 
 document.addEventListener("click", (event) => {
+  playRose337SelectionSound(event.target);
+  if (state.builderCompactMenuOpen && !event.target.closest("[data-compact-menu]")) {
+    state.builderCompactMenuOpen = false;
+    syncBuilderControls();
+  }
   if (event.target.closest("[data-status-center-toggle]")) {
     setStatusCenter(!state.statusCenterOpen);
     return;
@@ -4524,7 +6715,22 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.closest("[data-settings-open]")) {
+    state.builderCompactMenuOpen = false;
+    syncBuilderControls();
     openSettings();
+    return;
+  }
+
+  if (event.target.closest("[data-compact-menu-toggle]")) {
+    state.builderCompactMenuOpen = !state.builderCompactMenuOpen;
+    syncBuilderControls();
+    return;
+  }
+
+  if (event.target.closest("[data-compact-return-builder]")) {
+    state.builderCompactMenuOpen = false;
+    selectView("builder");
+    syncBuilderControls();
     return;
   }
 
@@ -4546,6 +6752,150 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const workspaceModeButton = event.target.closest("[data-workspace-mode]");
+  if (workspaceModeButton) {
+    switchWorkspaceMode(workspaceModeButton.dataset.workspaceMode);
+    return;
+  }
+
+  if (event.target.closest("[data-social-refresh]")) {
+    void refreshSocial(true);
+    return;
+  }
+
+  const socialTab = event.target.closest("[data-social-tab]")?.dataset.socialTab;
+  if (socialTab && ["overview", "locations", "favorites", "journal", "groups", "vrchat-favorites", "notifications"].includes(socialTab)) {
+    state.socialTab = socialTab;
+    localStorage.setItem("betaSocialTab", socialTab);
+    renderSocial();
+    if ((socialTab === "vrchat-favorites" || socialTab === "notifications") && !state.socialLoading) void loadSocialCollection(socialTab);
+    return;
+  }
+
+  if (event.target.closest("[data-social-detail-close]")) {
+    socialDetailDialog?.close();
+    return;
+  }
+
+  const refreshSocialProfile = event.target.closest("[data-social-refresh-profile]")?.dataset.socialRefreshProfile;
+  if (refreshSocialProfile) {
+    void openSocialProfile(refreshSocialProfile).catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
+  const copySocialUserButton = event.target.closest("[data-social-copy-user]");
+  if (copySocialUserButton) {
+    runButtonOperation(copySocialUserButton, async () => {
+      await api.writeClipboardText(copySocialUserButton.dataset.socialCopyUser);
+      setStatus("User ID скопирован.");
+    }, "Копируем…").catch((error) => setStatus(error.message || "Не удалось скопировать User ID.", true));
+    return;
+  }
+
+  const localSocialPlayer = event.target.closest("[data-social-local-player]")?.dataset.socialLocalPlayer;
+  if (localSocialPlayer) {
+    socialDetailDialog?.close();
+    void openLocalPlayerCard(localSocialPlayer).catch((error) => setStatus(error.message || "Не удалось открыть локальную карточку игрока.", true));
+    return;
+  }
+
+  const localSocialStatusButton = event.target.closest("[data-social-local-status]");
+  if (localSocialStatusButton) {
+    runButtonOperation(localSocialStatusButton, async () => {
+      const userId = localSocialStatusButton.dataset.socialLocalStatus;
+      const details = await api.getCompanionDetails("player", userId);
+      const entity = details?.entity || {};
+      await api.saveLocalPlayerPreference({
+        userId,
+        alias: entity.alias || "",
+        note: entity.note || "",
+        status: localSocialStatusButton.dataset.localStatus || "none"
+      });
+      if (state.uiSettings.notifyMarkedPlayers) await refreshNotificationReferences();
+      setStatus(localSocialStatusButton.dataset.localStatus === "watch" ? "Игрок добавлен под локальное наблюдение." : "Локальное наблюдение снято.");
+      await openSocialProfile(userId);
+    }, "Сохраняем…").catch((error) => setStatus(error.message || "Не удалось изменить локальное наблюдение.", true));
+    return;
+  }
+
+  const socialAdminPlayer = event.target.closest("[data-social-admin-player]")?.dataset.socialAdminPlayer;
+  if (socialAdminPlayer) {
+    const displayName = socialDetailTitle?.textContent || socialAdminPlayer;
+    socialDetailDialog?.close();
+    openPlayerInAdmin({ userId: socialAdminPlayer, displayName });
+    return;
+  }
+
+  const socialOwnerPlayer = event.target.closest("[data-social-owner-player]")?.dataset.socialOwnerPlayer;
+  if (socialOwnerPlayer) {
+    const displayName = socialDetailTitle?.textContent || socialOwnerPlayer;
+    socialDetailDialog?.close();
+    openPlayerInOwner({ userId: socialOwnerPlayer, displayName });
+    return;
+  }
+
+  const externalSocialProfile = event.target.closest("[data-social-external-profile]")?.dataset.socialExternalProfile;
+  if (externalSocialProfile) {
+    api.openExternal(`https://vrchat.com/home/user/${encodeURIComponent(externalSocialProfile)}`).catch((error) => setStatus(error.message || "Не удалось открыть профиль.", true));
+    return;
+  }
+
+  const externalSocialGroup = event.target.closest("[data-social-external-group]")?.dataset.socialExternalGroup;
+  if (externalSocialGroup) {
+    api.openExternal(`https://vrchat.com/home/group/${encodeURIComponent(externalSocialGroup)}`).catch((error) => setStatus(error.message || "Не удалось открыть группу.", true));
+    return;
+  }
+
+  const socialWorld = event.target.closest("[data-social-world]")?.dataset.socialWorld;
+  if (socialWorld) {
+    api.openExternal(`https://vrchat.com/home/world/${encodeURIComponent(socialWorld)}`).catch((error) => setStatus(error.message || "Не удалось открыть мир.", true));
+    return;
+  }
+
+  const localAvatarProfile = event.target.closest("[data-local-avatar-profile]")?.dataset.localAvatarProfile;
+  if (localAvatarProfile) {
+    void runButtonOperation(event.target.closest("button"), async () => {
+      state.directoryAvatarProfile = await api.resolveVrchatAvatar(localAvatarProfile);
+      renderLocalDirectory("avatar");
+      setStatus("Доступные данные аватара загружены из VRChat.");
+    }, "Загружаем…").catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
+  const socialProfile = event.target.closest("[data-social-profile]")?.dataset.socialProfile;
+  if (socialProfile) {
+    void openSocialProfile(socialProfile).catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
+  const socialGroup = event.target.closest("[data-social-group]")?.dataset.socialGroup;
+  if (socialGroup) {
+    void openSocialGroup(socialGroup).catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
+  const localAvatarKey = event.target.closest("[data-local-avatar-key]")?.dataset.localAvatarKey;
+  if (localAvatarKey) {
+    if (socialDetailDialog?.open) socialDetailDialog.close();
+    selectView("local-avatars");
+    void selectDirectoryResult("avatar", localAvatarKey).catch((error) => setStatus(error.message || "Не удалось открыть локальную карточку.", true));
+    return;
+  }
+
+  const localWorldKey = event.target.closest("[data-local-world-key]")?.dataset.localWorldKey;
+  if (localWorldKey) {
+    if (socialDetailDialog?.open) socialDetailDialog.close();
+    void openLocalWorldCard(localWorldKey).catch((error) => setStatus(error.message || "Не удалось открыть локальную карточку мира.", true));
+    return;
+  }
+
+  const directoryResult = event.target.closest("[data-directory-result-key]");
+  if (directoryResult) {
+    void selectDirectoryResult(directoryResult.dataset.directoryResultKind, directoryResult.dataset.directoryResultKey)
+      .catch((error) => setStatus(error.message || "Не удалось открыть локальную карточку.", true));
+    return;
+  }
+
   const sessionSection = event.target.closest("[data-session-section]")?.dataset.sessionSection;
   if (sessionSection) {
     setSessionSection(sessionSection);
@@ -4555,10 +6905,17 @@ document.addEventListener("click", (event) => {
   const eventUserButton = event.target.closest("[data-event-user-id]");
   if (eventUserButton) {
     try {
-      openPlayerInAdmin({
-        userId: eventUserButton.dataset.eventUserId,
-        displayName: eventUserButton.dataset.eventUserName || eventUserButton.textContent
-      });
+      const userId = eventUserButton.dataset.eventUserId;
+      if (state.workspaceMode === "personal") {
+        void openLocalPlayerCard(userId).catch((error) => setStatus(error.message || "Не удалось открыть локальную карточку.", true));
+      } else if (hasPaidAccess()) {
+        openPlayerInAdmin({
+          userId,
+          displayName: eventUserButton.dataset.eventUserName || eventUserButton.textContent
+        });
+      } else {
+        openSessionPlayer(userId);
+      }
     } catch (error) {
       setStatus(error.message || "Не удалось открыть игрока в Admin Tools.", true);
     }
@@ -4577,7 +6934,7 @@ document.addEventListener("click", (event) => {
     rememberSelections();
     state.avatarCandidates = [];
     state.avatarError = "";
-    renderAvatarSession();
+    renderAvatarSession({ force: true });
     return;
   }
 
@@ -4667,8 +7024,15 @@ document.addEventListener("click", (event) => {
   const sessionPlayerButton = event.target.closest("[data-session-player-id]");
   if (sessionPlayerButton) {
     const player = sessionStats().players.find((entry) => entry.userId === sessionPlayerButton.dataset.sessionPlayerId);
-    if (player) openPlayerInAdmin(player);
+    if (state.workspaceMode === "personal") void openLocalPlayerCard(sessionPlayerButton.dataset.sessionPlayerId);
+    else if (player && hasPaidAccess()) openPlayerInAdmin(player);
     else openSessionPlayer(sessionPlayerButton.dataset.sessionPlayerId);
+    return;
+  }
+
+  const localWorldButton = event.target.closest("[data-local-world-key]");
+  if (localWorldButton) {
+    void openLocalWorldCard(localWorldButton.dataset.localWorldKey);
     return;
   }
 
@@ -4716,26 +7080,53 @@ document.addEventListener("click", (event) => {
     document.querySelector("[data-builder]").classList.toggle("rows", layout === "rows");
   }
 
-  const builderAdminUser = event.target.closest("[data-builder-admin-user]")?.dataset.builderAdminUser;
-  if (builderAdminUser) {
-    const player = adminPlayers().find((row) => row.userId === builderAdminUser) || { userId: builderAdminUser, displayName: builderAdminUser };
-    openPlayerInAdmin(player);
+  if (event.target.closest("[data-builder-inspector-close]")) {
+    closeBuilderInspector();
     return;
   }
 
-  const builderSessionUser = event.target.closest("[data-builder-session-user]")?.dataset.builderSessionUser;
-  if (builderSessionUser) {
-    state.sessionSection = "feed";
-    localStorage.setItem("betaSessionSection", "feed");
-    selectView("session");
-    renderSession();
-    openSessionPlayer(builderSessionUser);
+  const builderInspectorProfile = event.target.closest("[data-builder-inspector-profile]")?.dataset.builderInspectorProfile;
+  if (builderInspectorProfile) {
+    api.openExternal(`https://vrchat.com/home/user/${encodeURIComponent(builderInspectorProfile)}`)
+      .catch((error) => setStatus(error.message || "Не удалось открыть профиль VRChat.", true));
     return;
   }
 
-  const builderAvatarKey = event.target.closest("[data-builder-avatar-key]")?.dataset.builderAvatarKey;
-  if (builderAvatarKey) {
-    openAvatarFromEvent(builderAvatarKey);
+  const builderInspectorOwner = event.target.closest("[data-builder-inspector-owner]")?.dataset.builderInspectorOwner;
+  if (builderInspectorOwner) {
+    try {
+      const player = adminPlayers().find((row) => row.userId === builderInspectorOwner) || builderInspectorRecord();
+      openPlayerInOwner(player);
+    } catch (error) {
+      setStatus(error.message || "Не удалось открыть Owner.", true);
+    }
+    return;
+  }
+
+  const builderInspectorFull = event.target.closest("[data-builder-inspector-full]")?.dataset.builderInspectorFull;
+  if (builderInspectorFull) {
+    const selection = state.builderInspector;
+    const record = builderInspectorRecord();
+    try {
+      if (builderInspectorFull === "admin") openPlayerInAdmin(record);
+      else if (builderInspectorFull === "session") {
+        state.sessionSection = "feed";
+        localStorage.setItem("betaSessionSection", "feed");
+        selectView("session");
+        renderSession();
+        openSessionPlayer(record?.userId || record?.user_id);
+      } else if (builderInspectorFull === "avatar") openAvatarFromEvent(selection?.key);
+      else if (builderInspectorFull === "social") openSocialProfile(record?.userId || record?.user_id)
+        .catch((error) => setStatus(error.message || "Не удалось открыть профиль VRChat.", true));
+    } catch (error) {
+      setStatus(error.message || "Не удалось открыть полный раздел.", true);
+    }
+    return;
+  }
+
+  const builderInspectorRow = event.target.closest("[data-builder-inspector-kind]");
+  if (builderInspectorRow) {
+    openBuilderInspector(builderInspectorRow.dataset.builderInspectorKind, builderInspectorRow.dataset.builderInspectorKey);
     return;
   }
 
@@ -4754,6 +7145,11 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-builder-overlay-toggle]")) {
+    setBuilderOverlayHidden();
+    return;
+  }
+
   if (event.target.closest("[data-builder-apply-preset]")) {
     applyBuilderPreset(builderPreset?.value || "columns");
     return;
@@ -4766,9 +7162,37 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const builderBlockAction = event.target.closest("[data-builder-block-action]");
+  if (builderBlockAction) {
+    const kind = builderBlockAction.closest("[data-builder-kind]")?.dataset.builderKind;
+    if (!BUILDER_KINDS.includes(kind)) return;
+    const setting = builderBlockSetting(kind);
+    if (builderBlockAction.dataset.builderBlockAction === "collapse") setting.collapsed = !setting.collapsed;
+    if (builderBlockAction.dataset.builderBlockAction === "lock") setting.locked = !setting.locked;
+    if (builderBlockAction.dataset.builderBlockAction === "hide") state.builderVisible = state.builderVisible.filter((value) => value !== kind);
+    persistBuilderSettings();
+    renderBuilder();
+    return;
+  }
+
   if (event.target.closest("[data-builder-reset]")) {
     if (!window.confirm(t("Сбросить расположение блоков и настройки окна Builder?"))) return;
     resetBuilder().catch((error) => setStatus(error.message || "Не удалось сбросить Builder.", true));
+    return;
+  }
+
+  if (event.target.closest("[data-builder-dashboard-new]")) {
+    try { createBuilderDashboard(); renderBuilder(); } catch (error) { setStatus(error.message, true); }
+    return;
+  }
+
+  if (event.target.closest("[data-builder-dashboard-save]")) {
+    saveBuilderDashboard();
+    return;
+  }
+
+  if (event.target.closest("[data-builder-dashboard-delete]")) {
+    if (window.confirm(t("Удалить выбранный локальный дашборд?"))) deleteBuilderDashboard();
     return;
   }
 
@@ -5068,10 +7492,30 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const companionResult = event.target.closest("[data-companion-result-key]");
+  if (companionResult) {
+    void selectCompanionResult(companionResult.dataset.companionResultKind, companionResult.dataset.companionResultKey);
+    return;
+  }
+
   const insightProfile = event.target.closest("[data-insight-profile]")?.dataset.insightProfile;
   if (insightProfile) {
     api.openExternal(`https://vrchat.com/home/user/${encodeURIComponent(insightProfile)}`)
       .catch((error) => setStatus(error.message || "Не удалось открыть профиль.", true));
+    return;
+  }
+
+  const worldPageButton = event.target.closest("[data-world-page]");
+  if (worldPageButton) {
+    runButtonOperation(worldPageButton, () => openSavedWorld(worldPageButton.dataset.worldPage), "Открываем…")
+      .catch((error) => setStatus(error.message || "Не удалось открыть страницу мира.", true));
+    return;
+  }
+
+  const worldLaunchButton = event.target.closest("[data-world-launch]");
+  if (worldLaunchButton) {
+    runButtonOperation(worldLaunchButton, () => openSavedWorld(worldLaunchButton.dataset.worldLaunch, true), "Запускаем…")
+      .catch((error) => setStatus(error.message || "Не удалось запустить мир через VRChat.", true));
     return;
   }
 
@@ -5228,6 +7672,8 @@ avatarSearch?.addEventListener("input", () => {
   state.avatarSearchTimer = setTimeout(() => {
     state.avatarSearchTimer = 0;
     state.avatarQuery = avatarSearch.value;
+    invalidateAvatarFilter();
+    state.avatarPage = 1;
     state.selectedAvatarKey = "";
     renderAvatarSession();
   }, 120);
@@ -5235,8 +7681,31 @@ avatarSearch?.addEventListener("input", () => {
 
 avatarFilter?.addEventListener("change", () => {
   state.avatarFilter = ["crash", "unresolved"].includes(avatarFilter.value) ? avatarFilter.value : "all";
+  invalidateAvatarFilter();
+  state.avatarPage = 1;
   state.selectedAvatarKey = "";
   renderAvatarSession();
+});
+
+avatarPageSize?.addEventListener("change", () => {
+  const nextSize = Number(avatarPageSize.value);
+  state.avatarPageSize = AVATAR_PAGE_SIZES.includes(nextSize) ? nextSize : 50;
+  state.avatarPage = 1;
+  localStorage.setItem("betaAvatarPageSize", String(state.avatarPageSize));
+  if (avatarSessionList) avatarSessionList.scrollTop = 0;
+  renderAvatarPage(true);
+});
+
+avatarPagePrev?.addEventListener("click", () => {
+  state.avatarPage = Math.max(1, state.avatarPage - 1);
+  if (avatarSessionList) avatarSessionList.scrollTop = 0;
+  renderAvatarPage(true);
+});
+
+avatarPageNext?.addEventListener("click", () => {
+  state.avatarPage += 1;
+  if (avatarSessionList) avatarSessionList.scrollTop = 0;
+  renderAvatarPage(true);
 });
 
 ownerSearch?.addEventListener("input", () => {
@@ -5268,6 +7737,29 @@ historySearch?.addEventListener("input", () => {
   }, 120);
 });
 
+companionSearch?.addEventListener("input", () => {
+  clearTimeout(state.companionSearchTimer);
+  state.companionQuery = companionSearch.value;
+  state.companionSearchTimer = setTimeout(() => {
+    state.companionSearchTimer = 0;
+    void runCompanionSearch();
+  }, 180);
+});
+
+for (const panel of directoryPanels) {
+  const kind = panel.dataset.directoryKind;
+  panel.querySelector("[data-directory-search]")?.addEventListener("input", (event) => {
+    clearTimeout(state.directorySearchTimers[kind]);
+    state.directoryQueries[kind] = event.currentTarget.value;
+    state.directorySearchTimers[kind] = setTimeout(() => {
+      state.directorySearchTimers[kind] = 0;
+      state.directorySelected[kind] = "";
+      state.directoryDetails[kind] = null;
+      void refreshLocalDirectory(directoryViewForKind(kind));
+    }, 180);
+  });
+}
+
 historyDate?.addEventListener("change", () => {
   state.historyDate = historyDate.value;
   state.historySelectedKey = "";
@@ -5288,10 +7780,12 @@ insightsPeriod?.addEventListener("change", () => {
 });
 
 builderLayout?.addEventListener("change", () => {
-  state.builderLayout = ["rows", "freeform"].includes(builderLayout.value) ? builderLayout.value : "grid";
+  state.builderLayout = BUILDER_LAYOUTS.includes(builderLayout.value) ? builderLayout.value : "grid";
   persistBuilderSettings();
   renderBuilder();
 });
+
+builderDashboard?.addEventListener("change", () => loadBuilderDashboard(builderDashboard.value));
 
 document.querySelector("[data-builder-blocks]")?.addEventListener("change", (event) => {
   const input = event.target.closest("input[type=checkbox]");
@@ -5301,13 +7795,41 @@ document.querySelector("[data-builder-blocks]")?.addEventListener("change", (eve
     : state.builderVisible.filter((kind) => kind !== input.value);
   persistBuilderSettings();
   renderBuilder();
+  if (input.checked) void refreshBuilderSources();
+});
+
+document.querySelector("[data-builder-snap]")?.addEventListener("change", (event) => {
+  state.builderSnap = event.target.checked === true;
+  persistBuilderSettings();
 });
 
 builderGrid?.addEventListener("input", (event) => {
   const search = event.target.closest("[data-builder-search]");
-  const kind = search?.dataset.builderSearch;
-  if (!kind || !BUILDER_KINDS.includes(kind)) return;
-  state.builderQueries[kind] = String(search.value || "").slice(0, 120);
+  const searchKind = search?.dataset.builderSearch;
+  if (searchKind && BUILDER_KINDS.includes(searchKind)) {
+    state.builderQueries[searchKind] = String(search.value || "").slice(0, 120);
+    persistBuilderSettings();
+    renderBuilderBlockRows(searchKind);
+    return;
+  }
+  const opacity = event.target.closest("[data-builder-block-opacity]");
+  const opacityKind = opacity?.dataset.builderBlockOpacity;
+  if (!opacityKind || !BUILDER_KINDS.includes(opacityKind)) return;
+  const setting = builderBlockSetting(opacityKind);
+  setting.opacity = Math.min(100, Math.max(40, Number(opacity.value) || 100));
+  const block = opacity.closest("[data-builder-kind]");
+  block?.style.setProperty("--builder-block-opacity", String(setting.opacity / 100));
+  const output = block?.querySelector("[data-builder-block-opacity-output]");
+  if (output) output.textContent = `${setting.opacity}%`;
+  persistBuilderSettings();
+});
+
+builderGrid?.addEventListener("change", (event) => {
+  const limit = event.target.closest("[data-builder-block-limit]");
+  const kind = limit?.dataset.builderBlockLimit;
+  const value = Number(limit?.value);
+  if (!kind || !BUILDER_KINDS.includes(kind) || !BUILDER_ROW_LIMITS.includes(value)) return;
+  builderBlockSetting(kind).rowLimit = value;
   persistBuilderSettings();
   renderBuilderBlockRows(kind);
 });
@@ -5361,6 +7883,85 @@ builderGrid?.addEventListener("dragend", () => {
   builderGrid.querySelectorAll(".dragging, .dragTarget").forEach((block) => block.classList.remove("dragging", "dragTarget"));
 });
 
+let uiSidebarDrag = null;
+
+function clampUiSidebarWidth(value) {
+  return Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(value) || UI_SIDEBAR_COLLAPSED_WIDTH));
+}
+
+function setUiSidebarWidth(width, persist = false) {
+  state.uiSettings.uiSidebarWidth = clampUiSidebarWidth(width);
+  applyUiSettings({ persist });
+}
+
+uiChromeResize?.addEventListener("pointerdown", (event) => {
+  if (state.uiSettings.uiPlacement !== "left" || event.button !== 0) return;
+  event.preventDefault();
+  appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", "false");
+  uiSidebarDrag = { pointerId: event.pointerId, startX: event.clientX, startWidth: state.uiSettings.uiSidebarWidth };
+  uiChromeResize.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("uiChromeResizing");
+});
+
+document.addEventListener("pointermove", (event) => {
+  if (!uiSidebarDrag || event.pointerId !== uiSidebarDrag.pointerId) return;
+  event.preventDefault();
+  setUiSidebarWidth(uiSidebarDrag.startWidth + event.clientX - uiSidebarDrag.startX);
+});
+
+function finishUiSidebarResize(event) {
+  if (!uiSidebarDrag || event.pointerId !== uiSidebarDrag.pointerId) return;
+  const currentWidth = state.uiSettings.uiSidebarWidth;
+  uiSidebarDrag = null;
+  document.body.classList.remove("uiChromeResizing");
+  setUiSidebarWidth(currentWidth < UI_SIDEBAR_SNAP_WIDTH ? UI_SIDEBAR_COLLAPSED_WIDTH : Math.max(UI_SIDEBAR_MIN_WIDTH, currentWidth), true);
+}
+
+document.addEventListener("pointerup", finishUiSidebarResize);
+document.addEventListener("pointercancel", finishUiSidebarResize);
+
+uiChromeResize?.addEventListener("keydown", (event) => {
+  if (state.uiSettings.uiPlacement !== "left" || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const current = state.uiSettings.uiSidebarWidth;
+  const next = event.key === "Home"
+    ? UI_SIDEBAR_COLLAPSED_WIDTH
+    : event.key === "End"
+      ? UI_SIDEBAR_MAX_WIDTH
+      : event.key === "ArrowLeft"
+        ? (current <= UI_SIDEBAR_MIN_WIDTH ? UI_SIDEBAR_COLLAPSED_WIDTH : current - 24)
+        : (current < UI_SIDEBAR_MIN_WIDTH ? 272 : current + 24);
+  setUiSidebarWidth(next, true);
+});
+
+railActionsToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = !appView.classList.contains("railActionsOpen");
+  appView.classList.toggle("railActionsOpen", open);
+  railActionsToggle.setAttribute("aria-expanded", String(open));
+});
+
+document.addEventListener("click", (event) => {
+  if (!appView.classList.contains("railActionsOpen")) return;
+  if (event.target.closest("#railQuickActions, [data-rail-actions-toggle]")) return;
+  appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", "false");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !appView.classList.contains("railActionsOpen")) return;
+  appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", "false");
+  railActionsToggle?.focus();
+});
+
+document.querySelector("#railQuickActions")?.addEventListener("click", (event) => {
+  if (!event.target.closest("button")) return;
+  appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", "false");
+});
+
 builderGrid?.addEventListener("pointerdown", startBuilderInteraction);
 document.addEventListener("pointermove", moveBuilderInteraction);
 document.addEventListener("pointerup", finishBuilderInteraction);
@@ -5376,6 +7977,11 @@ ownerList?.addEventListener("scroll", () => renderOwnerList(), { passive: true }
 noteList?.addEventListener("scroll", () => renderAdminList(), { passive: true });
 historyList?.addEventListener("scroll", () => renderHistory(), { passive: true });
 document.addEventListener("keydown", (event) => {
+  if (state.builderCompact && event.ctrlKey && event.shiftKey && event.key.toLocaleLowerCase() === "b") {
+    event.preventDefault();
+    setBuilderOverlayHidden();
+    return;
+  }
   if (moveTabFocus(event)) return;
   if (!playerDrawer?.hidden && trapFocus(event, playerDrawer.querySelector('[role="dialog"]'))) return;
   if (event.key !== "Escape") return;
@@ -5384,11 +7990,17 @@ document.addEventListener("keydown", (event) => {
   else if (settingsDialog?.open) closeSettings();
   else if (ownerDialog?.open) closeOwnerDialog();
   else if (!playerDrawer?.hidden) closeSessionPlayer();
+  else if (state.builderInspector) closeBuilderInspector();
+  else if (state.builderCompactMenuOpen) {
+    state.builderCompactMenuOpen = false;
+    syncBuilderControls();
+  }
   else if (state.builderCompact) setBuilderCompact().catch((error) => setStatus(error.message || "Не удалось изменить размер окна.", true));
 });
 
 function resetAnalysisEvents() {
   state.events = [];
+  invalidateSessionData({ avatars: true });
   state.startedAt = null;
   state.stoppedAt = null;
   state.selectedSessionUserId = "";
@@ -5472,12 +8084,12 @@ async function initialize() {
     ]);
     state.settings = settings;
     state.runtimeConfig = runtimeConfiguration;
-    if (!state.settings.hasSession) {
+    if (!state.settings.hasSession && !state.settings.freeMode) {
       showActivation();
       showRuntimeConfigNotice(state.runtimeConfig);
       return;
     }
-    await api.validate();
+    if (state.settings.hasSession || state.settings.freeMode) await api.validate();
     await showApp();
   } catch (error) {
     showActivation(error.message || "Сохранённая сессия недействительна.", true);

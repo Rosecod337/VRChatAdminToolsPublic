@@ -8,11 +8,58 @@ const FETCH_TIMEOUT_MS = 15_000;
 const AVATAR_SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
 const AVATAR_COLLECTION_PAGE_SIZE = 100;
 const AVATAR_COLLECTION_MAX_PAGES = 3;
+const SOCIAL_CACHE_TTL_MS = 60_000;
+const FRIEND_PAGE_SIZE = 100;
+const FRIEND_MAX_PAGES_PER_STATE = 10;
 
 function normalizeAuthCookie(value) {
   const cookie = String(value || "").trim();
   if (!cookie || /(?:^|;)\s*auth=/iu.test(cookie)) return cookie;
   return /^authcookie_/iu.test(cookie) ? `auth=${cookie}` : cookie;
+}
+
+function cookiePairs(value) {
+  const rows = Array.isArray(value) ? value : [value];
+  const pairs = [];
+  for (const row of rows) {
+    const text = String(row || "");
+    for (const match of text.matchAll(/(?:^|[;,]\s*)(auth|twoFactorAuth)=([^;,]*)/giu)) {
+      pairs.push(`${match[1]}=${match[2]}`);
+    }
+  }
+  return pairs;
+}
+
+function mergeCookieHeaders(...values) {
+  const cookies = new Map();
+  for (const value of values) {
+    for (const pair of cookiePairs(value)) {
+      const separator = pair.indexOf("=");
+      cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+  }
+  return [...cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
+function responseCookieHeader(response, currentCookie = "") {
+  const headers = response?.headers;
+  let setCookies = [];
+  if (typeof headers?.getSetCookie === "function") setCookies = headers.getSetCookie();
+  else if (typeof headers?.raw === "function") setCookies = headers.raw()?.["set-cookie"] || [];
+  else if (typeof headers?.get === "function") setCookies = headers.get("set-cookie") || [];
+  return mergeCookieHeaders(currentCookie, setCookies);
+}
+
+function normalizeCurrentUser(data) {
+  if (!data?.id) throw new Error("VRChat account session is invalid");
+  return {
+    userId: data.id,
+    displayName: data.displayName || data.username || data.id,
+    location: data.location || "",
+    worldId: data.worldId || parseWorldId(data.location),
+    instanceId: data.instanceId || parseInstanceId(data.location),
+    profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(data.id)}`
+  };
 }
 
 function normalizeAvatarName(value) {
@@ -48,6 +95,11 @@ class VrchatUserResolver {
     this.avatarSearchCache = new Map();
     this.avatarSearchPending = new Map();
     this.avatarCollectionCache = new Map();
+    this.socialCache = null;
+    this.personalCache = new Map();
+    this.pendingLoginCookie = "";
+    this.pendingLoginMethods = [];
+    this.authCookieChangeHandler = null;
   }
 
   setAuthCookie(authCookie) {
@@ -58,10 +110,116 @@ class VrchatUserResolver {
     this.avatarSearchCache.clear();
     this.avatarSearchPending.clear();
     this.avatarCollectionCache.clear();
+    this.socialCache = null;
+    this.personalCache.clear();
   }
 
   hasAuthCookie() {
     return Boolean(this.authCookie);
+  }
+
+  getAuthCookie() {
+    return this.authCookie;
+  }
+
+  setAuthCookieChangeHandler(handler) {
+    this.authCookieChangeHandler = typeof handler === "function" ? handler : null;
+  }
+
+  _captureAuthCookie(response) {
+    if (!response?.ok || !this.authCookie) return;
+    const refreshed = responseCookieHeader(response, this.authCookie);
+    if (!refreshed || refreshed === this.authCookie) return;
+    this.setAuthCookie(refreshed);
+    this.authCookieChangeHandler?.(refreshed);
+  }
+
+  cancelAccountLogin() {
+    this.pendingLoginCookie = "";
+    this.pendingLoginMethods = [];
+  }
+
+  async loginWithAccount(username, password) {
+    const account = String(username || "").trim();
+    const secret = String(password || "");
+    if (!account || account.length > 320) throw new Error("vrchat_login_username_required");
+    if (!secret || secret.length > 1024) throw new Error("vrchat_login_password_required");
+
+    this.cancelAccountLogin();
+    const credentials = Buffer.from(`${encodeURIComponent(account)}:${encodeURIComponent(secret)}`, "utf8").toString("base64");
+    const response = await fetchVrchat("https://api.vrchat.cloud/api/1/auth/user", {
+      headers: {
+        "accept": "application/json",
+        "authorization": `Basic ${credentials}`,
+        "user-agent": this.userAgent
+      }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) throw new Error("vrchat_login_invalid_credentials");
+      if (response.status === 429) throw new Error("vrchat_login_rate_limited");
+      throw new Error(`VRChat API HTTP ${response.status}`);
+    }
+
+    const loginCookie = responseCookieHeader(response);
+    if (!/(?:^|;)\s*auth=/iu.test(loginCookie)) throw new Error("vrchat_login_session_missing");
+    const methods = [...new Set((Array.isArray(data?.requiresTwoFactorAuth) ? data.requiresTwoFactorAuth : [])
+      .map((method) => String(method || ""))
+      .filter((method) => ["totp", "emailOtp", "otp"].includes(method)))];
+    if (methods.length > 0) {
+      this.pendingLoginCookie = loginCookie;
+      this.pendingLoginMethods = methods;
+      return { authenticated: false, requiresTwoFactorAuth: methods };
+    }
+
+    const user = normalizeCurrentUser(data);
+    this.setAuthCookie(loginCookie);
+    return { authenticated: true, requiresTwoFactorAuth: [], user };
+  }
+
+  async verifyAccountLogin(method, code) {
+    if (!this.pendingLoginCookie) throw new Error("vrchat_login_not_pending");
+    const type = String(method || "");
+    const value = String(code || "").trim();
+    const endpoint = {
+      totp: "totp",
+      emailOtp: "emailotp",
+      otp: "otp"
+    }[type];
+    const methodAllowed = this.pendingLoginMethods.includes(type) || (type === "otp" && this.pendingLoginMethods.includes("totp"));
+    if (!endpoint || !methodAllowed) throw new Error("vrchat_login_2fa_method_invalid");
+    if (value.length < 4 || value.length > 64) throw new Error("vrchat_login_2fa_code_required");
+
+    const response = await fetchVrchat(`https://api.vrchat.cloud/api/1/auth/twofactorauth/${endpoint}/verify`, {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "cookie": this.pendingLoginCookie,
+        "user-agent": this.userAgent
+      },
+      body: JSON.stringify({ code: value })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.verified !== true) {
+      if (response.status === 429) throw new Error("vrchat_login_rate_limited");
+      throw new Error("vrchat_login_2fa_invalid");
+    }
+
+    const completedCookie = responseCookieHeader(response, this.pendingLoginCookie);
+    const currentUserResponse = await fetchVrchat("https://api.vrchat.cloud/api/1/auth/user", {
+      headers: {
+        "accept": "application/json",
+        "cookie": completedCookie,
+        "user-agent": this.userAgent
+      }
+    });
+    const currentUserData = await currentUserResponse.json().catch(() => ({}));
+    if (!currentUserResponse.ok) throw new Error(`VRChat API HTTP ${currentUserResponse.status}`);
+    const user = normalizeCurrentUser(currentUserData);
+    this.cancelAccountLogin();
+    this.setAuthCookie(completedCookie);
+    return { authenticated: true, requiresTwoFactorAuth: [], user };
   }
 
   async resolve(userId) {
@@ -115,6 +273,7 @@ class VrchatUserResolver {
   }
 
   async fetchUser(userId) {
+    if (!USER_ID_RE.test(String(userId || ""))) throw new Error("VRChat user id is invalid");
     const url = `https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}`;
     const headers = {
       "accept": "application/json",
@@ -124,14 +283,85 @@ class VrchatUserResolver {
 
     const response = await fetchVrchat(url, { headers });
 
+    if (response.status === 401 && this.authCookie) {
+      await this.fetchCurrentUser();
+      throw new Error("VRChat user profile is unavailable");
+    }
     if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
     const data = await response.json();
-    return {
-      userId,
-      displayName: data.displayName || data.username || userId,
-      profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`,
-      source: "api"
+    return normalizeUserProfile(data, userId);
+  }
+
+  async fetchUserProfile(userId) {
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+    const profile = await this.fetchUser(userId);
+    const headers = {
+      "accept": "application/json",
+      "user-agent": this.userAgent,
+      "cookie": this.authCookie
     };
+    const [groupsResponse, mutualsResponse] = await Promise.all([
+      fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}/groups`, { headers }).catch(() => null),
+      fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}/mutuals/friends?n=100&offset=0`, { headers }).catch(() => null)
+    ]);
+    const groups = groupsResponse?.ok ? normalizeGroups(await groupsResponse.json()) : [];
+    const mutualRows = mutualsResponse?.ok ? await mutualsResponse.json() : [];
+    const mutualFriends = (Array.isArray(mutualRows) ? mutualRows : [])
+      .map((row) => normalizeFriend(row, row?.status === "offline"))
+      .filter(Boolean);
+    return { ...profile, groups, mutualFriends };
+  }
+
+  async fetchGroup(groupId) {
+    const id = String(groupId || "").trim();
+    if (!/^grp_[0-9a-f-]+$/iu.test(id)) throw new Error("VRChat group id is invalid");
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+    const headers = {
+      "accept": "application/json",
+      "user-agent": this.userAgent,
+      "cookie": this.authCookie
+    };
+    const [response, instancesResponse] = await Promise.all([
+      fetchVrchat(`https://api.vrchat.cloud/api/1/groups/${encodeURIComponent(id)}`, { headers }),
+      fetchVrchat(`https://api.vrchat.cloud/api/1/groups/${encodeURIComponent(id)}/instances`, { headers }).catch(() => null)
+    ]);
+    if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
+    const data = await response.json();
+    const instanceRows = instancesResponse?.ok ? await instancesResponse.json() : [];
+    return {
+      ...normalizeGroup(data, id),
+      instances: (Array.isArray(instanceRows) ? instanceRows : []).map(normalizeGroupInstance).filter(Boolean).slice(0, 50)
+    };
+  }
+
+  async fetchPersonalCollection(kind, { force = false } = {}) {
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+    const safeKind = ["favorite-worlds", "favorite-avatars", "notifications"].includes(kind) ? kind : "";
+    if (!safeKind) throw new Error("VRChat personal collection is invalid");
+    const cached = this.personalCache.get(safeKind);
+    if (!force && cached?.expiresAt > Date.now()) return cached.value;
+    const pathName = {
+      "favorite-worlds": "/worlds/favorites?n=100&offset=0&sort=updated&order=descending",
+      "favorite-avatars": "/avatars/favorites?n=100&offset=0&sort=updated&order=descending&releaseStatus=all",
+      notifications: "/auth/user/notifications?n=100"
+    }[safeKind];
+    const response = await fetchVrchat(`https://api.vrchat.cloud/api/1${pathName}`, {
+      headers: {
+        "accept": "application/json",
+        "user-agent": this.userAgent,
+        "cookie": this.authCookie
+      }
+    });
+    if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
+    const data = await response.json();
+    const rows = safeKind === "favorite-worlds"
+      ? (Array.isArray(data) ? data : []).map(normalizeFavoriteWorld).filter(Boolean)
+      : safeKind === "favorite-avatars"
+        ? (Array.isArray(data) ? data : []).map((row) => normalizeAvatarCandidate(row, "favorite")).filter(Boolean)
+        : (Array.isArray(data) ? data : []).map(normalizeNotification).filter(Boolean);
+    const value = { kind: safeKind, rows, fetchedAt: new Date().toISOString(), truncated: rows.length >= 100 };
+    this.personalCache.set(safeKind, { expiresAt: Date.now() + SOCIAL_CACHE_TTL_MS, value });
+    return value;
   }
 
   async fetchCurrentUser() {
@@ -145,18 +375,11 @@ class VrchatUserResolver {
       }
     });
 
+    this._captureAuthCookie(response);
+    if (response.status === 401) throw new Error("VRChat account session is invalid");
     if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
     const data = await response.json();
-    if (!data?.id) throw new Error("VRChat account session is invalid");
-
-    return {
-      userId: data.id,
-      displayName: data.displayName || data.username || data.id,
-      location: data.location || "",
-      worldId: data.worldId || parseWorldId(data.location),
-      instanceId: data.instanceId || parseInstanceId(data.location),
-      profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(data.id)}`
-    };
+    return normalizeCurrentUser(data);
   }
 
   async fetchCurrentInstance(currentUser = null) {
@@ -194,6 +417,64 @@ class VrchatUserResolver {
     };
   }
 
+  async fetchSocialSummary({ force = false } = {}) {
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+    if (!force && this.socialCache?.expiresAt > Date.now()) return this.socialCache.value;
+    const user = await this.fetchCurrentUser();
+    const headers = {
+      "accept": "application/json",
+      "user-agent": this.userAgent,
+      "cookie": this.authCookie
+    };
+    const [onlineResult, offlineResult, groupsResponse] = await Promise.all([
+      this._fetchFriendsByState(false, headers).catch((error) => ({ rows: [], complete: false, error })),
+      this._fetchFriendsByState(true, headers).catch((error) => ({ rows: [], complete: false, error })),
+      fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(user.userId)}/groups`, { headers }).catch(() => null)
+    ]);
+    if (onlineResult.error && offlineResult.error) throw onlineResult.error;
+    const groupRows = groupsResponse?.ok ? await groupsResponse.json() : [];
+    const friendsById = new Map();
+    for (const row of onlineResult.rows) friendsById.set(row.userId, { ...row, online: true });
+    for (const row of offlineResult.rows) if (!friendsById.has(row.userId)) friendsById.set(row.userId, { ...row, online: false });
+    const friends = [...friendsById.values()];
+    const groups = normalizeGroups(groupRows);
+    const value = {
+      user,
+      friends,
+      groups,
+      completeFriends: onlineResult.complete && offlineResult.complete,
+      truncatedFriends: !onlineResult.complete || !offlineResult.complete,
+      fetchedAt: new Date().toISOString(),
+      source: "vrchat-api",
+      partial: Boolean(onlineResult.error || offlineResult.error || !groupsResponse?.ok)
+    };
+    this.socialCache = { expiresAt: Date.now() + SOCIAL_CACHE_TTL_MS, value };
+    return value;
+  }
+
+  async _fetchFriendsByState(offline, headers) {
+    const rows = [];
+    let complete = false;
+    for (let page = 0; page < FRIEND_MAX_PAGES_PER_STATE; page += 1) {
+      const url = new URL("https://api.vrchat.cloud/api/1/auth/user/friends");
+      url.searchParams.set("n", String(FRIEND_PAGE_SIZE));
+      url.searchParams.set("offset", String(page * FRIEND_PAGE_SIZE));
+      url.searchParams.set("offline", String(Boolean(offline)));
+      const response = await fetchVrchat(url.toString(), { headers });
+      if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
+      const pageRows = await response.json();
+      const normalized = (Array.isArray(pageRows) ? pageRows : [])
+        .map((row) => normalizeFriend(row, offline))
+        .filter(Boolean);
+      rows.push(...normalized);
+      if (!Array.isArray(pageRows) || pageRows.length < FRIEND_PAGE_SIZE) {
+        complete = true;
+        break;
+      }
+    }
+    return { rows, complete };
+  }
+
   async fetchAvatar(avatarId) {
     const id = String(avatarId || "").trim();
     if (!AVATAR_ID_RE.test(id)) throw new Error("VRChat avatar id is invalid");
@@ -212,8 +493,15 @@ class VrchatUserResolver {
     return {
       avatarId: data.id || id,
       avatarName: data.name || data.displayName || id,
+      authorId: data.authorId || "",
       authorName: data.authorName || "",
+      description: String(data.description || "").slice(0, 1000),
       releaseStatus: data.releaseStatus || "",
+      createdAt: data.created_at || data.createdAt || "",
+      updatedAt: data.updated_at || data.updatedAt || "",
+      version: normalizeNumber(data.version),
+      platforms: normalizeAvatarPlatforms(data),
+      performance: normalizeAvatarPerformance(data),
       canFavorite: String(data.releaseStatus || "").toLowerCase() === "public",
       profileUrl: `https://vrchat.com/home/avatar/${encodeURIComponent(data.id || id)}`,
       source: "api"
@@ -455,6 +743,153 @@ function parseInstanceId(location) {
 function normalizeNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizeFriend(data, offlineHint = false) {
+  const userId = String(data?.id || "").trim();
+  if (!USER_ID_RE.test(userId)) return null;
+  const location = String(data?.location || "");
+  return {
+    userId,
+    displayName: String(data?.displayName || data?.username || userId).slice(0, 160),
+    status: String(data?.status || (offlineHint ? "offline" : "active")),
+    statusDescription: String(data?.statusDescription || "").slice(0, 300),
+    location,
+    worldId: parseWorldId(location),
+    instanceId: parseInstanceId(location),
+    platform: String(data?.platform || data?.last_platform || ""),
+    lastActivity: String(data?.last_activity || data?.last_login || ""),
+    bio: String(data?.bio || "").slice(0, 1000),
+    bioLinks: (Array.isArray(data?.bioLinks) ? data.bioLinks : []).map(String).slice(0, 8),
+    allowAvatarCopying: Boolean(data?.allowAvatarCopying),
+    profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`
+  };
+}
+
+function normalizeUserProfile(data, fallbackUserId = "") {
+  const userId = String(data?.id || fallbackUserId || "").trim();
+  const location = String(data?.location || "");
+  return {
+    userId,
+    displayName: String(data?.displayName || data?.username || userId),
+    bio: String(data?.bio || "").slice(0, 2000),
+    bioLinks: (Array.isArray(data?.bioLinks) ? data.bioLinks : []).map(String).slice(0, 8),
+    status: String(data?.status || ""),
+    statusDescription: String(data?.statusDescription || "").slice(0, 300),
+    location,
+    worldId: String(data?.worldId || parseWorldId(location)),
+    instanceId: String(data?.instanceId || parseInstanceId(location)),
+    platform: String(data?.platform || data?.last_platform || ""),
+    lastActivity: String(data?.last_activity || data?.last_login || ""),
+    dateJoined: String(data?.date_joined || ""),
+    isFriend: Boolean(data?.isFriend),
+    allowAvatarCopying: Boolean(data?.allowAvatarCopying),
+    note: String(data?.note || "").slice(0, 2000),
+    badges: (Array.isArray(data?.badges) ? data.badges : []).map((badge) => ({
+      name: String(badge?.badgeName || ""),
+      description: String(badge?.badgeDescription || "").slice(0, 300)
+    })).filter((badge) => badge.name).slice(0, 20),
+    tags: (Array.isArray(data?.tags) ? data.tags : []).map(String).slice(0, 50),
+    profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`,
+    source: "api"
+  };
+}
+
+function normalizeGroup(data, fallbackGroupId = "") {
+  const groupId = String(data?.groupId || data?.id || fallbackGroupId || "").trim();
+  return {
+    groupId,
+    name: String(data?.name || data?.shortCode || groupId),
+    shortCode: String(data?.shortCode || ""),
+    description: String(data?.description || "").slice(0, 4000),
+    memberCount: normalizeNumber(data?.memberCount),
+    onlineMemberCount: normalizeNumber(data?.onlineMemberCount),
+    ownerId: String(data?.ownerId || ""),
+    privacy: String(data?.privacy || ""),
+    joinState: String(data?.joinState || ""),
+    isRepresenting: Boolean(data?.isRepresenting),
+    rules: (Array.isArray(data?.rules) ? data.rules : []).map((rule) => ({
+      title: String(rule?.title || ""),
+      text: String(rule?.text || rule?.description || "").slice(0, 1000)
+    })).slice(0, 30),
+    links: (Array.isArray(data?.links) ? data.links : []).map(String).slice(0, 12),
+    announcement: normalizeGroupAnnouncement(data?.announcement),
+    profileUrl: `https://vrchat.com/home/group/${encodeURIComponent(groupId)}`,
+    source: "api"
+  };
+}
+
+function normalizeGroupAnnouncement(data) {
+  if (!data || typeof data !== "object") return null;
+  const title = String(data.title || "").slice(0, 300);
+  const text = String(data.text || data.description || "").slice(0, 4000);
+  if (!title && !text) return null;
+  return { title, text, createdAt: String(data.createdAt || data.created_at || "") };
+}
+
+function normalizeGroupInstance(data) {
+  const location = String(data?.location || "").trim();
+  const worldId = String(data?.world?.id || parseWorldId(location) || "").trim();
+  const instanceId = String(data?.instanceId || parseInstanceId(location) || "").trim();
+  if (!worldId && !instanceId) return null;
+  return {
+    worldId,
+    instanceId,
+    location,
+    worldName: String(data?.world?.name || worldId || "").slice(0, 300),
+    memberCount: normalizeNumber(data?.memberCount)
+  };
+}
+
+function normalizeGroups(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => normalizeGroup(row))
+    .filter((row) => /^grp_[0-9a-f-]+$/iu.test(row.groupId));
+}
+
+function normalizeAvatarPlatforms(data) {
+  const packages = Array.isArray(data?.unityPackages) ? data.unityPackages : [];
+  return [...new Set(packages.map((item) => String(item?.platform || "").trim()).filter(Boolean))];
+}
+
+function normalizeAvatarPerformance(data) {
+  const packages = Array.isArray(data?.unityPackages) ? data.unityPackages : [];
+  const byPlatform = {};
+  for (const item of packages) {
+    const platform = String(item?.platform || "").trim();
+    const rating = String(item?.performanceRating || "").trim();
+    if (platform && rating) byPlatform[platform] = rating;
+  }
+  return byPlatform;
+}
+
+function normalizeFavoriteWorld(data) {
+  const worldId = String(data?.id || "").trim();
+  if (!/^wrld_[0-9a-f-]+$/iu.test(worldId)) return null;
+  return {
+    worldId,
+    worldName: String(data?.name || worldId).slice(0, 300),
+    authorName: String(data?.authorName || "").slice(0, 160),
+    description: String(data?.description || "").slice(0, 1000),
+    occupants: normalizeNumber(data?.occupants),
+    capacity: normalizeNumber(data?.capacity),
+    favoriteGroup: String(data?.favoriteGroup || ""),
+    profileUrl: `https://vrchat.com/home/world/${encodeURIComponent(worldId)}`
+  };
+}
+
+function normalizeNotification(data) {
+  const id = String(data?.id || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    type: String(data?.type || "notification").slice(0, 80),
+    message: String(data?.message || "").slice(0, 1000),
+    senderUserId: String(data?.senderUserId || ""),
+    senderUsername: String(data?.senderUsername || "").slice(0, 160),
+    createdAt: String(data?.created_at || ""),
+    seen: Boolean(data?.seen)
+  };
 }
 
 function normalizeAvatarCandidate(data, source) {

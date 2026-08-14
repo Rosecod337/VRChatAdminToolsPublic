@@ -5,6 +5,7 @@
 })(typeof globalThis === "object" ? globalThis : this, () => {
   const MAX_BUFFERED_EVENTS = 5000;
   const PLAYER_MODES = Object.freeze(["online-first", "online-only", "all"]);
+  const WORLD_ID_RE = /^wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
   function timestamp(value) {
     const time = new Date(value || 0).getTime();
@@ -68,6 +69,10 @@
   function buildPlaySessionStats(events = [], notes = []) {
     const source = Array.isArray(events) ? events : [];
     const session = buildSessionStats(source);
+    const worldId = source.reduce((current, event) => {
+      const candidate = String(event?.worldId || "").trim();
+      return WORLD_ID_RE.test(candidate) ? candidate : current;
+    }, "");
     const statusByUser = new Map();
     for (const note of Array.isArray(notes) ? notes : []) {
       const userId = String(note?.user_id ?? note?.userId ?? "").trim();
@@ -82,12 +87,74 @@
       if (event?.type === "avatar-loading") return false;
       return event?.category === "avatars" || event?.type === "avatar-changed" || event?.type === "avatar-data";
     }).length;
+    const avatarMap = new Map();
+    const avatarKeyByName = new Map();
+    for (const event of source) {
+      if (event?.avatarRedacted || event?.avatarProtected) continue;
+      if (event?.type !== "avatar-changed" && event?.type !== "avatar-data") continue;
+      const avatarId = String(event.avatarId || "").trim();
+      const avatarName = String(event.avatarName || "").trim();
+      if (!avatarId && !avatarName) continue;
+      const normalizedName = avatarName.toLocaleLowerCase("ru-RU");
+      const nameKey = normalizedName ? `name:${normalizedName}` : "";
+      const knownKey = normalizedName ? avatarKeyByName.get(normalizedName) : "";
+      const key = avatarId || knownKey || nameKey;
+      if (avatarId && knownKey && knownKey !== avatarId) avatarMap.delete(knownKey);
+      if (avatarId && nameKey && nameKey !== avatarId) avatarMap.delete(nameKey);
+      if (normalizedName) avatarKeyByName.set(normalizedName, key);
+      avatarMap.set(key, {
+        avatarId,
+        avatarName,
+        userId: String(event.userId || "").trim(),
+        displayName: String(event.display || event.playerName || "").trim(),
+        seenAt: event.timestamp || event.capturedAt || ""
+      });
+    }
+    let activeWorldName = "";
+    let activeWorldId = "";
+    const worldVisits = [];
+    const playerEvents = [];
+    const knownPlayerNames = new Map(players.map((player) => [player.userId, player.displayName]));
+    for (const event of source) {
+      if (event?.type === "world-entering") {
+        activeWorldName = String(event.worldName || "").trim();
+        activeWorldId = "";
+        worldVisits.push({ worldName: activeWorldName, worldId: "", seenAt: event.timestamp || event.capturedAt || "" });
+      } else if (event?.type === "world-joining") {
+        activeWorldId = String(event.worldId || "").trim();
+        const currentVisit = worldVisits.at(-1);
+        if (currentVisit && !currentVisit.worldId) currentVisit.worldId = activeWorldId;
+        else worldVisits.push({ worldName: activeWorldName, worldId: activeWorldId, seenAt: event.timestamp || event.capturedAt || "" });
+      } else if (event?.type === "world-joined") {
+        activeWorldName = String(event.worldName || activeWorldName).trim();
+        const currentVisit = worldVisits.at(-1);
+        if (currentVisit && !currentVisit.worldName) currentVisit.worldName = activeWorldName;
+        else if (!currentVisit) worldVisits.push({ worldName: activeWorldName, worldId: activeWorldId, seenAt: event.timestamp || event.capturedAt || "" });
+      }
+      if ((event?.type === "player-joined" || event?.type === "player-left") && event.userId) {
+        playerEvents.push({
+          type: event.type,
+          userId: event.userId,
+          displayName: String(event.display || event.playerName || knownPlayerNames.get(event.userId) || event.userId),
+          seenAt: event.timestamp || event.capturedAt || "",
+          worldName: activeWorldName,
+          worldId: activeWorldId
+        });
+      }
+    }
+    const snapshot = {
+      players,
+      avatars: [...avatarMap.values()].slice(-500),
+      playerEvents: playerEvents.slice(-2500),
+      worldVisits: worldVisits.slice(-1000)
+    };
+    if (worldId) snapshot.worldId = worldId;
     return {
       playerCount: session.unique,
       avatarCount,
       eventCount: source.length,
       worldName: session.world === "—" ? null : session.world,
-      snapshot: { players }
+      snapshot
     };
   }
 
@@ -108,6 +175,7 @@
   function buildAvatarSummary(events = []) {
     const rows = (Array.isArray(events) ? events : [])
       .filter((event) => event?.type === "avatar-changed" || event?.type === "avatar-data")
+      .filter((event) => !event.avatarRedacted && !event.avatarProtected)
       .map((event) => ({
         type: event.type,
         avatarName: String(event.avatarName || "Неизвестный аватар"),

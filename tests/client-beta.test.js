@@ -1,10 +1,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { LocalCompanionStore } = require("../apps/client/src/local-companion-store");
 const { importStableSettings } = require("../apps/client/src/stable-settings-import");
 const betaAdminNotes = require("../apps/client-beta/renderer/admin-notes");
 const betaSessionModel = require("../apps/client-beta/renderer/session-model");
@@ -45,11 +47,14 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-author-alias-field hidden/u);
   assert.doesNotMatch(html, /name="authorAlias"[^>]*required/u);
   assert.match(html, /data-import-stable/u);
-  assert.match(html, /data-check-vrchat/u);
+  assert.match(html, /data-vrchat-login/u);
   assert.match(html, /data-view-button="session"/u);
   assert.match(html, /data-view-button="builder"/u);
   assert.match(html, /class="appTitlebar"/u);
+  assert.match(html, /class="brand"[\s\S]*?class="workspaceModeSwitch"/u);
   assert.match(html, /class="topNavigation"/u);
+  assert.match(html, /data-workspace-navigation="personal"/u);
+  assert.match(html, /data-nav-scope="shared" data-view-button="session"/u);
   assert.match(html, /class="topNavigation" role="tablist"/u);
   assert.match(html, /role="tab" aria-selected="true" aria-controls="viewPanelSession"/u);
   assert.match(html, /role="tabpanel" aria-labelledby="viewTabSession"/u);
@@ -64,11 +69,19 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-session-event-filter="joins"/u);
   assert.match(html, /data-session-event-filter="avatars"/u);
   assert.match(html, /data-session-event-filter="other"/u);
+  assert.doesNotMatch(html, /class="sessionEventFilters"/u);
+  assert.match(html, /class="panel eventFeedPanel"><header class="eventFeedHeader"[\s\S]*?data-session-event-filter="all"[\s\S]*?data-feed-count/u);
   assert.match(html, /data-session-section="feed"/u);
   assert.match(html, /data-session-section="avatars"/u);
   assert.match(html, /data-session-section="dashboard"/u);
   assert.match(html, /data-avatar-search/u);
   assert.match(html, /data-avatar-filter/u);
+  assert.match(html, /data-avatar-page-size[\s\S]*?value="200"/u);
+  assert.match(html, /data-avatar-page-prev/u);
+  assert.match(html, /data-avatar-page-next/u);
+  assert.match(script, /AVATAR_RENDER_THROTTLE_MS/u);
+  assert.match(script, /if \(!force && !dataDirty && !filterDirty\) return/u);
+  assert.match(script, /trimmedEvents \|\| isAvatarEvent\(event\)/u);
   assert.match(html, /data-avatar-refresh/u);
   assert.match(html, /data-avatar-online-search/u);
   assert.match(html, /data-avatar-prismic/u);
@@ -76,7 +89,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-avatar-detail/u);
   assert.match(html, /data-session-player-drawer/u);
   assert.match(html, /data-view-button="owner"/u);
-  assert.doesNotMatch(html, /data-view-button="owner" hidden/u);
+  assert.match(html, /data-view-button="owner" hidden/u);
   assert.match(html, /data-owner-list/u);
   assert.match(html, /data-owner-moderation-form/u);
   assert.match(html, /data-owner-source="group"/u);
@@ -100,13 +113,24 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-insights-copy/u);
   assert.match(html, /data-insight-current-user/u);
   assert.match(html, /data-insight-session-detail/u);
+  assert.match(html, /data-companion-search/u);
+  assert.match(html, /data-companion-search-results/u);
+  assert.match(html, /data-companion-search-detail/u);
+  assert.match(html, /data-workspace-mode="personal"/u);
+  assert.match(html, /data-workspace-mode="team"/u);
+  assert.match(html, /data-view-button="players"/u);
+  assert.match(html, /data-view-button="worlds"/u);
+  assert.match(html, /data-view-button="local-avatars"/u);
+  assert.match(html, /data-directory-kind="player"/u);
+  assert.match(html, /data-directory-kind="world"/u);
+  assert.match(html, /data-directory-kind="avatar"/u);
   assert.match(html, /data-builder-layout/u);
   assert.match(html, /data-builder-blocks/u);
   assert.match(html, /data-builder-on-top/u);
   assert.match(html, /data-builder-opacity/u);
   assert.match(html, /data-builder-compact/u);
   assert.match(html, /data-builder-compact-exit/u);
-  assert.match(html, /<\/header>\s*<button class="compactExitButton"/u);
+  assert.match(html, /data-ui-chrome-resize[^>]*><\/div>\s*<\/div>\s*<div class="compactMenuDock"/u);
   assert.match(html, /data-view-button="history"/u);
   assert.match(html, /data-history-search/u);
   assert.match(html, /data-history-date/u);
@@ -128,6 +152,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /option value="owner">Owner<\/option>/u);
   assert.match(html, /name="eventLimit"/u);
   assert.match(html, /name="scale"[\s\S]*?value="200"/u);
+  assert.match(html, /name="density"[\s\S]*?value="vr">VR-крупная/u);
   assert.match(html, /name="notifyMarkedPlayers"/u);
   assert.match(html, /name="notifyCrashAvatars"/u);
   assert.match(css, /@keyframes beta-view-in/u);
@@ -157,7 +182,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.doesNotMatch(html, />Stop</u);
   assert.match(script, /window\.clientApi/u);
   assert.match(script, /function moveTabFocus\(event\)/u);
-  assert.match(script, /state\.uiSettings\.startView === "owner" && !hasOwnerAccess\(\)/u);
+  assert.match(script, /paidStartView === "owner" && !hasOwnerAccess\(\)/u);
   assert.match(script, /data\.adminOwner|dataset\.adminOwner/u);
   assert.match(script, /dataset\.historyOwner/u);
   assert.match(script, /dataset\.crashOwner/u);
@@ -202,6 +227,10 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /crashModel\.report/u);
   assert.match(script, /insightsModel\.buildInsights/u);
   assert.match(script, /copyInsightsRecap/u);
+  assert.match(script, /api\.searchCompanion/u);
+  assert.match(script, /api\.getCompanionDetails/u);
+  assert.match(script, /function switchWorkspaceMode\(mode\)/u);
+  assert.match(script, /function refreshLocalDirectory\(view = state\.view\)/u);
   assert.match(script, /api\.setAlwaysOnTop/u);
   assert.match(script, /api\.setWindowOpacity/u);
   assert.match(script, /api\.setCompactMode/u);
@@ -217,12 +246,17 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /api\.searchVrchatAvatars/u);
   assert.match(script, /api\.saveGlobalAvatarNote/u);
   assert.match(script, /normalizedUiSettings/u);
+  assert.match(script, /function renderAvatarPage\(force = true\)/u);
+  assert.match(script, /\["comfortable", "compact", "vr"\]/u);
+  assert.match(script, /classList\.toggle\("densityVr"/u);
+  assert.match(script, /density === "compact" \? 48 : state\.uiSettings\.density === "vr" \? 64 : 54/u);
   assert.match(script, /betaUiSettings/u);
   assert.match(script, /language:\s*"ru"/u);
   assert.match(script, /eventLimit/u);
   assert.match(script, /api\.showNotification/u);
   assert.match(script, /function syncNotificationMonitoring\(/u);
   assert.match(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+minmax\(0,\s*1fr\)/u);
+  assert.match(css, /\.appShell\.densityVr \.sectionIntro h2\s*\{\s*font-size:\s*32px/u);
   assert.doesNotMatch(css, /\.appShell\.compactMode\s*\{\s*grid-template-rows:\s*58px\s+0\s+minmax/u);
   assert.match(css, /\.activationCard label > span > small\s*\{\s*margin-left:\s*6px/u);
   assert.match(script, /else if \(state\.builderCompact\) setBuilderCompact\(\)/u);
@@ -246,7 +280,7 @@ test("beta keeps every user-facing Stable action reachable", () => {
   const stableHtml = read("apps/client/renderer/index.html");
   const betaHtml = read("apps/client-beta/renderer/index.html");
   const actionMap = [
-    ["checkVrchatBtn", "data-check-vrchat"],
+    ["checkVrchatBtn", "data-vrchat-login"],
     ["activateBtn", "data-activate-submit"],
     ["updateBtn", 'data-action="update"'],
     ["chooseFileBtn", 'data-action="choose"'],
@@ -343,6 +377,17 @@ test("beta session model keeps player state correct and virtualizes large lists"
       players: [
         { userId: "usr_alpha", displayName: "Alpha", status: "ok" },
         { userId: "usr_beta", displayName: "Beta", status: "watch" }
+      ],
+      avatars: [
+        { avatarId: "avtr_demo", avatarName: "Night Shift", userId: "usr_beta", displayName: "Beta", seenAt: "2026-08-08T10:00:05.000Z" }
+      ],
+      playerEvents: [
+        { type: "player-joined", userId: "usr_alpha", displayName: "Alpha", seenAt: "2026-08-08T10:00:01.000Z", worldName: "Group Public", worldId: "" },
+        { type: "player-joined", userId: "usr_beta", displayName: "Beta", seenAt: "2026-08-08T10:00:02.000Z", worldName: "Group Public", worldId: "" },
+        { type: "player-left", userId: "usr_alpha", displayName: "Alpha", seenAt: "2026-08-08T10:00:03.000Z", worldName: "Group Public", worldId: "" }
+      ],
+      worldVisits: [
+        { worldName: "Group Public", worldId: "", seenAt: "2026-08-08T10:00:00.000Z" }
       ]
     }
   });
@@ -350,6 +395,12 @@ test("beta session model keeps player state correct and virtualizes large lists"
     betaSessionModel.importantEvents(featureEvents, 3).map((event) => event.type),
     ["player-left", "player-joined", "player-joined"]
   );
+  const linkedWorld = betaSessionModel.buildPlaySessionStats([
+    { type: "world-joining", worldId: "wrld_12345678-1234-1234-1234-1234567890ab" },
+    { type: "world-joined", worldName: "Linked World" }
+  ]);
+  assert.equal(linkedWorld.worldName, "Linked World");
+  assert.equal(linkedWorld.snapshot.worldId, "wrld_12345678-1234-1234-1234-1234567890ab");
 
   const window = betaSessionModel.virtualWindow({ total: 1000, scrollTop: 5800, viewportHeight: 580, rowHeight: 58, overscan: 5 });
   assert.deepEqual(window, { start: 95, end: 115, offset: 5510, totalHeight: 58000 });
@@ -371,6 +422,9 @@ test("beta avatar model merges name-only events into confirmed IDs and filters r
   assert.equal(betaAvatarModel.filterRows(rows, "mira", "all").length, 1);
   assert.deepEqual(betaAvatarModel.filterRows(rows, "", "crash").map((row) => row.avatarId), ["avtr_night"]);
   assert.equal(betaAvatarModel.filterRows(rows, "", "unresolved").length, 0);
+  const page = betaAvatarModel.paginateRows(Array.from({ length: 545 }, (_value, index) => index), 3, 50);
+  assert.deepEqual({ page: page.page, pages: page.pages, total: page.total, first: page.rows[0], last: page.rows.at(-1) }, { page: 3, pages: 11, total: 545, first: 100, last: 149 });
+  assert.equal(betaAvatarModel.paginateRows(rows, 999, 999).pageSize, 50);
 });
 
 test("beta notifications use current marked data and ignore replayed log history", () => {
@@ -430,7 +484,7 @@ test("beta insights dedupe saved sessions and bound active-session duration", ()
       started_at: "2026-08-09T09:00:00.000Z",
       ended_at: "2026-08-09T10:00:00.000Z",
       world_name: "Group Public",
-      snapshot: { players: [{ userId: "usr_alpha", displayName: "Alpha" }, { userId: "usr_beta", displayName: "Beta" }] }
+      snapshot: { worldId: "wrld_12345678-1234-1234-1234-1234567890ab", players: [{ userId: "usr_alpha", displayName: "Alpha" }, { userId: "usr_beta", displayName: "Beta" }] }
     },
     {
       id: "session-two",
@@ -456,6 +510,8 @@ test("beta insights dedupe saved sessions and bound active-session duration", ()
   assert.equal(insights.recurringPlayerCount, 1);
   assert.equal(insights.totalEncounters, 3);
   assert.equal(insights.sessions.find((session) => session.id === "session-one").complete, true);
+  assert.equal(insights.sessions.find((session) => session.id === "session-one").worldId, "wrld_12345678-1234-1234-1234-1234567890ab");
+  assert.equal(insights.topWorlds.find((world) => world.worldName === "Group Public").worldId, "wrld_12345678-1234-1234-1234-1234567890ab");
   assert.equal(insights.sessions.find((session) => session.id === "session-two").endedAt, nowMs);
   assert.equal(insights.sessions.some((session) => session.id === "empty-unknown"), false);
   assert.match(betaInsightsModel.recap(insights, "7 дней"), /Сессий: 2/u);
@@ -552,6 +608,194 @@ test("beta links name-only avatar events back to the matching session player", (
   assert.equal(betaSessionModel.eventBelongsToPlayer({ type: "avatar-changed", userId: "usr_other", playerName: "Кирито" }, player), false);
 });
 
+test("beta plays the supplied sound only when Rose337 is clicked", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const sound = path.join(__dirname, "../apps/client-beta/renderer/assets/rose337-selection.ogg");
+
+  assert.match(renderer, /function playRose337SelectionSound\(target\)/u);
+  assert.match(renderer, /userIdFromInteractiveTarget\(target\) !== ROSE337_USER_ID/u);
+  assert.match(renderer, /new Audio\("assets\/rose337-selection\.ogg"\)/u);
+  assert.match(renderer, /playRose337SelectionSound\(event\.target\)/u);
+  assert.equal(fs.statSync(sound).size > 0, true);
+});
+
+test("beta free mode keeps local companion access separate from paid administration", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const markup = read("apps/client-beta/renderer/index.html");
+  const preload = read("apps/client/src/preload.js");
+  const main = read("apps/client/src/main.js");
+
+  assert.match(markup, /data-continue-free/u);
+  assert.match(markup, /Продолжить бесплатно/u);
+  assert.match(preload, /continueFree: \(\) => ipcRenderer\.invoke\("client:continue-free"\)/u);
+  assert.match(main, /ipcMain\.handle\("client:continue-free"/u);
+  assert.match(main, /freeMode: true/u);
+  assert.match(renderer, /function hasPaidAccess\(\)/u);
+  assert.match(renderer, /Admin Tools доступны по платному ключу/u);
+  assert.match(renderer, /if \(view === "admin" && !hasPaidAccess\(\)\) return/u);
+  assert.match(renderer, /\[data-avatar-online-search\][\s\S]*?toggleAttribute\("hidden", !paid\)/u);
+  assert.match(renderer, /scope\.textContent = "Локальный журнал"/u);
+  assert.match(renderer, /if \(!state\.settings\.hasSession && !state\.settings\.freeMode\)/u);
+});
+
+test("beta free mode stores play-session history in local SQLite", (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-store-"));
+  const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));
+  let importedStore = null;
+  context.after(() => {
+    importedStore?.close();
+    store.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const sessionId = store.createSession({ worldName: "Test World", startedAt: "2026-08-12T10:00:00.000Z" });
+  assert.match(sessionId, /^local-/u);
+  assert.equal(store.updateSession(sessionId, {
+    worldName: "Test World",
+    playerCount: 2,
+    avatarCount: 1,
+    eventCount: 5,
+    snapshot: {
+      worldId: "wrld_11111111-2222-3333-4444-555555555555",
+      players: [{ userId: "usr_demo", displayName: "Demo" }],
+      playerEvents: [
+        { type: "player-joined", userId: "usr_demo", displayName: "Old Demo", seenAt: "2026-08-12T10:01:00.000Z", worldName: "Lobby", worldId: "wrld_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" },
+        { type: "player-left", userId: "usr_demo", displayName: "Demo", seenAt: "2026-08-12T10:20:00.000Z", worldName: "Test World", worldId: "wrld_11111111-2222-3333-4444-555555555555" }
+      ],
+      worldVisits: [
+        { worldName: "Lobby", worldId: "wrld_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", seenAt: "2026-08-12T10:00:00.000Z" },
+        { worldName: "Test World", worldId: "wrld_11111111-2222-3333-4444-555555555555", seenAt: "2026-08-12T10:10:00.000Z" }
+      ],
+      avatars: [{ avatarId: "avtr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", avatarName: "Demo Avatar", userId: "usr_demo", displayName: "Demo" }]
+    }
+  }, { end: true }).ok, true);
+
+  const [session] = store.listSessions();
+  assert.equal(session.id, sessionId);
+  assert.equal(session.world_name, "Test World");
+  assert.equal(session.player_count, 2);
+  assert.ok(session.ended_at);
+  assert.equal(JSON.parse(session.snapshot).players[0].displayName, "Demo");
+
+  const playerSearch = store.search("Demo");
+  assert.equal(playerSearch.players[0].user_id, "usr_demo");
+  assert.equal(Number(playerSearch.players[0].session_count), 1);
+  const worldSearch = store.search("Test World");
+  assert.equal(worldSearch.worlds[0].world_id, "wrld_11111111-2222-3333-4444-555555555555");
+  const playerDetails = store.details("player", "usr_demo");
+  assert.equal(playerDetails.entity.display_name, "Demo");
+  assert.equal(playerDetails.sessions[0].id, sessionId);
+  assert.equal(playerDetails.events.length, 2);
+  assert.deepEqual(playerDetails.names.map((row) => row.display_name).sort(), ["Demo", "Old Demo"]);
+  assert.equal(playerDetails.worlds.length, 2);
+  const worldDetails = store.details("world", "wrld_11111111-2222-3333-4444-555555555555");
+  assert.equal(worldDetails.entity.world_name, "Test World");
+  assert.equal(worldDetails.sessions[0].id, sessionId);
+  assert.equal(worldDetails.visits.length, 1);
+  const avatarSearch = store.search("Demo Avatar");
+  assert.equal(avatarSearch.avatars[0].avatar_id, "avtr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  const avatarDetails = store.details("avatar", "avtr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  assert.equal(avatarDetails.entity.avatar_name, "Demo Avatar");
+  assert.equal(avatarDetails.sessions[0].id, sessionId);
+
+  const savedPlayer = store.savePlayerPreference({ userId: "usr_demo", alias: "Friend", note: "Local note", status: "watch" });
+  assert.equal(savedPlayer.entity.alias, "Friend");
+  assert.equal(store.listWatchedPlayers()[0].user_id, "usr_demo");
+  const savedWorld = store.saveWorldPreference({ worldKey: "wrld_11111111-2222-3333-4444-555555555555", favorite: true, note: "Return later" });
+  assert.equal(savedWorld.entity.favorite, 1);
+  const backup = store.exportData({ language: "ru", secret: undefined });
+  assert.equal(backup.format, "vrchat-admin-tools-local-backup");
+  importedStore = new LocalCompanionStore(path.join(tempRoot, "imported.sqlite"));
+  const imported = importedStore.importData(backup);
+  assert.equal(imported.importedSessions, 1);
+  assert.equal(importedStore.details("player", "usr_demo").entity.note, "Local note");
+  assert.equal(importedStore.details("world", "wrld_11111111-2222-3333-4444-555555555555").entity.favorite, 1);
+
+  const salt = "test-policy-salt";
+  const protectedUserHash = createHash("sha256").update(`${salt}:usr_demo`).digest("hex");
+  store.applyProtectionPolicy({ salt, userIdHashes: [protectedUserHash], avatarIdHashes: [] });
+  assert.equal(store.search("Demo Avatar").avatars.length, 0);
+});
+
+test("beta preload exposes local companion search without exposing SQLite", () => {
+  const preload = read("apps/client/src/preload.js");
+  const main = read("apps/client/src/main.js");
+
+  assert.match(preload, /searchCompanion: \(query\) => ipcRenderer\.invoke\("companion:search", query\)/u);
+  assert.match(preload, /getCompanionDetails: \(kind, key\) => ipcRenderer\.invoke\("companion:details", kind, key\)/u);
+  assert.match(main, /ipcMain\.handle\("companion:search"/u);
+  assert.match(main, /ipcMain\.handle\("companion:details"/u);
+  assert.match(preload, /saveLocalPlayerPreference/u);
+  assert.match(preload, /exportLocalData/u);
+  assert.match(preload, /getVrchatSocialSummary/u);
+  assert.match(preload, /getVrchatUserProfile/u);
+  assert.match(preload, /getVrchatGroup/u);
+  assert.match(preload, /getVrchatPersonalCollection/u);
+  assert.match(preload, /listLocalSocialEvents/u);
+  assert.match(main, /ipcMain\.handle\("companion:export"/u);
+  assert.match(main, /ipcMain\.handle\("vrchat:social-summary"/u);
+  assert.match(main, /ipcMain\.handle\("vrchat:user-profile"/u);
+  assert.match(main, /recordSocialSnapshot/u);
+});
+
+test("beta records complete friend snapshots locally without false removals", (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-social-"));
+  const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));
+  context.after(() => {
+    store.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  const first = store.recordSocialSnapshot({
+    completeFriends: true,
+    fetchedAt: "2026-08-12T10:00:00.000Z",
+    friends: [{ userId: "usr_demo", displayName: "Demo", status: "active", online: true, location: "wrld_demo:1" }]
+  });
+  assert.equal(first.baselineCreated, true);
+  assert.equal(store.listSocialEvents().length, 0);
+  store.recordSocialSnapshot({
+    completeFriends: false,
+    fetchedAt: "2026-08-12T10:01:00.000Z",
+    friends: []
+  });
+  assert.equal(store.listSocialEvents().length, 0);
+  store.recordSocialSnapshot({
+    completeFriends: true,
+    fetchedAt: "2026-08-12T10:02:00.000Z",
+    friends: [{ userId: "usr_demo", displayName: "Demo", status: "offline", online: false, location: "" }]
+  });
+  assert.equal(store.listSocialEvents()[0].event_type, "offline");
+  const backup = store.exportData();
+  assert.equal(backup.socialFriends.length, 1);
+  assert.equal(backup.socialEvents.length, 1);
+});
+
+test("beta mirrors paid sessions locally without losing private event details", (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-paid-mirror-"));
+  const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));
+  context.after(() => {
+    store.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const sessionId = "server-session-demo";
+  assert.equal(store.ensureSession(sessionId, { worldName: "Paid World", startedAt: "2026-08-12T12:00:00.000Z" }).ok, true);
+  assert.equal(store.updateSession(sessionId, {
+    worldName: "Paid World",
+    snapshot: {
+      players: [{ userId: "usr_paid", displayName: "Paid Player" }],
+      playerEvents: [{ type: "player-joined", userId: "usr_paid", displayName: "Paid Player", seenAt: "2026-08-12T12:01:00.000Z", worldName: "Paid World" }]
+    }
+  }).ok, true);
+  store.ingestSessions([{
+    id: sessionId,
+    started_at: "2026-08-12T12:00:00.000Z",
+    world_name: "Paid World",
+    snapshot: { players: [{ userId: "usr_paid", displayName: "Paid Player" }] }
+  }]);
+
+  assert.equal(store.details("player", "usr_paid").events.length, 1);
+});
+
 test("beta auto setting analyzes today's logs instead of starting an empty tail", () => {
   const renderer = read("apps/client-beta/renderer/app.js");
   const markup = read("apps/client-beta/renderer/index.html");
@@ -566,27 +810,124 @@ test("beta auto setting analyzes today's logs instead of starting an empty tail"
   assert.doesNotMatch(renderer, /state\.uiSettings\.autoStart/u);
 });
 
-test("beta Builder supports header-only movement, corner resize, presets, and per-block font size", () => {
+test("beta distinguishes missing VRChat cookie from license access errors", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+
+  assert.match(renderer, /formatVrchatAuthError\(value, true\)/u);
+  assert.match(renderer, /VRChat auth cookie is not configured/u);
+  assert.match(renderer, /Аккаунт VRChat не подключён\. Войдите в него через Настройки/u);
+  assert.match(renderer, /VRChat \(\?:account \)\?session is invalid/u);
+  assert.match(renderer, /VRChat user profile is unavailable\|VRChat API HTTP 401/u);
+  assert.match(renderer, /state\.avatarOnlineError = friendlyStatusMessage\(error\?\.message, true\)/u);
+});
+
+test("beta keeps the collapsed rail centered and shortens the visible log path", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const styles = read("apps/client-beta/renderer/styles.css");
+  assert.match(renderer, /state\.filePath\.split\(\/\[\\\\\/\]\/u\)/u);
+  assert.match(styles, /\.appShell\.uiChromeCollapsed \.navItem \{[\s\S]*?margin-inline: auto/u);
+  assert.match(styles, /\.appShell\.uiChromeCollapsed \.railActionsToggle \{[\s\S]*?width: 42px;[\s\S]*?min-height: 42px/u);
+  assert.match(styles, /\.appShell\.uiChromeCollapsed \.windowActions button \{[^}]*width: 42px;[^}]*min-height: 42px/u);
+  assert.match(styles, /\.insightSessionsLayout \{[^}]*repeat\(2, minmax\(0, 1fr\)\)/u);
+});
+
+test("beta saved worlds expose safe page and launch actions", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+
+  assert.match(renderer, /dataset\.worldPage = safeWorldId/u);
+  assert.match(renderer, /dataset\.worldLaunch = safeWorldId/u);
+  assert.match(renderer, /https:\/\/vrchat\.com\/home\/world\/\$\{safeWorldId\}/u);
+  assert.match(renderer, /https:\/\/vrchat\.com\/home\/launch\?worldId=\$\{safeWorldId\}/u);
+  assert.match(renderer, /savedWorldActions\(session\.worldId\)/u);
+});
+
+test("beta Builder supports editable dashboards and a locked compact overlay", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/app.js"), "utf8");
   const markup = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/index.html"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "../apps/client-beta/renderer/styles.css"), "utf8");
 
   assert.match(markup, /option value="freeform"/u);
+  assert.match(markup, /option value="adaptive"/u);
   assert.match(markup, /data-builder-apply-preset/u);
+  assert.match(markup, /data-builder-snap/u);
+  assert.match(markup, /data-builder-overlay-toggle/u);
+  assert.match(markup, /data-compact-menu/u);
+  assert.match(markup, /data-compact-menu-toggle/u);
+  assert.match(markup, /data-compact-return-builder/u);
+  assert.match(markup, /data-builder-workspace/u);
+  assert.match(markup, /data-builder-inspector/u);
   assert.match(renderer, /header\.dataset\.builderMove = kind/u);
   assert.match(renderer, /for \(const corner of \["nw", "ne", "sw", "se"\]\)/u);
   assert.match(renderer, /function startBuilderInteraction\(event\)/u);
   assert.match(renderer, /function moveBuilderInteraction\(event\)/u);
   assert.match(renderer, /betaBuilderGeometry/u);
   assert.match(renderer, /betaBuilderQueries/u);
+  assert.match(renderer, /betaBuilderBlockSettings/u);
+  assert.match(renderer, /BUILDER_SNAP_SIZE/u);
+  assert.match(renderer, /const effectiveLayout = state\.builderCompact \? "adaptive" : state\.builderLayout/u);
+  assert.match(renderer, /document\.documentElement\.classList\.toggle\("compactMode", state\.builderCompact\)/u);
+  assert.match(renderer, /state\.builderCompact \|\| state\.builderLayout !== "freeform"/u);
+  assert.match(renderer, /dataset\.builderBlockAction = "lock"/u);
+  assert.match(renderer, /dataset\.builderBlockAction = "collapse"/u);
+  assert.match(renderer, /dataset\.builderBlockAction = "hide"/u);
+  assert.match(renderer, /dataset\.builderBlockOpacity = kind/u);
+  assert.match(renderer, /dataset\.builderBlockLimit = kind/u);
+  assert.match(renderer, /function setBuilderOverlayHidden/u);
+  assert.match(renderer, /builderCompactMenuOpen/u);
+  assert.match(renderer, /selectView\("builder"\)/u);
   assert.match(renderer, /dataset\.builderFontAdjust/u);
   assert.match(renderer, /dataset\.builderAdminUser = item\.userId/u);
   assert.match(renderer, /dataset\.builderSessionUser = item\.userId/u);
   assert.match(renderer, /dataset\.builderAvatarKey = avatarModel\.key/u);
+  assert.match(renderer, /function renderBuilderInspector\(\)/u);
+  assert.match(renderer, /dataset\.builderInspectorKind = kind/u);
+  assert.match(renderer, /data-builder-inspector-full/u);
+  assert.match(renderer, /function closeBuilderInspector\(\)/u);
+  assert.doesNotMatch(renderer, /const builderAdminUser[\s\S]{0,220}openPlayerInAdmin/u);
   assert.match(renderer, /function renderBuilderBlockRows\(kind\)/u);
   assert.match(styles, /\.builderResizeHandle\.se/u);
   assert.match(styles, /\.betaBuilder\.freeform/u);
+  assert.match(styles, /\.betaBuilder\.adaptive/u);
+  assert.match(styles, /repeat\(auto-fit, minmax\(min\(280px, 100%\), 1fr\)\)/u);
   assert.match(styles, /\.builderBlockSearch/u);
+  assert.match(styles, /\.builderBlockMenuBody/u);
+  assert.match(styles, /\.appShell\.compactMode \.uiChrome/u);
+  assert.match(styles, /\.compactMenuDock\.menuOpen \.compactMenuPanel/u);
+  assert.match(styles, /\.appShell\.compactMode\.builderOverlayHidden \.betaBuilder/u);
+  assert.match(styles, /\.builderInspector/u);
+  assert.match(styles, /\.appShell\.compactMode \.builderInspector/u);
+});
+
+test("beta Social exposes internal profiles, locations, friend log, and on-demand VRChat collections", () => {
+  const html = read("apps/client-beta/renderer/index.html");
+  const script = read("apps/client-beta/renderer/app.js");
+  assert.match(html, /data-social-tab="locations"/u);
+  assert.match(html, /data-social-tab="journal"/u);
+  assert.match(html, /data-social-tab="vrchat-favorites"/u);
+  assert.match(html, /data-social-detail-dialog/u);
+  assert.match(script, /function openSocialProfile/u);
+  assert.match(script, /function openSocialGroup/u);
+  assert.match(script, /getVrchatPersonalCollection/u);
+  assert.match(script, /socialProfileActionMenu/u);
+  assert.match(script, /socialProfileColumns/u);
+  assert.match(script, /primaryColumn\.append\(details\)/u);
+  assert.match(script, /secondaryColumn\.append\(groups\)/u);
+  assert.match(script, /dataset\.socialCopyUser = userId/u);
+  assert.match(script, /dataset\.socialLocalStatus = userId/u);
+  assert.match(script, /dataset\.socialAdminPlayer = userId/u);
+  assert.match(script, /dataset\.socialOwnerPlayer = userId/u);
+  assert.doesNotMatch(script, /data-social-profile[\s\S]{0,400}openExternal/u);
+});
+
+test("beta workspace supports multiple saved dashboards and social widgets", () => {
+  const html = read("apps/client-beta/renderer/index.html");
+  const script = read("apps/client-beta/renderer/app.js");
+  assert.match(html, /data-builder-dashboard/u);
+  assert.match(html, /value="friends"/u);
+  assert.match(html, /value="friendlog"/u);
+  assert.match(script, /betaBuilderDashboards/u);
+  assert.match(script, /function createBuilderDashboard/u);
+  assert.match(script, /function loadBuilderDashboard/u);
 });
 
 test("beta avatar catalog visibly reflects the server-enforced key scope", () => {
@@ -596,6 +937,22 @@ test("beta avatar catalog visibly reflects the server-enforced key scope", () =>
   assert.match(markup, /data-avatar-catalog-scope/u);
   assert.match(renderer, /state\.settings\?\.license\?\.canViewFullAvatarCatalog/u);
   assert.match(renderer, /fullCatalog \? "Каталог команды" : "Личный каталог"/u);
+});
+
+test("beta avatar views omit redacted avatar events", () => {
+  const avatarModel = require("../apps/client-beta/renderer/avatar-model");
+  const sessionModel = require("../apps/client-beta/renderer/session-model");
+  const redacted = {
+    type: "avatar-data",
+    category: "avatars",
+    userId: "usr_1373af91-5e80-42c5-94c1-3d6edb05f2fc",
+    avatarName: "Hidden Avatar",
+    avatarId: "avtr_11111111-2222-3333-4444-555555555555",
+    avatarRedacted: true
+  };
+
+  assert.deepEqual(avatarModel.buildRows([redacted], [], []), []);
+  assert.equal(sessionModel.buildAvatarSummary([redacted]).events, 0);
 });
 
 test("beta Owner preserves Stable watchlist, incident copy, and moderation overview actions", () => {
@@ -664,6 +1021,8 @@ test("beta has a real renderer performance smoke check", () => {
   assert.match(performanceCheck, /playerTotal !== 1000/u);
   assert.match(performanceCheck, /eventTotal !== 2000/u);
   assert.match(performanceCheck, /playerRows > 40/u);
+  assert.match(performanceCheck, /avatarCatalogTotal < 900/u);
+  assert.match(performanceCheck, /avatarRows > 40/u);
   assert.match(performanceCheck, /totalDomNodes > 1200/u);
   assert.match(performanceCheck, /BETA_PREVIEW_CLICK_SELECTOR/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_TEXT/u);

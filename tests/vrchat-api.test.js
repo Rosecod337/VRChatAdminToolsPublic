@@ -10,6 +10,71 @@ test("normalizes a raw Cookie-Editor auth value without reading the browser", ()
   assert.equal(normalizeAuthCookie("twoFactorAuth=1; auth=authcookie_example"), "twoFactorAuth=1; auth=authcookie_example");
 });
 
+test("loginWithAccount exchanges credentials for a reusable session without exposing the password", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async (url, options = {}) => {
+    assert.equal(String(url), "https://api.vrchat.cloud/api/1/auth/user");
+    assert.match(options.headers.authorization, /^Basic /u);
+    assert.equal(
+      Buffer.from(options.headers.authorization.slice(6), "base64").toString("utf8"),
+      "demo%40example.com:p%40ss%3Aword"
+    );
+    return responseJson(
+      { id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Demo" },
+      true,
+      200,
+      ["auth=authcookie_login; Path=/; HttpOnly; Secure"]
+    );
+  };
+
+  const resolver = new VrchatUserResolver();
+  const result = await resolver.loginWithAccount("demo@example.com", "p@ss:word");
+  assert.equal(result.authenticated, true);
+  assert.equal(result.user.displayName, "Demo");
+  assert.equal(resolver.getAuthCookie(), "auth=authcookie_login");
+  assert.equal(Object.hasOwn(result, "password"), false);
+});
+
+test("account login supports TOTP and persists both VRChat session cookies", async (t) => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (calls.length === 1) {
+      return responseJson(
+        { requiresTwoFactorAuth: ["totp"] },
+        true,
+        200,
+        ["auth=authcookie_pending; Path=/; HttpOnly"]
+      );
+    }
+    if (calls.length === 2) {
+      assert.equal(options.method, "POST");
+      assert.equal(options.headers.cookie, "auth=authcookie_pending");
+      assert.deepEqual(JSON.parse(options.body), { code: "123456" });
+      return responseJson(
+        { enabled: true, verified: true },
+        true,
+        200,
+        ["twoFactorAuth=twofactor_verified; Path=/; HttpOnly"]
+      );
+    }
+    assert.match(options.headers.cookie, /auth=authcookie_pending/u);
+    assert.match(options.headers.cookie, /twoFactorAuth=twofactor_verified/u);
+    return responseJson({ id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Demo" });
+  };
+
+  const resolver = new VrchatUserResolver();
+  const pending = await resolver.loginWithAccount("demo", "password");
+  assert.deepEqual(pending, { authenticated: false, requiresTwoFactorAuth: ["totp"] });
+  const result = await resolver.verifyAccountLogin("totp", "123456");
+  assert.equal(result.authenticated, true);
+  assert.match(resolver.getAuthCookie(), /auth=authcookie_pending/u);
+  assert.match(resolver.getAuthCookie(), /twoFactorAuth=twofactor_verified/u);
+});
+
 test("fetchCurrentInstance reads current instance online count from VRChat API", async (t) => {
   const originalFetch = global.fetch;
   const calls = [];
@@ -91,6 +156,158 @@ test("searchAvatarCandidates keeps only exact names and deduplicates sources", a
   const cached = await resolver.searchAvatarCandidates("Bonk");
   assert.equal(cached.candidates.length, 1);
   assert.equal(calls.length, firstCallCount);
+});
+
+test("fetchSocialSummary returns authenticated friends and public groups and caches the result", async (t) => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  global.fetch = async (url) => {
+    const value = String(url);
+    calls.push(value);
+    if (value.endsWith("/auth/user")) {
+      return responseJson({ id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Rose337" });
+    }
+    if (value.includes("/auth/user/friends")) {
+      return responseJson([{ id: "usr_22222222-2222-4222-8222-222222222222", displayName: "Friend", status: "active" }]);
+    }
+    if (value.includes("/groups")) {
+      return responseJson([{ groupId: "grp_33333333-3333-4333-8333-333333333333", name: "Example Group", memberCount: 12 }]);
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.fetchSocialSummary();
+
+  assert.equal(result.user.displayName, "Rose337");
+  assert.equal(result.friends[0].displayName, "Friend");
+  assert.equal(result.groups[0].name, "Example Group");
+  assert.equal(result.completeFriends, true);
+  assert.equal(calls.filter((url) => url.includes("/auth/user/friends")).length, 2);
+  assert.ok(calls.some((url) => url.includes("offline=false")));
+  assert.ok(calls.some((url) => url.includes("offline=true")));
+  const callCount = calls.length;
+  await resolver.fetchSocialSummary();
+  assert.equal(calls.length, callCount);
+});
+
+test("fetchSocialSummary returns a safe partial result when one friend state or groups are unavailable", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith("/auth/user")) return responseJson({ id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Rose337" });
+    if (value.includes("/auth/user/friends") && value.includes("offline=false")) return responseJson([{ id: "usr_22222222-2222-4222-8222-222222222222", displayName: "Friend", status: "active" }]);
+    if (value.includes("/auth/user/friends") && value.includes("offline=true")) throw new Error("offline list unavailable");
+    if (value.includes("/groups")) return responseJson({}, false, 503);
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.fetchSocialSummary();
+  assert.equal(result.friends.length, 1);
+  assert.equal(result.groups.length, 0);
+  assert.equal(result.completeFriends, false);
+  assert.equal(result.partial, true);
+});
+
+test("fetchUserProfile exposes only authenticated API fields and public groups", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_22222222-2222-4222-8222-222222222222";
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.includes(`/users/${userId}/mutuals/friends`)) return responseJson([]);
+    if (value.includes(`/users/${userId}/groups`)) return responseJson([{ groupId: "grp_33333333-3333-4333-8333-333333333333", name: "Group" }]);
+    if (value.includes(`/users/${userId}`)) return responseJson({ id: userId, displayName: "Friend", bio: "Hello", allowAvatarCopying: true, location: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:123" });
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.fetchUserProfile(userId);
+  assert.equal(result.bio, "Hello");
+  assert.equal(result.allowAvatarCopying, true);
+  assert.equal(result.worldId, "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+  assert.equal(result.groups[0].name, "Group");
+});
+
+test("fetchUser distinguishes a private profile from an expired account session", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_22222222-2222-4222-8222-222222222222";
+  global.fetch = async (url) => {
+    if (String(url).includes(`/users/${userId}`)) return responseJson({}, false, 401);
+    if (String(url).endsWith("/auth/user")) return responseJson({ id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Current" });
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  await assert.rejects(() => resolver.fetchUser(userId), /user profile is unavailable/u);
+
+  global.fetch = async () => responseJson({}, false, 401);
+  await assert.rejects(() => resolver.fetchUser(userId), /account session is invalid/u);
+});
+
+test("fetchCurrentUser keeps refreshed VRChat cookies available for persistence", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async () => responseJson(
+    { id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Current" },
+    true,
+    200,
+    ["auth=authcookie_fresh; Path=/; HttpOnly"]
+  );
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_old; twoFactorAuth=twofactor_keep");
+  let persisted = "";
+  resolver.setAuthCookieChangeHandler((cookie) => { persisted = cookie; });
+  await resolver.fetchCurrentUser();
+  assert.match(persisted, /auth=authcookie_fresh/u);
+  assert.match(persisted, /twoFactorAuth=twofactor_keep/u);
+  assert.equal(resolver.getAuthCookie(), persisted);
+});
+
+test("fetchGroup includes available group instances and tolerates an unavailable instance list", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const groupId = "grp_33333333-3333-4333-8333-333333333333";
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith(`/groups/${groupId}/instances`)) {
+      return responseJson([{ location: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:123", memberCount: 7, world: { id: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Group Public" } }]);
+    }
+    if (value.endsWith(`/groups/${groupId}`)) return responseJson({ id: groupId, name: "Group", announcement: { title: "News", text: "Hello" } });
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const group = await resolver.fetchGroup(groupId);
+  assert.equal(group.announcement.title, "News");
+  assert.equal(group.instances[0].worldName, "Group Public");
+  assert.equal(group.instances[0].memberCount, 7);
+
+  global.fetch = async (url) => {
+    if (String(url).endsWith(`/groups/${groupId}/instances`)) throw new Error("network unavailable");
+    return responseJson({ id: groupId, name: "Group" });
+  };
+  const fallback = await resolver.fetchGroup(groupId);
+  assert.deepEqual(fallback.instances, []);
+});
+
+test("fetchAvatar exposes per-platform performance ratings", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const avatarId = "avtr_44444444-4444-4444-8444-444444444444";
+  global.fetch = async () => responseJson({ id: avatarId, name: "Public Demo", releaseStatus: "public", unityPackages: [{ platform: "standalonewindows", performanceRating: "Good" }, { platform: "android", performanceRating: "Poor" }] });
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const avatar = await resolver.fetchAvatar(avatarId);
+  assert.deepEqual(avatar.performance, { standalonewindows: "Good", android: "Poor" });
 });
 
 test("searchAvatarCandidates returns multiple exact IDs without choosing one", async (t) => {
@@ -192,10 +409,29 @@ test("favoriteAvatar verifies a public avatar and adds it to the first VRChat av
   });
 });
 
-function responseJson(body, ok = true, status = 200) {
+test("fetchPersonalCollection normalizes only the current account collections", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.includes("/worlds/favorites")) return responseJson([{ id: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Favorite World", occupants: 4 }]);
+    if (value.includes("/auth/user/notifications")) return responseJson([{ id: "not_demo", type: "invite", message: "Join", senderUserId: "usr_22222222-2222-4222-8222-222222222222" }]);
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const worlds = await resolver.fetchPersonalCollection("favorite-worlds");
+  const notifications = await resolver.fetchPersonalCollection("notifications");
+  assert.equal(worlds.rows[0].worldName, "Favorite World");
+  assert.equal(notifications.rows[0].type, "invite");
+  await assert.rejects(() => resolver.fetchPersonalCollection("someone-elses-favorites"), /invalid/u);
+});
+
+function responseJson(body, ok = true, status = 200, setCookies = []) {
   return {
     ok,
     status,
-    json: async () => body
+    json: async () => body,
+    headers: { getSetCookie: () => setCookies }
   };
 }

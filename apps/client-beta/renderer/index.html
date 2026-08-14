@@ -31,11 +31,28 @@
         <input name="authorAlias" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
         <small>Публичная подпись рядом с вашими командными заметками и отметками. Она запрашивается один раз.</small>
       </label>
-      <label>VRChat cookie <small>необязательно</small><input name="vrchatAuthCookie" type="password" autocomplete="off" placeholder="auth=..."><small>Можно проверить аккаунт до входа. Cookie хранится только в настройках приложения.</small></label>
+      <fieldset class="vrchatAccountConnect" data-vrchat-account-connect>
+        <legend>Аккаунт VRChat <small>необязательно</small></legend>
+        <div class="vrchatAccountFields">
+          <label><span>Логин или почта</span><input type="text" data-vrchat-username autocomplete="username" maxlength="320" placeholder="Логин VRChat"></label>
+          <label><span>Пароль</span><input type="password" data-vrchat-password autocomplete="current-password" maxlength="1024" placeholder="Пароль VRChat"></label>
+        </div>
+        <div class="settingsDataActions"><button type="button" data-vrchat-login>Войти в VRChat</button><button type="button" data-vrchat-disconnect hidden>Отключить аккаунт</button></div>
+        <div class="vrchatTwoFactor" data-vrchat-two-factor hidden>
+          <label><span>Способ подтверждения</span><select data-vrchat-two-factor-method></select></label>
+          <label><span>Код подтверждения</span><input type="text" data-vrchat-two-factor-code inputmode="numeric" autocomplete="one-time-code" maxlength="64" placeholder="Код из приложения или письма"></label>
+          <div class="settingsDataActions"><button type="button" data-vrchat-verify>Подтвердить</button><button type="button" data-vrchat-login-cancel>Отмена</button></div>
+        </div>
+        <small>Пароль не сохраняется. После входа приложение хранит только зашифрованную сессию VRChat.</small>
+        <p class="formStatus" data-vrchat-account-status aria-live="polite"></p>
+      </fieldset>
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
       <div class="activationActions">
-        <button type="button" data-check-vrchat>Проверить VRChat</button>
         <button class="primaryButton" type="submit" data-activate-submit>Войти в Beta</button>
+      </div>
+      <div class="freeAccess">
+        <div><strong>Бесплатный режим</strong><small>Локальные логи, сессии, история, Crash Analyzer, «Мой VRChat» и Builder. Admin Tools и Owner требуют ключ.</small></div>
+        <button type="button" data-continue-free>Продолжить бесплатно</button>
       </div>
       <button type="button" data-import-stable>Использовать вход из Stable</button>
       <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
@@ -43,11 +60,66 @@
   </section>
 
   <div class="appShell" data-app-view hidden>
+    <div class="uiChrome" data-ui-chrome>
     <header class="appTitlebar">
       <div class="brand">
         <span class="brandMark" aria-hidden="true"><img src="app-logo.png" alt=""></span>
         <div><strong>VRChat Admin Tools</strong><em data-app-version>Beta</em></div>
+        <span class="workspaceModeSwitch" role="group" aria-label="Режим приложения">
+          <button class="active" type="button" data-workspace-mode="personal" aria-pressed="true">Личное</button>
+          <button type="button" data-workspace-mode="team" aria-pressed="false">Команда</button>
+        </span>
       </div>
+      <div class="windowActions">
+        <button class="headerHideButton" type="button" data-header-hide aria-label="Скрыть верхнюю панель" title="Скрыть верхнюю панель">↑</button>
+        <button type="button" data-settings-open aria-label="Настройки" title="Настройки">Настройки</button>
+        <button class="updateButton" type="button" data-action="update" hidden>Установить обновление</button>
+        <button class="logoutButton" type="button" data-action="logout" aria-label="Выйти" title="Выйти">Выйти</button>
+      </div>
+    </header>
+
+    <button class="headerRevealButton" type="button" data-header-show aria-label="Показать верхнюю панель" title="Показать верхнюю панель">↓</button>
+
+    <button class="railActionsToggle" type="button" data-rail-actions-toggle aria-controls="railQuickActions" aria-expanded="false" title="Быстрые действия">Быстрые действия</button>
+    <div class="workspaceToolbar" id="railQuickActions">
+      <div class="headerActions" aria-label="Основные действия">
+        <button type="button" data-action="choose">Выбрать лог</button>
+        <button type="button" data-action="analyze">Анализ</button>
+        <button type="button" data-action="snapshot">Снимок</button>
+        <button type="button" data-action="community">Сообщество</button>
+        <button class="primaryButton" type="button" data-action="start">Запустить</button>
+        <button type="button" data-action="stop" disabled>Остановить</button>
+      </div>
+    </div>
+
+    <nav class="topNavigation" role="tablist" aria-label="Разделы Beta" data-workspace-navigation="personal">
+      <button class="navItem active" id="viewTabSession" type="button" role="tab" aria-selected="true" aria-controls="viewPanelSession" data-nav-scope="shared" data-view-button="session">Сессия</button>
+      <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-nav-scope="shared" data-view-button="insights">Мой VRChat</button>
+      <button class="navItem" id="viewTabPlayers" type="button" role="tab" aria-selected="false" aria-controls="viewPanelPlayers" tabindex="-1" data-nav-scope="personal" data-view-button="players">Игроки</button>
+      <button class="navItem" id="viewTabWorlds" type="button" role="tab" aria-selected="false" aria-controls="viewPanelWorlds" tabindex="-1" data-nav-scope="personal" data-view-button="worlds">Миры</button>
+      <button class="navItem" id="viewTabLocalAvatars" type="button" role="tab" aria-selected="false" aria-controls="viewPanelLocalAvatars" tabindex="-1" data-nav-scope="personal" data-view-button="local-avatars">Аватары</button>
+      <button class="navItem" id="viewTabSocial" type="button" role="tab" aria-selected="false" aria-controls="viewPanelSocial" tabindex="-1" data-nav-scope="personal" data-view-button="social">Социальное</button>
+      <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-nav-scope="shared" data-view-button="crash">Crash Analyzer</button>
+      <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-nav-scope="shared" data-view-button="history">История</button>
+      <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-nav-scope="shared" data-view-button="builder">Ещё · Рабочее место</button>
+      <button class="navItem" id="viewTabAdmin" type="button" role="tab" aria-selected="false" aria-controls="viewPanelAdmin" tabindex="-1" data-nav-scope="team" data-view-button="admin" hidden>Admin Tools</button>
+      <button class="navItem" id="viewTabOwner" type="button" role="tab" aria-selected="false" aria-controls="viewPanelOwner" tabindex="-1" data-nav-scope="team" data-view-button="owner" hidden>Owner</button>
+    </nav>
+      <div class="uiChromeResize" data-ui-chrome-resize role="separator" aria-label="Изменить ширину панели" aria-orientation="vertical" tabindex="0"></div>
+    </div>
+
+    <div class="compactMenuDock" data-compact-menu>
+      <button class="compactMenuHandle" type="button" data-compact-menu-toggle aria-label="Показать компактное меню" title="Показать компактное меню" aria-expanded="false" aria-controls="compactMenuPanel">⌄</button>
+      <div class="compactMenuPanel" id="compactMenuPanel" role="toolbar" aria-label="Компактное меню" aria-hidden="true">
+        <button type="button" data-compact-return-builder title="Вернуться в рабочее место">Рабочее место</button>
+        <button type="button" data-settings-open title="Настройки">Настройки</button>
+        <button type="button" data-builder-on-top aria-pressed="false" title="Закрепить поверх окон">Поверх окон</button>
+        <button class="builderOverlayToggleButton" type="button" data-builder-overlay-toggle aria-pressed="false" title="Скрыть или показать оверлей">Скрыть · Ctrl+Shift+B</button>
+        <button class="compactExitButton" type="button" data-builder-compact-exit title="Выйти из компактного режима">Обычный вид</button>
+      </div>
+    </div>
+
+    <div class="contentStatusBar">
       <div class="runtimeStateWrap">
         <button class="runtimeState" type="button" data-status-center-toggle data-status-kind="idle" aria-expanded="false" aria-controls="statusCenter" title="Открыть уведомления">
           <span class="connectionDot"></span>
@@ -59,41 +131,11 @@
           <div class="statusCenterList" data-status-list><p class="emptyState">Новых уведомлений нет.</p></div>
         </section>
       </div>
-      <div class="windowActions">
-        <button class="headerHideButton" type="button" data-header-hide aria-label="Скрыть верхнюю панель" title="Скрыть верхнюю панель">↑</button>
-        <button type="button" data-settings-open>Настройки</button>
-        <button class="updateButton" type="button" data-action="update" hidden>Установить обновление</button>
-        <button class="logoutButton" type="button" data-action="logout">Выйти</button>
-      </div>
-    </header>
-
-    <button class="compactExitButton" type="button" data-builder-compact-exit title="Выйти из компактного режима">Обычный вид</button>
-    <button class="headerRevealButton" type="button" data-header-show aria-label="Показать верхнюю панель" title="Показать верхнюю панель">↓</button>
-
-    <div class="workspaceToolbar">
-      <div class="headerActions" aria-label="Основные действия">
-        <button type="button" data-action="choose">Выбрать лог</button>
-        <button type="button" data-action="analyze">Анализ</button>
-        <button type="button" data-action="snapshot">Снимок</button>
-        <button type="button" data-action="community">Сообщество</button>
-        <button class="primaryButton" type="button" data-action="start">Запустить</button>
-        <button type="button" data-action="stop" disabled>Остановить</button>
-      </div>
       <div class="toolbarMeta">
         <code data-file-path>Лог ещё не выбран</code>
         <span data-event-count>0 событий</span>
       </div>
     </div>
-
-    <nav class="topNavigation" role="tablist" aria-label="Разделы Beta">
-      <button class="navItem active" id="viewTabSession" type="button" role="tab" aria-selected="true" aria-controls="viewPanelSession" data-view-button="session">Сессия</button>
-      <button class="navItem" id="viewTabAdmin" type="button" role="tab" aria-selected="false" aria-controls="viewPanelAdmin" tabindex="-1" data-view-button="admin">Admin Tools</button>
-      <button class="navItem" id="viewTabOwner" type="button" role="tab" aria-selected="false" aria-controls="viewPanelOwner" tabindex="-1" data-view-button="owner">Owner</button>
-      <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-view-button="crash">Crash Analyzer</button>
-      <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-view-button="insights">Мой VRChat</button>
-      <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-view-button="history">История</button>
-      <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-view-button="builder">Ещё · Builder</button>
-    </nav>
 
     <main class="workspace">
       <span class="visuallyHidden" data-page-eyebrow>Текущая сессия</span>
@@ -123,19 +165,8 @@
             </div>
             <label class="playerSearch"><span class="visuallyHidden">Поиск игрока</span><input type="search" data-session-player-search placeholder="Поиск игрока или User ID…" autocomplete="off"></label>
           </div>
-          <div class="sessionEventFilters" aria-label="Фильтры ленты событий">
-            <span>Показывать в ленте</span>
-            <div class="segmented eventFilterChips">
-              <button class="active" type="button" data-session-event-filter="all" aria-pressed="true">Все</button>
-              <button type="button" data-session-event-filter="joins" aria-pressed="false">Входы</button>
-              <button type="button" data-session-event-filter="leaves" aria-pressed="false">Выходы</button>
-              <button type="button" data-session-event-filter="avatars" aria-pressed="false">Аватары</button>
-              <button type="button" data-session-event-filter="worlds" aria-pressed="false">Миры и порталы</button>
-              <button type="button" data-session-event-filter="other" aria-pressed="false">Другое</button>
-            </div>
-          </div>
           <div class="sessionGrid">
-            <article class="panel"><header><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><span data-feed-count>0 записей</span></header><div class="eventFeed" data-event-feed tabindex="0" aria-label="Лента событий"><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
+            <article class="panel eventFeedPanel"><header class="eventFeedHeader"><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><div class="feedHeaderActions"><div class="segmented eventFilterChips" aria-label="Фильтры ленты событий"><button class="active" type="button" data-session-event-filter="all" aria-pressed="true">Все</button><button type="button" data-session-event-filter="joins" aria-pressed="false">Входы</button><button type="button" data-session-event-filter="leaves" aria-pressed="false">Выходы</button><button type="button" data-session-event-filter="avatars" aria-pressed="false">Аватары</button><button type="button" data-session-event-filter="worlds" aria-pressed="false">Миры и порталы</button><button type="button" data-session-event-filter="other" aria-pressed="false">Другое</button></div><span data-feed-count>0 записей</span></div></header><div class="eventFeed" data-event-feed tabindex="0" aria-label="Лента событий"><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
             <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки сессии</h2></div><span data-player-count>0 игроков</span></header><div class="playerList" data-player-list tabindex="0" aria-label="Игроки сессии"><p class="emptyState">Пока никого нет.</p></div></article>
           </div>
         </div>
@@ -156,7 +187,7 @@
           </div>
           <section class="avatarOnlineResults" data-avatar-online-results hidden></section>
           <div class="avatarManagerLayout">
-            <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><div class="avatarCatalogHeaderMeta"><span class="avatarCatalogScope" data-avatar-catalog-scope>Личный каталог</span><span data-avatar-count>0 записей</span></div></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
+            <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><div class="avatarCatalogHeaderMeta"><span class="avatarCatalogScope" data-avatar-catalog-scope>Личный каталог</span><span data-avatar-count>0 записей</span><label class="avatarPageSize"><span>На странице</span><select data-avatar-page-size aria-label="Максимум аватаров на странице"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></label><div class="avatarPager"><button type="button" data-avatar-page-prev aria-label="Предыдущая страница" title="Предыдущая страница">‹</button><span data-avatar-page-status>1 / 1</span><button type="button" data-avatar-page-next aria-label="Следующая страница" title="Следующая страница">›</button></div></div></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
             <article class="panel avatarDetail adminPreviewEmpty" data-avatar-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Avatar ID, командная метка и общие публикации появятся здесь.</p></article>
           </div>
         </div>
@@ -190,6 +221,13 @@
           <article><span>Текущий пользователь</span><strong data-insight-current-user>Не проверен</strong></article>
           <article><span>Текущий инстанс</span><strong data-insight-current-instance>Не проверен</strong></article>
         </div>
+        <section class="companionSearch" aria-label="Поиск в локальной истории">
+          <label class="playerSearch"><span class="visuallyHidden">Поиск игроков и миров</span><input type="search" data-companion-search placeholder="Найти игрока, User ID, мир или World ID…" autocomplete="off"></label>
+          <div class="companionSearchLayout" data-companion-search-layout hidden>
+            <article class="panel companionSearchResults"><header><div><span class="eyebrow">Локальная база</span><h2>Результаты поиска</h2></div><span data-companion-search-count>0 найдено</span></header><div data-companion-search-results><p class="emptyState">Введите минимум два символа.</p></div></article>
+            <article class="panel companionSearchDetail adminPreviewEmpty" data-companion-search-detail><span class="profileAvatar">⌕</span><h2>Выберите результат</h2><p>Здесь появятся встречи, посещения и быстрые действия.</p></article>
+          </div>
+        </section>
         <div class="metricGrid compact insightsMetrics">
           <article><span>Сессий</span><strong data-insight="sessions">—</strong></article>
           <article><span>Времени</span><strong data-insight="duration">—</strong></article>
@@ -206,6 +244,33 @@
           <article class="panel listPanel insightSessionPanel"><header><div><span class="eyebrow">Последние</span><h2>Сохранённые сессии</h2></div><span data-insight-session-count>0 записей</span></header><div data-session-list><p class="emptyState">История загрузится после входа.</p></div></article>
           <article class="panel insightSessionDetail" data-insight-session-detail><span class="profileAvatar">S</span><h2>Выберите сессию</h2><p>Мир, длительность и сохранённые встречи появятся здесь.</p></article>
         </div>
+      </section>
+
+      <section class="viewPanel localDirectoryView" id="viewPanelPlayers" role="tabpanel" aria-labelledby="viewTabPlayers" data-view="players" data-directory-kind="player" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Локальная история</span><h2>Игроки</h2><p>Все встреченные игроки из сохранённых логов и сессий на этом устройстве.</p></div></div>
+        <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных игроков</span><input type="search" data-directory-search placeholder="Ник или User ID…" autocomplete="off"></label>
+        <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Встреченные</span><h2>Локальные игроки</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">История игроков пока пуста.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">P</span><h2>Выберите игрока</h2><p>История встреч появится здесь.</p></article></div>
+      </section>
+
+      <section class="viewPanel localDirectoryView" id="viewPanelWorlds" role="tabpanel" aria-labelledby="viewTabWorlds" data-view="worlds" data-directory-kind="world" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Локальная история</span><h2>Миры</h2><p>Посещённые миры из логов с переходом на страницу и запуском VRChat.</p></div></div>
+        <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных миров</span><input type="search" data-directory-search placeholder="Название мира или World ID…" autocomplete="off"></label>
+        <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Посещённые</span><h2>Локальные миры</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">История миров пока пуста.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">W</span><h2>Выберите мир</h2><p>История посещений появится здесь.</p></article></div>
+      </section>
+
+      <section class="viewPanel localDirectoryView" id="viewPanelLocalAvatars" role="tabpanel" aria-labelledby="viewTabLocalAvatars" data-view="local-avatars" data-directory-kind="avatar" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Только локальные данные</span><h2>Аватары</h2><p>Наблюдения из ваших логов. Скрытые системой защиты аватары сюда не попадают.</p></div></div>
+        <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных аватаров</span><input type="search" data-directory-search placeholder="Название или Avatar ID…" autocomplete="off"></label>
+        <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Обнаруженные</span><h2>Локальные аватары</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">Локальных наблюдений пока нет.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Локальная история наблюдений появится здесь.</p></article></div>
+      </section>
+
+      <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Только чтение</span><h2>Социальное</h2><p>Ваши друзья и публичные группы из VRChat. Данные запрашиваются только при открытии или ручном обновлении.</p></div><button type="button" data-social-refresh>Обновить</button></div>
+        <div class="segmented socialNavigation" data-social-navigation aria-label="Разделы социального экрана">
+          <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button>
+        </div>
+        <p class="formStatus" data-social-status aria-live="polite"></p>
+        <div class="socialSummary" data-social-summary><article class="panel adminPreviewEmpty"><h2>Подключите аккаунт VRChat</h2><p>Войдите через Настройки. Пароль не сохраняется, а сессия хранится зашифрованной локально.</p></article></div>
       </section>
 
       <section class="viewPanel" id="viewPanelHistory" role="tabpanel" aria-labelledby="viewTabHistory" data-view="history" hidden>
@@ -312,7 +377,7 @@
 
       <section class="viewPanel" id="viewPanelBuilder" role="tabpanel" aria-labelledby="viewTabBuilder" data-view="builder" hidden>
         <div class="sectionIntro builderIntro">
-          <div><span class="eyebrow">Настраиваемое рабочее место</span><h2>Builder Beta</h2><p>Выберите блоки, перетащите их в нужном порядке и настройте окно поверх VRChat.</p></div>
+          <div><span class="eyebrow">Настраиваемое рабочее место</span><h2>Рабочее место</h2><p>Соберите собственный экран из локальных событий и разрешённых данных VRChat.</p></div>
           <div class="builderWindowActions">
             <button type="button" data-builder-on-top aria-pressed="false">Поверх окон</button>
             <button type="button" data-builder-compact aria-pressed="false">Компактно</button>
@@ -320,12 +385,19 @@
           </div>
         </div>
         <div class="builderControls">
-          <label><span>Раскладка</span><select data-builder-layout><option value="grid">Сетка</option><option value="rows">Строки</option><option value="freeform">Свободная</option></select></label>
+          <label><span>Дашборд</span><span class="builderPresetControl"><select data-builder-dashboard></select><button type="button" data-builder-dashboard-new>Новый</button><button type="button" data-builder-dashboard-delete>Удалить</button></span></label>
+          <label><span>Название</span><span class="builderPresetControl"><input type="text" maxlength="60" data-builder-dashboard-name placeholder="Мой дашборд"><button type="button" data-builder-dashboard-save>Сохранить</button></span></label>
+          <label><span>Раскладка</span><select data-builder-layout><option value="grid">Сетка</option><option value="adaptive">Адаптивная</option><option value="rows">Строки</option><option value="freeform">Свободная</option></select></label>
           <label><span>Пресет</span><span class="builderPresetControl"><select data-builder-preset><option value="columns">Две колонки</option><option value="vr">VR крупно</option><option value="feed">Лента</option></select><button type="button" data-builder-apply-preset>Применить</button></span></label>
-          <fieldset data-builder-blocks><legend>Блоки</legend><label><input type="checkbox" value="players"> Заход / выход</label><label><input type="checkbox" value="avatars"> Аватары</label><label><input type="checkbox" value="portals"> Порталы</label><label><input type="checkbox" value="worlds"> Миры</label><label><input type="checkbox" value="admin"> Admin Tools</label></fieldset>
+          <fieldset data-builder-blocks><legend>Блоки</legend><label><input type="checkbox" value="players"> Заход / выход</label><label><input type="checkbox" value="avatars"> Аватары</label><label><input type="checkbox" value="portals"> Порталы</label><label><input type="checkbox" value="worlds"> Миры</label><label><input type="checkbox" value="instance"> Инстанс</label><label><input type="checkbox" value="friends"> Друзья</label><label><input type="checkbox" value="friendlog"> Журнал друзей</label><label><input type="checkbox" value="admin"> Admin Tools</label></fieldset>
+          <label class="builderSnap"><span>Перемещение</span><span class="checkRow"><input type="checkbox" data-builder-snap checked><span>Привязка к сетке и краям</span></span></label>
           <label class="builderOpacity"><span>Прозрачность <output data-builder-opacity-output>100%</output></span><input type="range" min="40" max="100" step="5" value="100" data-builder-opacity disabled></label>
+          <p class="builderShortcutHint">В компактном режиме Ctrl+Shift+B скрывает или показывает весь оверлей.</p>
         </div>
-        <div class="betaBuilder" data-builder aria-live="polite"></div>
+        <div class="builderWorkspace" data-builder-workspace>
+          <div class="betaBuilder" data-builder aria-live="polite"></div>
+          <aside class="builderInspector panel" data-builder-inspector hidden aria-live="polite" aria-label="Инспектор рабочего места"></aside>
+        </div>
       </section>
     </main>
 
@@ -345,6 +417,13 @@
         </div>
       </aside>
     </div>
+
+    <dialog class="settingsDialog socialDetailDialog" data-social-detail-dialog>
+      <form method="dialog">
+        <header><div><span class="eyebrow">VRChat и локальная история</span><h2 data-social-detail-title>Профиль</h2></div><button type="button" data-social-detail-close aria-label="Закрыть">×</button></header>
+        <div class="socialDetailBody" data-social-detail-body><p class="emptyState">Загружаем данные…</p></div>
+      </form>
+    </dialog>
 
     <dialog class="ownerDialog" data-owner-dialog>
       <form method="dialog" data-owner-moderation-form>
@@ -367,16 +446,17 @@
       <form data-settings-form>
         <header><div><span class="eyebrow">Только для Beta</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
         <div class="settingsGrid">
-          <section><h3>Интерфейс</h3>
+          <section class="settingsSection settingsInterfaceSection"><h3>Интерфейс</h3>
             <label class="adminField"><span>Язык интерфейса</span><select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>
-            <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="insights">Мой VRChat</option><option value="history">История</option><option value="builder">Builder</option></select></label>
-            <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option></select></label>
+            <label class="adminField"><span>Расположение управления</span><select name="uiPlacement"><option value="top">Сверху</option><option value="left">Слева</option></select></label>
+            <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="players">Игроки</option><option value="worlds">Миры</option><option value="local-avatars">Аватары</option><option value="social">Социальное</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Builder</option></select></label>
+            <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option><option value="vr">VR-крупная</option></select></label>
             <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>
             <label class="checkRow"><input name="animations" type="checkbox"><span>Использовать анимации</span></label>
             <label class="checkRow"><input name="showHeader" type="checkbox"><span>Показывать верхнюю шапку</span></label>
             <label class="checkRow"><input name="showToolbar" type="checkbox"><span>Показывать панель быстрых действий</span></label>
           </section>
-          <section><h3>Сессия</h3>
+          <section class="settingsSection settingsSessionSection"><h3>Сессия</h3>
             <label class="adminField"><span>Игроки по умолчанию</span><select name="sessionPlayerMode"><option value="online-first">Онлайн сначала</option><option value="online-only">Только онлайн</option><option value="all">Все за сессию</option></select></label>
             <label class="adminField"><span>Буфер событий</span><select name="eventLimit"><option value="1000">1 000</option><option value="2500">2 500</option><option value="5000">5 000</option></select></label>
             <label class="checkRow"><input name="autoAnalyzeToday" type="checkbox"><span>Автоматически анализировать логи за текущий день</span></label>
@@ -385,7 +465,29 @@
             <label class="checkRow"><input name="notifyCrashAvatars" type="checkbox"><span>Уведомлять об отмеченных crash-аватарах</span></label>
             <p>Системные уведомления появляются только по свежим событиям активного лога. Чтение старой истории их не вызывает.</p>
           </section>
-          <section><h3>Приватность</h3><p>Ключ и VRChat cookie не попадают в renderer-настройки. Здесь сохраняются только параметры интерфейса.</p><label class="checkRow"><input name="clearOnLogout" type="checkbox"><span>Очищать поиски и выбор при выходе</span></label></section>
+          <section class="settingsSection settingsLocalSection"><h3>Локальные данные</h3>
+            <label class="adminField"><span>Хранить историю</span><select data-local-retention><option value="0">Без ограничения</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="180">180 дней</option><option value="365">1 год</option></select></label>
+            <p data-local-storage-stats>Считаем локальные записи…</p>
+            <div class="settingsDataActions"><button type="button" data-local-export>Экспорт</button><button type="button" data-local-import>Импорт</button></div>
+            <p>В резервную копию входят локальные сессии, карточки, избранные миры и настройки интерфейса. Ключ и сессия VRChat не экспортируются.</p>
+          </section>
+          <section class="settingsSection settingsPrivacySection"><h3>VRChat и приватность</h3>
+            <div class="vrchatAccountConnect" data-vrchat-account-connect>
+              <div class="vrchatAccountFields">
+                <label class="adminField"><span>Логин или почта</span><input type="text" data-vrchat-username autocomplete="username" maxlength="320" placeholder="Логин VRChat"></label>
+                <label class="adminField"><span>Пароль</span><input type="password" data-vrchat-password autocomplete="current-password" maxlength="1024" placeholder="Пароль VRChat"></label>
+              </div>
+              <div class="settingsDataActions"><button type="button" data-vrchat-login>Войти в VRChat</button><button type="button" data-vrchat-disconnect hidden>Отключить аккаунт</button></div>
+              <div class="vrchatTwoFactor" data-vrchat-two-factor hidden>
+                <label class="adminField"><span>Способ подтверждения</span><select data-vrchat-two-factor-method></select></label>
+                <label class="adminField"><span>Код подтверждения</span><input type="text" data-vrchat-two-factor-code inputmode="numeric" autocomplete="one-time-code" maxlength="64" placeholder="Код из приложения или письма"></label>
+                <div class="settingsDataActions"><button type="button" data-vrchat-verify>Подтвердить</button><button type="button" data-vrchat-login-cancel>Отмена</button></div>
+              </div>
+              <p>Пароль используется только во время входа и не сохраняется. Зашифрованная сессия остаётся на этом устройстве и не входит в резервную копию.</p>
+              <p class="formStatus" data-vrchat-account-status aria-live="polite"></p>
+            </div>
+            <label class="checkRow"><input name="clearOnLogout" type="checkbox"><span>Очищать поиски и выбор при выходе</span></label>
+          </section>
         </div>
         <p class="formStatus" data-settings-status aria-live="polite"></p>
         <footer><button type="button" data-settings-reset>По умолчанию</button><div><button type="button" data-settings-cancel>Отмена</button><button class="primaryButton" type="submit">Сохранить</button></div></footer>

@@ -6,6 +6,7 @@
   "use strict";
 
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const WORLD_ID_RE = /^wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
   function value(session, snake, camel, fallback = null) {
     return session?.[snake] ?? session?.[camel] ?? fallback;
@@ -38,6 +39,11 @@
       .filter((player) => player.userId && !seen.has(player.userId) && seen.add(player.userId));
   }
 
+  function snapshotWorldId(session) {
+    const worldId = String(snapshot(session).worldId || "").trim();
+    return WORLD_ID_RE.test(worldId) ? worldId : "";
+  }
+
   function normalizeDays(input) {
     if (input === null || input === "all") return null;
     const days = Number(input ?? 30);
@@ -51,12 +57,13 @@
     const endedAt = Math.min(storedEndedAt ?? nowMs, nowMs);
     if (endedAt < startedAt) return null;
     const worldName = String(value(session, "world_name", "worldName", "") || "").trim();
+    const worldId = snapshotWorldId(session);
     const players = snapshotPlayers(session);
     const id = String(value(session, "id", "id", "") || "").trim();
     const playerCount = Math.max(players.length, Number(value(session, "player_count", "playerCount", 0)) || 0);
     const avatarCount = Math.max(0, Number(value(session, "avatar_count", "avatarCount", 0)) || 0);
     const eventCount = Math.max(0, Number(value(session, "event_count", "eventCount", 0)) || 0);
-    return { source: session, id, startedAt, endedAt, complete: storedEndedAt !== null, worldName, players, playerCount, avatarCount, eventCount };
+    return { source: session, id, startedAt, endedAt, complete: storedEndedAt !== null, worldName, worldId, players, playerCount, avatarCount, eventCount };
   }
 
   function isMeaningfulSession(session) {
@@ -89,8 +96,9 @@
       const durationStart = Math.max(session.startedAt, cutoff ?? session.startedAt);
       totalDurationMs += Math.max(0, session.endedAt - durationStart);
       if (session.worldName) {
-        const world = worlds.get(session.worldName) || { worldName: session.worldName, sessions: 0, lastSeenAt: 0 };
+        const world = worlds.get(session.worldName) || { worldName: session.worldName, worldId: "", sessions: 0, lastSeenAt: 0 };
         world.sessions += 1;
+        if (session.worldId && session.startedAt >= world.lastSeenAt) world.worldId = session.worldId;
         world.lastSeenAt = Math.max(world.lastSeenAt, session.startedAt);
         worlds.set(session.worldName, world);
       }
@@ -161,5 +169,5 @@
     ].filter(Boolean).join("\n");
   }
 
-  return { DAY_MS, timestamp, snapshot, snapshotPlayers, normalizeDays, normalizeSession, isMeaningfulSession, dedupeSessions, buildInsights, formatDuration, recap };
+  return { DAY_MS, timestamp, snapshot, snapshotPlayers, snapshotWorldId, normalizeDays, normalizeSession, isMeaningfulSession, dedupeSessions, buildInsights, formatDuration, recap };
 });

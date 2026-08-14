@@ -51,6 +51,17 @@ test("links avatar data to one recent avatar switch", () => {
   assert.equal(event.correlationConfidence, "temporal");
 });
 
+test("links avatar events to the joined VRChat user id", () => {
+  const parser = createParser();
+  const userId = "usr_1373af91-5e80-42c5-94c1-3d6edb05f2fc";
+  parser.parseLine(`2026.06.09 13:37:39 Debug      -  [Behaviour] OnPlayerJoined Protected User (${userId})`);
+  const changed = parser.parseLine("2026.06.09 13:38:07 Debug      -  [Behaviour] Switching Protected User to avatar Hidden Avatar");
+  const data = parser.parseLine("2026.06.09 13:38:08 Debug      -  Loading Avatar Data:avtr_11111111-2222-3333-4444-555555555555");
+
+  assert.equal(changed.userId, userId);
+  assert.equal(data.userId, userId);
+});
+
 test("resets parser state between independent log sessions", () => {
   const parser = createParser();
   parser.parseLine("2026.06.09 13:38:07 Debug      -  [Behaviour] Switching Old Player to avatar Old Avatar");
@@ -64,7 +75,7 @@ test("resets parser state between independent log sessions", () => {
 
 test("parses world events", () => {
   const parser = createParser();
-  const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "sample-vrchat.txt"), "utf8").split(/\r?\n/u);
+  const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "sample-vrchat.log"), "utf8").split(/\r?\n/u);
   const events = parser.parseLines(fixture);
 
   assert.equal(events.some((event) => event.type === "world-joining"), true);

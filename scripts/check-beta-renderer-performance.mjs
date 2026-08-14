@@ -31,6 +31,8 @@ if (process.env.BETA_PREVIEW_SECTION) previewUrl.searchParams.set("section", pro
 if (process.env.BETA_PREVIEW_BUILDER_PRESET) previewUrl.searchParams.set("builderPreset", process.env.BETA_PREVIEW_BUILDER_PRESET);
 if (process.env.BETA_PREVIEW_PLAYER) previewUrl.searchParams.set("player", process.env.BETA_PREVIEW_PLAYER);
 if (process.env.BETA_PREVIEW_SCALE) previewUrl.searchParams.set("scale", process.env.BETA_PREVIEW_SCALE);
+if (process.env.BETA_PREVIEW_UI) previewUrl.searchParams.set("ui", process.env.BETA_PREVIEW_UI);
+if (process.env.BETA_PREVIEW_RAIL) previewUrl.searchParams.set("rail", process.env.BETA_PREVIEW_RAIL);
 if (process.env.BETA_PREVIEW_AVATAR_SEARCH) {
   previewUrl.searchParams.set("avatarSearch", process.env.BETA_PREVIEW_AVATAR_SEARCH);
   previewUrl.searchParams.set("onlineAvatarSearch", "1");
@@ -159,11 +161,16 @@ try {
     }))()` : `(() => {
       const eventList = document.querySelector('[data-event-feed]');
       const playerList = document.querySelector('[data-player-list]');
+      const avatarList = document.querySelector('[data-avatar-session-list]');
+      const avatarCountText = document.querySelector('[data-avatar-count]')?.textContent || '';
       return {
         eventTotal: Number(eventList?.dataset.virtualTotal || 0),
         eventRows: eventList?.querySelectorAll('.eventRow').length || 0,
         playerTotal: Number(playerList?.dataset.virtualTotal || 0),
         playerRows: playerList?.querySelectorAll('.sessionPlayerButton').length || 0,
+        avatarPageTotal: Number(avatarList?.dataset.virtualTotal || 0),
+        avatarRows: avatarList?.querySelectorAll('.avatarSessionRow').length || 0,
+        avatarCatalogTotal: Number(avatarCountText.match(/\\d+/u)?.[0] || 0),
         totalDomNodes: document.querySelectorAll('*').length,
         usedJsHeapBytes: Number(performance.memory?.usedJSHeapSize || 0)
       };
@@ -181,10 +188,13 @@ try {
     process.exitCode = 0;
   } else {
   const stressMode = (process.env.BETA_PREVIEW_STRESS || "1") === "1";
-  if (stressMode && metrics.playerTotal !== 1000) failures.push(`ожидалось 1000 игроков, получено ${metrics.playerTotal}`);
-  if (stressMode && metrics.eventTotal !== 2000) failures.push(`ожидалось 2000 событий, получено ${metrics.eventTotal}`);
-  if (metrics.playerRows > 40) failures.push(`создано слишком много строк игроков: ${metrics.playerRows}`);
-  if (metrics.eventRows > 40) failures.push(`создано слишком много строк событий: ${metrics.eventRows}`);
+  const avatarSection = process.env.BETA_PREVIEW_SECTION === "avatars";
+  if (stressMode && avatarSection && metrics.avatarCatalogTotal < 900) failures.push(`ожидалось не меньше 900 аватаров, получено ${metrics.avatarCatalogTotal}`);
+  if (stressMode && !avatarSection && metrics.playerTotal !== 1000) failures.push(`ожидалось 1000 игроков, получено ${metrics.playerTotal}`);
+  if (stressMode && !avatarSection && metrics.eventTotal !== 2000) failures.push(`ожидалось 2000 событий, получено ${metrics.eventTotal}`);
+  if (!avatarSection && metrics.playerRows > 40) failures.push(`создано слишком много строк игроков: ${metrics.playerRows}`);
+  if (!avatarSection && metrics.eventRows > 40) failures.push(`создано слишком много строк событий: ${metrics.eventRows}`);
+  if (avatarSection && metrics.avatarRows > 40) failures.push(`создано слишком много строк аватаров: ${metrics.avatarRows}`);
   if (metrics.totalDomNodes > 1200) failures.push(`DOM разросся до ${metrics.totalDomNodes} узлов`);
   if (failures.length) throw new Error(failures.join("; "));
   console.log(JSON.stringify({

@@ -536,8 +536,8 @@ function currentAdminIdentity() {
   const key = String(license.keyPrefix || license.id || "").trim();
   const authorAlias = String(license.authorAlias || "").trim();
   const legacyLabel = String(license.label || "").trim();
-  const legacyPaymentLabel = /^(?:yookassa|payment)\s+order\s+#\d+$/iu.test(legacyLabel);
-  const label = authorAlias || (!legacyPaymentLabel ? legacyLabel : "") || key;
+  const generatedOrderLabel = /^order\s+#\d+$/iu.test(legacyLabel);
+  const label = authorAlias || (!generatedOrderLabel ? legacyLabel : "") || key;
   return {
     key: key.slice(0, 80),
     label: label.slice(0, 120)
@@ -1429,6 +1429,11 @@ async function flushAvatarNotes(options = {}) {
         delete state.avatarNoteOutbox[avatarKey];
       } catch (error) {
         if (!isCurrentTeamScope(scopeVersion, teamId)) return;
+        if (error?.message === "avatar_is_protected") {
+          delete state.avatarNoteOutbox[avatarKey];
+          delete state.avatarNotes[avatarKey];
+          continue;
+        }
         if (!silent) setRuntimeStatus(`Avatar note remains queued: ${error.message}`, true);
       }
     }
@@ -1508,9 +1513,22 @@ async function loadAvatarCatalog(options = {}) {
       if (avatarId && state.avatarCatalogOutbox[avatarId]) continue;
       changed = mergeAvatarCatalogRow(row) || changed;
     }
+    for (const [avatarId, entry] of Object.entries(state.avatarCatalog)) {
+      if (serverIds.has(avatarId)) continue;
+      const queued = state.avatarCatalogOutbox[avatarId];
+      if (queued?.sourceUserId) continue;
+      delete state.avatarCatalog[avatarId];
+      if (entry) changed = true;
+    }
+    for (const [avatarId, entry] of Object.entries(state.avatarCatalogOutbox)) {
+      if (entry?.sourceUserId) continue;
+      delete state.avatarCatalogOutbox[avatarId];
+      delete state.avatarCatalog[avatarId];
+      changed = true;
+    }
     if (pushLocal) {
       for (const [avatarId, entry] of Object.entries(localBeforeSync)) {
-        if (!serverIds.has(avatarId) && entry?.avatarId) {
+        if (!serverIds.has(avatarId) && entry?.avatarId && entry?.sourceUserId) {
           state.avatarCatalogOutbox[avatarId] = entry;
         }
       }
@@ -1573,7 +1591,8 @@ async function flushAvatarCatalog(options = {}) {
       try {
         const payload = await window.clientApi.saveAvatarCatalog({
           avatarName: entry.avatarName,
-          avatarId: entry.avatarId
+          avatarId: entry.avatarId,
+          sourceUserId: entry.sourceUserId
         });
         if (!isCurrentTeamScope(scopeVersion, teamId)) return;
         const saved = payload?.avatar || payload;
@@ -1581,6 +1600,11 @@ async function flushAvatarCatalog(options = {}) {
         delete state.avatarCatalogOutbox[avatarId];
       } catch (error) {
         if (!isCurrentTeamScope(scopeVersion, teamId)) return;
+        if (error?.message === "avatar_user_protected") {
+          delete state.avatarCatalogOutbox[avatarId];
+          delete state.avatarCatalog[avatarId];
+          continue;
+        }
         if (!silent) setRuntimeStatus(`Avatar catalog remains queued: ${error.message}`, true);
       }
     }
@@ -1592,6 +1616,7 @@ async function flushAvatarCatalog(options = {}) {
 }
 
 function rememberAvatarCatalogEntry(event) {
+  if (event?.avatarRedacted || event?.avatarProtected) return;
   if (!event?.avatarName || !event?.avatarId || ["catalog", "api-name"].includes(event.avatarIdSource)) return;
   const key = String(event.avatarId).trim();
   if (!key) return;
@@ -1600,6 +1625,7 @@ function rememberAvatarCatalogEntry(event) {
   state.avatarCatalog[key] = {
     avatarName: event.avatarName,
     avatarId: event.avatarId,
+    sourceUserId: event.userId || "",
     avatarNameKey: avatarNameKey(event.avatarName),
     updatedAt: new Date().toISOString()
   };
@@ -1609,6 +1635,9 @@ function rememberAvatarCatalogEntry(event) {
 
 function enrichAvatarEvent(event) {
   if (!event || event.category !== "avatars") return event;
+  if (event.avatarRedacted || event.avatarProtected) {
+    return { ...event, avatarName: "", avatarId: "", raw: "" };
+  }
   if (event.avatarId && !event.avatarName) {
     const known = knownAvatarById(event.avatarId);
     if (known?.avatarName) {
@@ -1666,7 +1695,6 @@ function applyResolvedAvatar(avatar) {
   if (!avatar?.avatarId || !avatar?.avatarName) return false;
   mergeAvatarCatalogRow(avatar);
   cacheAvatarCatalog();
-  queueAvatarCatalogSave(avatar);
 
   const uniqueKnownName = knownAvatarByName(avatar.avatarName);
   const canAttachByName = uniqueKnownName?.avatarId === avatar.avatarId;
@@ -1699,6 +1727,7 @@ function applyResolvedAvatar(avatar) {
 }
 
 function resolveAvatarFromApi(event) {
+  if (event?.avatarRedacted || event?.avatarProtected) return;
   if (!event?.avatarId || event.avatarName || !window.clientApi.resolveVrchatAvatar) return;
   if (state.avatarResolveInFlight.has(event.avatarId)) return;
 
@@ -1762,6 +1791,8 @@ function applyAvatarNameCandidates(avatarName, candidates = []) {
 
 function resolveAvatarNameFromApi(event) {
   if (
+    event?.avatarRedacted ||
+    event?.avatarProtected ||
     !event?.avatarName ||
     event.avatarId ||
     !["avatar-changed", "avatar-data"].includes(event.type) ||

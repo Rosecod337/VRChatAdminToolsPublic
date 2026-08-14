@@ -7,19 +7,20 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const publicFiles = [
-  "apps/admin/renderer/index.html",
-  "apps/admin/renderer/renderer.js",
-  "apps/admin/renderer/styles.css",
-  "apps/admin/src/main.js",
-  "apps/admin/src/preload.js",
   "server-template/src/index.js",
   "server-template/src/db.js"
 ];
 
-test("public admin and server template exclude private tax and payment integrations", () => {
+test("public server template excludes private tax and payment integrations", () => {
   const source = publicFiles
     .map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8"))
     .join("\n");
 
   assert.doesNotMatch(source, /tax|receipt|налог|чек|yookassa|payment_orders/iu);
+});
+
+test("private applications and deployment files are absent from public source", () => {
+  for (const relativePath of ["apps/admin", "apps/server", "apps/site", "deploy"]) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} must not be published`);
+  }
 });

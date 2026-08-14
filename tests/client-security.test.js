@@ -220,35 +220,6 @@ test("owner group management stays behind IPC and requires explicit confirmation
   assert.doesNotMatch(renderer, /api\.vrchat\.cloud/u);
 });
 
-test("license admin separates bans from granular group management permissions", () => {
-  const markup = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/index.html"), "utf8");
-  const renderer = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/renderer.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "../apps/admin/renderer/styles.css"), "utf8");
-
-  assert.match(renderer, /data-owner-ban-access/u);
-  assert.match(renderer, /data-group-view/u);
-  assert.match(renderer, /data-group-roles/u);
-  assert.match(renderer, /data-group-kick/u);
-  assert.match(renderer, /data-save-group-access/u);
-  assert.match(renderer, /canViewGroupMembers/u);
-  assert.match(renderer, /canManageGroupRoles/u);
-  assert.match(renderer, /canKickGroupMembers/u);
-  assert.match(markup, /id="licenseSearch"/u);
-  assert.match(markup, /value="attention"/u);
-  assert.match(markup, /id="licenseSort"[\s\S]*value="newest"[\s\S]*value="oldest"/u);
-  assert.match(renderer, /const sortMode = licenseSort\?\.value \|\| "newest"/u);
-  assert.match(renderer, /sortMode === "attention"/u);
-  assert.match(renderer, /sortMode === "oldest"/u);
-  assert.match(renderer, /class="licensePermissionDetails"/u);
-  assert.match(renderer, /class="licenseSupportDetails"/u);
-  assert.match(renderer, /popoverSummary/u);
-  assert.match(styles, /\.ownerCell\s*\{[^}]*position:\s*absolute/isu);
-  assert.match(styles, /\.ownerCell\s*\{[^}]*grid-template-columns:\s*repeat\(2/isu);
-  assert.match(styles, /\.licenseSupportDetails\s*>\s*div\s*\{[^}]*position:\s*absolute/isu);
-  assert.match(styles, /\.groupAccessCard\s*\{[^}]*border:[^}]*217,\s*83,\s*79/isu);
-  assert.match(styles, /\.groupAccessButton/isu);
-});
-
 test("ordinary licensed users get personal VRChat insights without Owner access", () => {
   const markup = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/index.html"), "utf8");
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
@@ -261,6 +232,30 @@ test("ordinary licensed users get personal VRChat insights without Owner access"
   assert.match(renderer, /window\.clientApi\.listPlaySessions/u);
   assert.match(renderer, /const playerStats = computePlayerStats\(state\.events\);/u);
   assert.match(insights, /recurringPlayerCount/u);
+});
+
+test("global publication is a separate server-enforced per-key permission", () => {
+  const clientRenderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
+  const notificationHandler = clientRenderer.slice(
+    clientRenderer.indexOf("function notifyForEvent(event)"),
+    clientRenderer.indexOf("function addEvent(event)")
+  );
+
+  assert.match(clientRenderer, /function canPublishGlobalNotes\(\)/u);
+  assert.match(clientRenderer, /canPublishGlobalNotes\(\) \? `<div class="adminShareActions">/u);
+  assert.match(clientRenderer, /canPublishGlobalNotes\(\) \? `<div class="adminAvatarShareActions">/u);
+  assert.doesNotMatch(notificationHandler, /global(?:Player|Avatar|Publication)/u);
+});
+
+test("protected avatar data fails closed in the client", () => {
+  const clientMain = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
+
+  assert.match(clientMain, /protectedAvatarProtectionReady = false/u);
+  assert.match(clientMain, /avatarRedacted: true/u);
+  assert.match(clientMain, /protectedAvatarFeatureUnavailable/u);
+  assert.match(clientMain, /return \{ supported: false \}/u);
+  assert.match(clientMain, /applyProtectionPolicy/u);
+  assert.doesNotMatch(clientMain, /payload\.userIds/u);
 });
 
 test("public client does not expose an internal moderation bot name", () => {

@@ -2,6 +2,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { execFile } = require("node:child_process");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, safeStorage, shell } = require("electron");
@@ -14,13 +15,11 @@ const {
 } = require("./security");
 const { RuntimeConfigManager } = require("./runtime-config");
 const { importStableSettings } = require("./stable-settings-import");
+const { LocalCompanionStore } = require("./local-companion-store");
 const { VrchatUserResolver } = require("./vrchat-api");
 
 const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
-const RETIRED_SERVER_URLS = new Set([
-  "https://web-production-a9b1cd.up.railway.app",
-  "https://web-production-a54bb.up.railway.app"
-]);
+const RETIRED_SERVER_URLS = new Set();
 
 function isBetaClient() {
   return process.env.VRCHAT_CLIENT_VARIANT === "beta" || /\bbeta\b/iu.test(app.getName());
@@ -58,7 +57,8 @@ const DEFAULT_SETTINGS = {
   sessionToken: "",
   license: null,
   vrchatAuthCookie: "",
-  rememberMe: false
+  rememberMe: false,
+  freeMode: false
 };
 
 let mainWindow;
@@ -72,12 +72,19 @@ let quitFinalizationStarted = false;
 let normalWindowBounds = null;
 let alwaysOnTopEnabled = false;
 let alwaysOnTopReapplyTimer = null;
+let localCompanionStore = null;
 const tailer = new LogTailer();
 const resolver = new VrchatUserResolver();
 const SETTINGS_SECRET_FIELDS = ["sessionToken", "vrchatAuthCookie"];
 const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) => [field, ""]));
+let lastKnownSettings = null;
+let settingsWriteQueue = Promise.resolve();
 const approvedLogFiles = new Set();
 const notificationTimes = new Map();
+let protectedAvatarUserHashes = new Set();
+let protectedAvatarIdHashes = new Set();
+let protectedAvatarHashSalt = "";
+let protectedAvatarProtectionReady = false;
 const API_TIMEOUT_MS = 20_000;
 const RUNTIME_CONFIG_REFRESH_MS = 10 * 60 * 1000;
 const MIN_WINDOW_OPACITY = 0.4;
@@ -100,6 +107,16 @@ function isVrchatRunning() {
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
+}
+
+function companionStore() {
+  if (!isBetaClient()) throw new Error("Local companion storage is only available in Beta");
+  localCompanionStore ??= new LocalCompanionStore(path.join(app.getPath("userData"), "companion.sqlite"));
+  return localCompanionStore;
+}
+
+function isFreeMode(settings) {
+  return isBetaClient() && settings?.freeMode === true;
 }
 
 async function importStableSettingsForBeta({ force = false } = {}) {
@@ -168,10 +185,12 @@ function serializeSettings(settings) {
 }
 
 async function readSettings() {
+  await settingsWriteQueue.catch(() => {});
   try {
     const raw = await fs.readFile(settingsPath(), "utf8");
     const parsed = JSON.parse(raw);
     const normalized = hydrateSettings(parsed);
+    lastKnownSettings = normalized;
     const hasPlainSecrets = SETTINGS_SECRET_FIELDS.some((field) => Boolean(parsed[field]));
     const savedServerUrl = String(parsed.serverUrl || "").trim().replace(/\/+$/u, "");
     const serverUrlChanged = savedServerUrl !== normalized.serverUrl;
@@ -180,20 +199,41 @@ async function readSettings() {
     }
     return normalized;
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return lastKnownSettings ? { ...lastKnownSettings } : { ...DEFAULT_SETTINGS };
   }
 }
 
-async function writeSettings(settings) {
+function writeSettings(settings) {
   const normalized = {
     ...DEFAULT_SETTINGS,
     ...settings,
     serverUrl: normalizeServerUrl(settings.serverUrl)
   };
-  await fs.mkdir(path.dirname(settingsPath()), { recursive: true });
-  await fs.writeFile(settingsPath(), JSON.stringify(serializeSettings(normalized), null, 2), "utf8");
-  return normalized;
+  const targetPath = settingsPath();
+  const temporaryPath = `${targetPath}.${process.pid}.tmp`;
+  const operation = settingsWriteQueue.then(async () => {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    try {
+      await fs.writeFile(temporaryPath, JSON.stringify(serializeSettings(normalized), null, 2), "utf8");
+      await fs.rename(temporaryPath, targetPath);
+      lastKnownSettings = normalized;
+      return normalized;
+    } finally {
+      await fs.unlink(temporaryPath).catch(() => {});
+    }
+  });
+  settingsWriteQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
+
+let vrchatSessionPersistQueue = Promise.resolve();
+resolver.setAuthCookieChangeHandler((authCookie) => {
+  vrchatSessionPersistQueue = vrchatSessionPersistQueue.then(async () => {
+    const settings = await readSettings();
+    if (!authCookie || settings.vrchatAuthCookie === authCookie) return;
+    await writeSettings({ ...settings, vrchatAuthCookie: authCookie });
+  }).catch(() => {});
+});
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -274,6 +314,88 @@ function sanitizeLogOptions(options = {}) {
 function send(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(channel, payload);
+}
+
+function redactProtectedAvatarEvent(event) {
+  if (!event || event.category !== "avatars") return event;
+  const sourceUserId = String(event.userId || "").trim();
+  const sourceHash = sourceUserId && protectedAvatarHashSalt
+    ? createHash("sha256").update(`${protectedAvatarHashSalt}:${sourceUserId}`).digest("hex")
+    : "";
+  const protectedSource = protectedAvatarProtectionReady && sourceHash && protectedAvatarUserHashes.has(sourceHash);
+  const unresolvedAvatarId = event.type === "avatar-data" && !sourceUserId;
+  if (protectedAvatarProtectionReady && !protectedSource && !unresolvedAvatarId) return event;
+  return {
+    ...event,
+    avatarName: "",
+    avatarId: "",
+    raw: "",
+    avatarRedacted: true,
+    avatarProtected: protectedSource,
+    correlationConfidence: protectedSource ? "protected" : "unknown",
+    protectionUnavailable: !protectedAvatarProtectionReady
+  };
+}
+
+function protectedValueHash(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized || !protectedAvatarHashSalt) return "";
+  return createHash("sha256").update(`${protectedAvatarHashSalt}:${normalized}`).digest("hex");
+}
+
+function isProtectedAvatarId(avatarId) {
+  if (!protectedAvatarProtectionReady) return true;
+  const hash = protectedValueHash(avatarId);
+  return Boolean(hash && protectedAvatarIdHashes.has(hash));
+}
+
+function filterProtectedAvatarPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (Array.isArray(payload)) return payload.filter((row) => !isProtectedAvatarId(row?.avatarId || row?.id));
+  const next = { ...payload };
+  if (Array.isArray(next.candidates)) next.candidates = filterProtectedAvatarPayload(next.candidates);
+  if (Array.isArray(next.avatars)) next.avatars = filterProtectedAvatarPayload(next.avatars);
+  return next;
+}
+
+function protectedAvatarFeatureUnavailable(error) {
+  return /(?:^|\s)HTTP 404(?:\s|$)/u.test(String(error?.message || ""));
+}
+
+async function refreshProtectedAvatarUsers() {
+  const settings = await readSettings();
+  let payload;
+  try {
+    if (settings.sessionToken && !isFreeMode(settings)) {
+      const hwid = await getHardwareId();
+      payload = await apiPost("/protected-avatar-users/list", { sessionToken: settings.sessionToken, hwid });
+    } else if (isFreeMode(settings)) {
+      payload = await apiPost("/public/protected-avatar-policy", {});
+    } else {
+      protectedAvatarUserHashes = new Set();
+      protectedAvatarIdHashes = new Set();
+      protectedAvatarHashSalt = "";
+      protectedAvatarProtectionReady = false;
+      return;
+    }
+  } catch (error) {
+    if (!protectedAvatarFeatureUnavailable(error)) throw error;
+    protectedAvatarUserHashes = new Set();
+    protectedAvatarIdHashes = new Set();
+    protectedAvatarHashSalt = "";
+    protectedAvatarProtectionReady = false;
+    return { supported: false };
+  }
+  const salt = String(payload.salt || "").trim();
+  const hashes = (payload.userIdHashes || []).map((value) => String(value || "").trim()).filter(Boolean);
+  const avatarHashes = (payload.avatarIdHashes || []).map((value) => String(value || "").trim()).filter(Boolean);
+  if (!salt) throw new Error("protected_avatar_policy_unavailable");
+  protectedAvatarHashSalt = salt;
+  protectedAvatarUserHashes = new Set(hashes);
+  protectedAvatarIdHashes = new Set(avatarHashes);
+  protectedAvatarProtectionReady = true;
+  if (isBetaClient()) companionStore().applyProtectionPolicy({ salt, userIdHashes: hashes, avatarIdHashes: avatarHashes });
+  return { supported: true };
 }
 
 function openExternalHttpsUrl(value) {
@@ -365,7 +487,7 @@ tailer.on("error", (error) => {
 });
 
 tailer.on("event", (event) => {
-  send("log:event", event);
+  send("log:event", redactProtectedAvatarEvent(event));
   if (event.userId) {
     resolver.resolve(event.userId).then((profile) => {
       if (profile) send("user:resolved", profile);
@@ -383,6 +505,7 @@ tailer.on("rotation", (payload) => {
 
 async function validateCurrentSession() {
   const settings = await readSettings();
+  if (isFreeMode(settings)) return { ok: true, accessMode: "free", license: null };
   if (!settings.sessionToken) return { ok: false, error: "no_session" };
   const hwid = await getHardwareId();
   const payload = await apiPost("/auth/session", {
@@ -395,6 +518,14 @@ async function validateCurrentSession() {
 async function startHeartbeat() {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   const settings = await readSettings();
+  if (isFreeMode(settings)) {
+    heartbeatTimer = setInterval(() => {
+      refreshProtectedAvatarUsers().catch(() => {
+        protectedAvatarProtectionReady = false;
+      });
+    }, RUNTIME_CONFIG_REFRESH_MS);
+    return;
+  }
   if (!settings.sessionToken) return;
 
   heartbeatTimer = setInterval(async () => {
@@ -407,6 +538,9 @@ async function startHeartbeat() {
       if (payload.license) {
         await writeSettings({ ...settings, license: payload.license });
       }
+      await refreshProtectedAvatarUsers().catch(() => {
+        protectedAvatarProtectionReady = false;
+      });
       send("auth:status", { ok: true, message: "Session active", license: payload.license || null });
     } catch (error) {
       send("auth:status", { ok: false, message: error.message });
@@ -513,13 +647,21 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("before-quit", (event) => {
-  if (quitFinalizationStarted || !currentPlaySessionId) return;
+  if (quitFinalizationStarted || !currentPlaySessionId) {
+    localCompanionStore?.close();
+    localCompanionStore = null;
+    return;
+  }
   quitFinalizationStarted = true;
   event.preventDefault();
   Promise.race([
     endCurrentPlaySession().catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, 3000))
-  ]).finally(() => app.quit());
+  ]).finally(() => {
+    localCompanionStore?.close();
+    localCompanionStore = null;
+    app.quit();
+  });
 });
 
 ipcMain.handle("client:get-settings", async () => {
@@ -530,11 +672,33 @@ ipcMain.handle("client:get-settings", async () => {
     hasVrchatAuthCookie: Boolean(settings.vrchatAuthCookie),
     rememberMe: Boolean(settings.rememberMe),
     hasSession: Boolean(settings.sessionToken),
-    license: settings.license
+    freeMode: isFreeMode(settings),
+    accessMode: isFreeMode(settings) ? "free" : (settings.sessionToken ? "paid" : "locked"),
+    license: isFreeMode(settings) ? null : settings.license
   };
 });
 
 ipcMain.handle("client:import-stable-settings", () => importStableSettingsForBeta({ force: true }));
+
+ipcMain.handle("client:continue-free", async () => {
+  if (!isBetaClient()) throw new Error("free_mode_requires_beta");
+  const settings = await readSettings();
+  await writeSettings({
+    ...settings,
+    sessionToken: "",
+    license: null,
+    importedStableSession: false,
+    freeMode: true
+  });
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
+  protectedAvatarProtectionReady = false;
+  await refreshProtectedAvatarUsers().catch(() => {
+    protectedAvatarProtectionReady = false;
+  });
+  await startHeartbeat();
+  return { ok: true, accessMode: "free" };
+});
 
 ipcMain.handle("client:save-settings", async (_event, settings) => {
   const oldSettings = await readSettings();
@@ -551,6 +715,42 @@ ipcMain.handle("client:save-settings", async (_event, settings) => {
   return { serverUrl: saved.serverUrl, hasVrchatAuthCookie: Boolean(saved.vrchatAuthCookie) };
 });
 
+async function persistVrchatAccountSession(result) {
+  if (!result?.authenticated) return result;
+  const oldSettings = await readSettings();
+  const saved = await writeSettings({
+    ...oldSettings,
+    vrchatAuthCookie: resolver.getAuthCookie()
+  });
+  resolver.setAuthCookie(saved.vrchatAuthCookie);
+  return result;
+}
+
+ipcMain.handle("vrchat:account-login", async (_event, credentials) => {
+  const username = String(credentials?.username || "");
+  const password = String(credentials?.password || "");
+  return persistVrchatAccountSession(await resolver.loginWithAccount(username, password));
+});
+
+ipcMain.handle("vrchat:account-verify", async (_event, payload) => {
+  const method = String(payload?.method || "");
+  const code = String(payload?.code || "");
+  return persistVrchatAccountSession(await resolver.verifyAccountLogin(method, code));
+});
+
+ipcMain.handle("vrchat:account-cancel", () => {
+  resolver.cancelAccountLogin();
+  return { ok: true };
+});
+
+ipcMain.handle("vrchat:account-disconnect", async () => {
+  resolver.cancelAccountLogin();
+  resolver.setAuthCookie("");
+  const oldSettings = await readSettings();
+  await writeSettings({ ...oldSettings, vrchatAuthCookie: "" });
+  return { ok: true, hasVrchatAuthCookie: false };
+});
+
 ipcMain.handle("vrchat:current-user", async () => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
@@ -565,7 +765,34 @@ ipcMain.handle("vrchat:current-instance", async () => {
   return resolver.fetchCurrentInstance();
 });
 
+ipcMain.handle("vrchat:social-summary", async (_event, force = false) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  const summary = await resolver.fetchSocialSummary({ force: Boolean(force) });
+  if (isBetaClient()) companionStore().recordSocialSnapshot(summary);
+  return summary;
+});
+
+ipcMain.handle("vrchat:user-profile", async (_event, userId) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.fetchUserProfile(String(userId || ""));
+});
+
+ipcMain.handle("vrchat:group", async (_event, groupId) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.fetchGroup(String(groupId || ""));
+});
+
+ipcMain.handle("vrchat:personal-collection", async (_event, kind, force = false) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.fetchPersonalCollection(String(kind || ""), { force: Boolean(force) });
+});
+
 ipcMain.handle("vrchat:avatar", async (_event, avatarId) => {
+  if (isProtectedAvatarId(avatarId)) throw new Error("avatar_is_protected");
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   return resolver.fetchAvatar(avatarId);
@@ -574,16 +801,17 @@ ipcMain.handle("vrchat:avatar", async (_event, avatarId) => {
 ipcMain.handle("vrchat:avatar-search", async (_event, avatarName) => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
-  return resolver.searchAvatarCandidates(avatarName);
+  return filterProtectedAvatarPayload(await resolver.searchAvatarCandidates(avatarName));
 });
 
 ipcMain.handle("vrchat:avatar-browse", async (_event, searchText) => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
-  return resolver.searchAvatars(searchText);
+  return filterProtectedAvatarPayload(await resolver.searchAvatars(searchText));
 });
 
 ipcMain.handle("vrchat:avatar-favorite", async (_event, avatarId) => {
+  if (isProtectedAvatarId(avatarId)) throw new Error("avatar_is_protected");
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   return resolver.favoriteAvatar(avatarId);
@@ -614,13 +842,25 @@ ipcMain.handle("client:activate", async (_event, body) => {
     vrchatAuthCookie: nextCookie,
     rememberMe: Boolean(body.rememberMe),
     sessionToken: payload.sessionToken,
-    license: payload.license
+    license: payload.license,
+    freeMode: false
   });
+  await refreshProtectedAvatarUsers();
   await startHeartbeat();
   return payload;
 });
 
-ipcMain.handle("client:validate", validateCurrentSession);
+ipcMain.handle("client:validate", async () => {
+  const payload = await validateCurrentSession();
+  if (payload.accessMode === "free") {
+    await refreshProtectedAvatarUsers().catch(() => {
+      protectedAvatarProtectionReady = false;
+    });
+  } else {
+    await refreshProtectedAvatarUsers();
+  }
+  return payload;
+});
 
 ipcMain.handle("client:logout", async () => {
   const settings = await readSettings();
@@ -630,7 +870,7 @@ ipcMain.handle("client:logout", async () => {
     const hwid = await getHardwareId();
     await apiPost("/auth/logout", { sessionToken: settings.sessionToken, hwid }).catch(() => {});
   }
-  await writeSettings({ ...settings, sessionToken: "", license: null, importedStableSession: false });
+  await writeSettings({ ...settings, sessionToken: "", license: null, importedStableSession: false, freeMode: false });
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = null;
   await tailer.stop();
@@ -660,6 +900,10 @@ ipcMain.handle("notification:show", (_event, payload) => {
 async function startCurrentPlaySession(worldName = null) {
   try {
     const settings = await readSettings();
+    if (isFreeMode(settings)) {
+      currentPlaySessionId = companionStore().createSession({ worldName });
+      return currentPlaySessionId;
+    }
     const hwid = await getHardwareId();
     const payload = await apiPost("/play-sessions/start", {
       sessionToken: settings.sessionToken,
@@ -667,6 +911,9 @@ async function startCurrentPlaySession(worldName = null) {
       worldName: worldName || null
     });
     currentPlaySessionId = payload.playSessionId;
+    if (isBetaClient() && currentPlaySessionId) {
+      companionStore().ensureSession(currentPlaySessionId, { worldName });
+    }
   } catch {
     currentPlaySessionId = null;
   }
@@ -698,6 +945,11 @@ function hasMeaningfulPlaySessionStats(stats) {
 async function updateCurrentPlaySession(stats, end = false) {
   if (!currentPlaySessionId) return { ok: false, error: "no_active_play_session" };
   const settings = await readSettings();
+  if (isFreeMode(settings)) return companionStore().updateSession(currentPlaySessionId, stats, { end });
+  if (isBetaClient()) {
+    companionStore().ensureSession(currentPlaySessionId, { worldName: stats?.worldName || "" });
+    companionStore().updateSession(currentPlaySessionId, stats, { end });
+  }
   const hwid = await getHardwareId();
   const body = {
     sessionToken: settings.sessionToken,
@@ -708,7 +960,9 @@ async function updateCurrentPlaySession(stats, end = false) {
     body.avatarCount = stats.avatarCount;
     body.eventCount = stats.eventCount;
     body.worldName = stats.worldName || null;
-    body.snapshot = stats.snapshot || {};
+    const snapshot = stats.snapshot && typeof stats.snapshot === "object" ? stats.snapshot : {};
+    const { playerEvents: _playerEvents, worldVisits: _worldVisits, ...sharedSnapshot } = snapshot;
+    body.snapshot = sharedSnapshot;
   }
   const route = end
     ? `/play-sessions/${currentPlaySessionId}/end`
@@ -754,13 +1008,91 @@ ipcMain.handle("tail:stop", async (_event, stats) => {
 
 ipcMain.handle("play-sessions:list", async () => {
   const settings = await readSettings();
+  if (isFreeMode(settings)) return companionStore().listSessions(1_000);
   const hwid = await getHardwareId();
   const payload = await apiPost("/play-sessions/list", {
     sessionToken: settings.sessionToken,
     hwid,
     limit: 200
   });
-  return payload.sessions ?? [];
+  const sessions = payload.sessions ?? [];
+  if (isBetaClient()) companionStore().ingestSessions(sessions);
+  return sessions;
+});
+
+ipcMain.handle("companion:search", async (_event, query) => {
+  if (!isBetaClient()) throw new Error("companion_search_requires_beta");
+  return companionStore().search(String(query || ""), 50);
+});
+
+ipcMain.handle("companion:details", async (_event, kind, key) => {
+  if (!isBetaClient()) throw new Error("companion_details_requires_beta");
+  const safeKind = kind === "player" || kind === "world" || kind === "avatar" ? kind : "";
+  if (!safeKind) throw new Error("invalid_companion_entity");
+  return companionStore().details(safeKind, String(key || ""), 40);
+});
+
+ipcMain.handle("companion:save-player-preference", async (_event, preference) => {
+  if (!isBetaClient()) throw new Error("companion_preferences_require_beta");
+  return companionStore().savePlayerPreference(preference || {});
+});
+
+ipcMain.handle("companion:list-watched-players", async () => {
+  if (!isBetaClient()) return [];
+  return companionStore().listWatchedPlayers();
+});
+
+ipcMain.handle("companion:social-events", async (_event, limit = 500) => {
+  if (!isBetaClient()) return [];
+  return companionStore().listSocialEvents(limit);
+});
+
+ipcMain.handle("companion:save-world-preference", async (_event, preference) => {
+  if (!isBetaClient()) throw new Error("companion_preferences_require_beta");
+  return companionStore().saveWorldPreference(preference || {});
+});
+
+ipcMain.handle("companion:storage-stats", async () => {
+  if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
+  return companionStore().storageStats();
+});
+
+ipcMain.handle("companion:set-retention", async (_event, days) => {
+  if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
+  return companionStore().setRetentionDays(days);
+});
+
+ipcMain.handle("companion:export", async (event, uiSettings) => {
+  if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const date = new Date().toISOString().slice(0, 10);
+  const saveOptions = {
+    title: "Экспорт локальных данных",
+    defaultPath: path.join(app.getPath("documents"), `VRChat-Admin-Tools-backup-${date}.json`),
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  };
+  const result = await (parent ? dialog.showSaveDialog(parent, saveOptions) : dialog.showSaveDialog(saveOptions));
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  const payload = companionStore().exportData(uiSettings || {});
+  await fs.writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return { ok: true, filePath: result.filePath };
+});
+
+ipcMain.handle("companion:import", async (event) => {
+  if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const openOptions = {
+    title: "Импорт локальных данных",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  };
+  const result = await (parent ? dialog.showOpenDialog(parent, openOptions) : dialog.showOpenDialog(openOptions));
+  if (result.canceled || !result.filePaths?.[0]) return { ok: false, canceled: true };
+  const filePath = result.filePaths[0];
+  const info = await fs.stat(filePath);
+  if (info.size > 50 * 1024 * 1024) throw new Error("backup_file_too_large");
+  const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
+  return { ...companionStore().importData(payload), filePath };
 });
 
 ipcMain.handle("player-notes:list", async () => {
@@ -943,13 +1275,15 @@ ipcMain.handle("avatar-catalog:list", async () => {
 });
 
 ipcMain.handle("avatar-catalog:save", async (_event, entry) => {
+  if (isProtectedAvatarId(entry?.avatarId)) throw new Error("avatar_is_protected");
   const settings = await readSettings();
   const hwid = await getHardwareId();
   return apiPost("/avatar-catalog", {
     sessionToken: settings.sessionToken,
     hwid,
     avatarName: entry?.avatarName,
-    avatarId: entry?.avatarId
+    avatarId: entry?.avatarId,
+    sourceUserId: entry?.sourceUserId
   });
 });
 
@@ -965,6 +1299,7 @@ ipcMain.handle("avatar-notes:list", async () => {
 });
 
 ipcMain.handle("avatar-notes:save", async (_event, note) => {
+  if (isProtectedAvatarId(note?.avatarId)) throw new Error("avatar_is_protected");
   const settings = await readSettings();
   const hwid = await getHardwareId();
   const avatarKey = String(note?.avatarKey || "");
@@ -995,6 +1330,7 @@ ipcMain.handle("global-avatar-notes:list", async () => {
 });
 
 ipcMain.handle("global-avatar-notes:save", async (_event, note) => {
+  if (isProtectedAvatarId(note?.avatarId)) throw new Error("avatar_is_protected");
   const settings = await readSettings();
   const hwid = await getHardwareId();
   const avatarId = String(note?.avatarId || "");

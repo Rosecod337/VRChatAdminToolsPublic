@@ -11,6 +11,7 @@ function createParserState() {
     unpackingQueue: [],
     switchingQueue: [],
     avatarContextQueue: [],
+    userIdByPlayerName: new Map(),
     sequence: 0
   };
 }
@@ -109,6 +110,7 @@ function parseLineWithState(state, line) {
   const now = nowMs(base.timestamp);
   let match = /\[Behaviour\]\s+OnPlayerJoined\s+(?<name>.+?)\s+\((?<userId>usr_[^)]+)\)$/u.exec(message);
   if (match) {
+    state.userIdByPlayerName.set(match.groups.name.trim(), match.groups.userId.trim());
     return withBase(base, {
       type: "player-joined",
       category: "players",
@@ -119,6 +121,7 @@ function parseLineWithState(state, line) {
 
   match = /\[Behaviour\]\s+OnPlayerLeft\s+(?<name>.+?)\s+\((?<userId>usr_[^)]+)\)$/u.exec(message);
   if (match) {
+    state.userIdByPlayerName.delete(match.groups.name.trim());
     return withBase(base, {
       type: "player-left",
       category: "players",
@@ -144,6 +147,7 @@ function parseLineWithState(state, line) {
       type: "avatar-changed",
       category: "avatars",
       playerName,
+      userId: state.userIdByPlayerName.get(playerName) || "",
       avatarName,
       avatarId,
       correlationConfidence: "direct"
@@ -156,6 +160,7 @@ function parseLineWithState(state, line) {
       type: "avatar-loading",
       category: "avatars",
       playerName: match.groups.name.trim(),
+      userId: state.userIdByPlayerName.get(match.groups.name.trim()) || "",
       correlationConfidence: "direct"
     }, state);
   }
@@ -171,6 +176,7 @@ function parseLineWithState(state, line) {
       category: "avatars",
       avatarId,
       playerName: context?.playerName || "",
+      userId: state.userIdByPlayerName.get(context?.playerName || "") || "",
       avatarName: context?.avatarName || "",
       correlationConfidence: context ? "temporal" : contexts.length > 1 ? "ambiguous" : "unknown"
     }, state);
@@ -238,6 +244,7 @@ function parseLineWithState(state, line) {
       category: "avatars",
       avatarName,
       playerName,
+      userId: state.userIdByPlayerName.get(playerName) || "",
       particleSystems,
       audioSources,
       correlationConfidence
