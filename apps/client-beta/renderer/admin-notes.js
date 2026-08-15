@@ -7,7 +7,7 @@
     { value: "ok", label: "Без отметки" },
     { value: "watch", label: "Наблюдение" },
     { value: "warned", label: "Предупреждён" },
-    { value: "blocked elsewhere", label: "Заблокирован в другом месте" }
+    { value: "blocked elsewhere", label: "Заблокирован" }
   ]);
 
   function cleanText(value, limit) {
@@ -55,11 +55,17 @@
     };
   }
 
+  function hasEditorChanges(record, payload) {
+    const current = normalizeNote(record);
+    const next = normalizeNote(payload, current);
+    return current.status !== next.status || current.note !== next.note;
+  }
+
   function mergeSavedNote(notes, saved, fallback = {}) {
     const normalized = normalizeNote(saved, fallback);
     if (!normalized.userId) return Array.isArray(notes) ? [...notes] : [];
     return [normalized, ...(Array.isArray(notes) ? notes : []).filter((row) => normalizeNote(row).userId !== normalized.userId)];
   }
 
-  return { STATUS_OPTIONS, normalizeNote, normalizeHistoryRow, editorPayload, mergeSavedNote };
+  return { STATUS_OPTIONS, normalizeNote, normalizeHistoryRow, editorPayload, hasEditorChanges, mergeSavedNote };
 });

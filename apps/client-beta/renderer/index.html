@@ -72,6 +72,7 @@
       </div>
       <div class="windowActions">
         <button class="headerHideButton" type="button" data-header-hide aria-label="Скрыть верхнюю панель" title="Скрыть верхнюю панель">↑</button>
+        <button type="button" data-vrchat-account-open aria-label="Аккаунт VRChat" title="Аккаунт VRChat">VRChat</button>
         <button type="button" data-settings-open aria-label="Настройки" title="Настройки">Настройки</button>
         <button class="updateButton" type="button" data-action="update" hidden>Установить обновление</button>
         <button class="logoutButton" type="button" data-action="logout" aria-label="Выйти" title="Выйти">Выйти</button>
@@ -83,8 +84,8 @@
     <button class="railActionsToggle" type="button" data-rail-actions-toggle aria-controls="railQuickActions" aria-expanded="false" title="Быстрые действия">Быстрые действия</button>
     <div class="workspaceToolbar" id="railQuickActions">
       <div class="headerActions" aria-label="Основные действия">
-        <button type="button" data-action="choose">Выбрать лог</button>
-        <button type="button" data-action="analyze">Анализ</button>
+        <button type="button" data-action="choose" title="Выбрать источник и глубину анализа">Выбрать лог</button>
+        <button type="button" data-action="analyze" title="Проанализировать текущий лог">Анализ</button>
         <button type="button" data-action="snapshot">Снимок</button>
         <button type="button" data-action="community">Сообщество</button>
         <button class="primaryButton" type="button" data-action="start">Запустить</button>
@@ -109,7 +110,7 @@
     </div>
 
     <div class="compactMenuDock" data-compact-menu>
-      <button class="compactMenuHandle" type="button" data-compact-menu-toggle aria-label="Показать компактное меню" title="Показать компактное меню" aria-expanded="false" aria-controls="compactMenuPanel">⌄</button>
+      <button class="compactMenuHandle" type="button" data-compact-menu-toggle aria-label="Показать компактное меню" title="Показать компактное меню" aria-expanded="false" aria-controls="compactMenuPanel"><span aria-hidden="true"></span></button>
       <div class="compactMenuPanel" id="compactMenuPanel" role="toolbar" aria-label="Компактное меню" aria-hidden="true">
         <button type="button" data-compact-return-builder title="Вернуться в рабочее место">Рабочее место</button>
         <button type="button" data-settings-open title="Настройки">Настройки</button>
@@ -270,7 +271,7 @@
           <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button>
         </div>
         <p class="formStatus" data-social-status aria-live="polite"></p>
-        <div class="socialSummary" data-social-summary><article class="panel adminPreviewEmpty"><h2>Подключите аккаунт VRChat</h2><p>Войдите через Настройки. Пароль не сохраняется, а сессия хранится зашифрованной локально.</p></article></div>
+        <div class="socialSummary" data-social-summary><article class="panel adminPreviewEmpty"><h2>Подключите аккаунт VRChat</h2><p>Нажмите отдельную кнопку «VRChat» в панели приложения. Пароль не сохраняется, а сессия хранится зашифрованной локально.</p></article></div>
       </section>
 
       <section class="viewPanel" id="viewPanelHistory" role="tabpanel" aria-labelledby="viewTabHistory" data-view="history" hidden>
@@ -459,38 +460,46 @@
           <section class="settingsSection settingsSessionSection"><h3>Сессия</h3>
             <label class="adminField"><span>Игроки по умолчанию</span><select name="sessionPlayerMode"><option value="online-first">Онлайн сначала</option><option value="online-only">Только онлайн</option><option value="all">Все за сессию</option></select></label>
             <label class="adminField"><span>Буфер событий</span><select name="eventLimit"><option value="1000">1 000</option><option value="2500">2 500</option><option value="5000">5 000</option></select></label>
-            <label class="checkRow"><input name="autoAnalyzeToday" type="checkbox"><span>Автоматически анализировать логи за текущий день</span></label>
+            <label class="checkRow"><input name="autoAnalyzeCurrentLog" type="checkbox"><span>Автоматически анализировать текущий лог</span></label>
+            <label class="checkRow"><input name="protectMonitoring" type="checkbox"><span>Автоматически восстанавливать мониторинг после сбоя</span></label>
             <label class="checkRow"><input name="rememberSelection" type="checkbox"><span>Запоминать выбранные карточки</span></label>
             <label class="checkRow"><input name="notifyMarkedPlayers" type="checkbox"><span>Уведомлять о входе отмеченных игроков</span></label>
             <label class="checkRow"><input name="notifyCrashAvatars" type="checkbox"><span>Уведомлять об отмеченных crash-аватарах</span></label>
-            <p>Системные уведомления появляются только по свежим событиям активного лога. Чтение старой истории их не вызывает.</p>
+            <p>Защита мониторинга не мешает ручной остановке. Системные уведомления появляются только по свежим событиям активного лога.</p>
           </section>
           <section class="settingsSection settingsLocalSection"><h3>Локальные данные</h3>
             <label class="adminField"><span>Хранить историю</span><select data-local-retention><option value="0">Без ограничения</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="180">180 дней</option><option value="365">1 год</option></select></label>
             <p data-local-storage-stats>Считаем локальные записи…</p>
             <div class="settingsDataActions"><button type="button" data-local-export>Экспорт</button><button type="button" data-local-import>Импорт</button></div>
             <p>В резервную копию входят локальные сессии, карточки, избранные миры и настройки интерфейса. Ключ и сессия VRChat не экспортируются.</p>
-          </section>
-          <section class="settingsSection settingsPrivacySection"><h3>VRChat и приватность</h3>
-            <div class="vrchatAccountConnect" data-vrchat-account-connect>
-              <div class="vrchatAccountFields">
-                <label class="adminField"><span>Логин или почта</span><input type="text" data-vrchat-username autocomplete="username" maxlength="320" placeholder="Логин VRChat"></label>
-                <label class="adminField"><span>Пароль</span><input type="password" data-vrchat-password autocomplete="current-password" maxlength="1024" placeholder="Пароль VRChat"></label>
-              </div>
-              <div class="settingsDataActions"><button type="button" data-vrchat-login>Войти в VRChat</button><button type="button" data-vrchat-disconnect hidden>Отключить аккаунт</button></div>
-              <div class="vrchatTwoFactor" data-vrchat-two-factor hidden>
-                <label class="adminField"><span>Способ подтверждения</span><select data-vrchat-two-factor-method></select></label>
-                <label class="adminField"><span>Код подтверждения</span><input type="text" data-vrchat-two-factor-code inputmode="numeric" autocomplete="one-time-code" maxlength="64" placeholder="Код из приложения или письма"></label>
-                <div class="settingsDataActions"><button type="button" data-vrchat-verify>Подтвердить</button><button type="button" data-vrchat-login-cancel>Отмена</button></div>
-              </div>
-              <p>Пароль используется только во время входа и не сохраняется. Зашифрованная сессия остаётся на этом устройстве и не входит в резервную копию.</p>
-              <p class="formStatus" data-vrchat-account-status aria-live="polite"></p>
-            </div>
             <label class="checkRow"><input name="clearOnLogout" type="checkbox"><span>Очищать поиски и выбор при выходе</span></label>
           </section>
         </div>
         <p class="formStatus" data-settings-status aria-live="polite"></p>
         <footer><button type="button" data-settings-reset>По умолчанию</button><div><button type="button" data-settings-cancel>Отмена</button><button class="primaryButton" type="submit">Сохранить</button></div></footer>
+      </form>
+    </dialog>
+
+    <dialog class="settingsDialog vrchatAuthDialog" data-vrchat-auth-dialog>
+      <form>
+        <header><div><span class="eyebrow">VRChat</span><h2>Аккаунт VRChat</h2></div><button type="button" data-vrchat-auth-close aria-label="Закрыть">×</button></header>
+        <div class="vrchatAuthBody">
+          <div class="vrchatAccountConnect" data-vrchat-account-connect>
+            <div class="vrchatAccountFields">
+              <label class="adminField"><span>Логин или почта</span><input type="text" data-vrchat-username autocomplete="username" maxlength="320" placeholder="Логин VRChat"></label>
+              <label class="adminField"><span>Пароль</span><input type="password" data-vrchat-password autocomplete="current-password" maxlength="1024" placeholder="Пароль VRChat"></label>
+            </div>
+            <div class="settingsDataActions"><button class="primaryButton" type="button" data-vrchat-login>Войти в VRChat</button><button type="button" data-vrchat-disconnect hidden>Отключить аккаунт</button></div>
+            <div class="vrchatTwoFactor" data-vrchat-two-factor hidden>
+              <label class="adminField"><span>Способ подтверждения</span><select data-vrchat-two-factor-method></select></label>
+              <label class="adminField"><span>Код подтверждения</span><input type="text" data-vrchat-two-factor-code inputmode="numeric" autocomplete="one-time-code" maxlength="64" placeholder="Код из приложения или письма"></label>
+              <div class="settingsDataActions"><button class="primaryButton" type="button" data-vrchat-verify>Подтвердить</button><button type="button" data-vrchat-login-cancel>Отмена</button></div>
+            </div>
+            <p>Пароль используется только во время входа и не сохраняется. Зашифрованная сессия остаётся на этом устройстве и не входит в резервную копию.</p>
+            <p class="formStatus" data-vrchat-account-status aria-live="polite"></p>
+          </div>
+        </div>
+        <footer><button type="button" data-vrchat-auth-close>Закрыть</button></footer>
       </form>
     </dialog>
   </div>

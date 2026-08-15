@@ -96,9 +96,11 @@ const historyDate = document.querySelector("[data-history-date]");
 const historyState = document.querySelector("[data-history-state]");
 const settingsDialog = document.querySelector("[data-settings-dialog]");
 const settingsForm = document.querySelector("[data-settings-form]");
+const vrchatAuthDialog = document.querySelector("[data-vrchat-auth-dialog]");
 const uiChromeResize = document.querySelector("[data-ui-chrome-resize]");
 const railActionsToggle = document.querySelector("[data-rail-actions-toggle]");
 let settingsReturnFocus = null;
+let vrchatAuthReturnFocus = null;
 let ownerDialogReturnFocus = null;
 let playerDrawerReturnFocus = null;
 const BUILDER_KINDS = Object.freeze(["players", "avatars", "portals", "worlds", "instance", "friends", "friendlog", "admin"]);
@@ -167,7 +169,8 @@ const DEFAULT_UI_SETTINGS = Object.freeze({
   showToolbar: true,
   sessionPlayerMode: "online-first",
   eventLimit: 2500,
-  autoAnalyzeToday: false,
+  autoAnalyzeCurrentLog: false,
+  protectMonitoring: true,
   rememberSelection: true,
   notifyMarkedPlayers: false,
   notifyCrashAvatars: false,
@@ -175,8 +178,13 @@ const DEFAULT_UI_SETTINGS = Object.freeze({
 });
 
 function normalizedUiSettings(value = {}) {
-  const next = { ...DEFAULT_UI_SETTINGS, ...(value && typeof value === "object" ? value : {}) };
+  const source = value && typeof value === "object" ? value : {};
+  const next = { ...DEFAULT_UI_SETTINGS, ...source };
+  if (source.autoAnalyzeCurrentLog === undefined && source.autoAnalyzeToday !== undefined) {
+    next.autoAnalyzeCurrentLog = Boolean(source.autoAnalyzeToday);
+  }
   delete next.autoStart;
+  delete next.autoAnalyzeToday;
   if (!["ru", "en"].includes(next.language)) next.language = "ru";
   if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = "top";
   next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || 272));
@@ -185,7 +193,7 @@ function normalizedUiSettings(value = {}) {
   next.scale = [100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
   if (!["online-first", "online-only", "all"].includes(next.sessionPlayerMode)) next.sessionPlayerMode = "online-first";
-  for (const key of ["animations", "showHeader", "showToolbar", "autoAnalyzeToday", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
+  for (const key of ["animations", "showHeader", "showToolbar", "autoAnalyzeCurrentLog", "protectMonitoring", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
   return next;
 }
 
@@ -193,8 +201,13 @@ const state = {
   settings: null,
   events: [],
   sessionStatsCache: null,
+  playerActivityCache: new Map(),
   filePath: "",
   running: false,
+  monitoringStopRequested: false,
+  monitoringTransition: false,
+  monitoringRestartTimer: 0,
+  monitoringRestartAttempt: 0,
   startedAt: null,
   stoppedAt: null,
   currentPlaySessionId: "",
@@ -341,6 +354,8 @@ const state = {
   builderOpacity: Math.min(100, Math.max(40, Number(localStorage.getItem("betaBuilderOpacity")) || 100)),
   builderCompact: localStorage.getItem("betaBuilderCompact") === "true",
   builderCompactMenuOpen: false,
+  builderCompactHintVisible: false,
+  builderCompactHintTimer: 0,
   builderOverlayHidden: false,
   builderInspector: null,
   builderDashboards: loadLocalJson("betaBuilderDashboards", []),
@@ -606,9 +621,12 @@ function applyUiSettings({ persist = false } = {}) {
     uiChromeResize.setAttribute("aria-valuenow", String(Math.round(state.uiSettings.uiSidebarWidth)));
   }
   const scale = state.uiSettings.scale / 100;
+  const unscaledViewport = 100 / scale;
   appView.style.zoom = String(scale);
+  appView.style.setProperty("--ui-viewport-width", `${unscaledViewport}vw`);
+  appView.style.setProperty("--ui-viewport-height", `${unscaledViewport}vh`);
   appView.style.width = "";
-  appView.style.height = `${100 / scale}vh`;
+  appView.style.height = `${unscaledViewport}vh`;
 }
 
 function fillSettingsForm(settings = state.uiSettings) {
@@ -629,7 +647,7 @@ function fillSettingsForm(settings = state.uiSettings) {
   settingsForm.elements.language.value = value.language;
   settingsForm.elements.startView.value = safeStartView;
   for (const name of ["uiPlacement", "density", "scale", "sessionPlayerMode", "eventLimit"]) settingsForm.elements[name].value = String(value[name]);
-  for (const name of ["animations", "showHeader", "showToolbar", "autoAnalyzeToday", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) settingsForm.elements[name].checked = value[name];
+  for (const name of ["animations", "showHeader", "showToolbar", "autoAnalyzeCurrentLog", "protectMonitoring", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) settingsForm.elements[name].checked = value[name];
   const cookieInput = settingsForm.elements.vrchatAuthCookie;
   if (cookieInput) {
     cookieInput.value = "";
@@ -747,6 +765,24 @@ function closeSettings() {
   restoreFocus(returnFocus);
 }
 
+function openVrchatAuth() {
+  vrchatAuthReturnFocus = focusedElement();
+  setStoredCookieState(Boolean(state.settings?.hasVrchatAuthCookie));
+  vrchatAuthDialog?.showModal();
+  const panel = vrchatAuthDialog?.querySelector("[data-vrchat-account-connect]");
+  const target = panel?.dataset.connected === "true"
+    ? panel.querySelector("[data-vrchat-disconnect]")
+    : panel?.querySelector("[data-vrchat-username]");
+  target?.focus();
+}
+
+function closeVrchatAuth() {
+  const returnFocus = vrchatAuthReturnFocus;
+  vrchatAuthReturnFocus = null;
+  if (vrchatAuthDialog?.open) vrchatAuthDialog.close();
+  restoreFocus(returnFocus);
+}
+
 function readSettingsForm() {
   return normalizedUiSettings({
     language: settingsForm.elements.language.value,
@@ -760,7 +796,8 @@ function readSettingsForm() {
     showToolbar: settingsForm.elements.showToolbar.checked,
     sessionPlayerMode: settingsForm.elements.sessionPlayerMode.value,
     eventLimit: Number(settingsForm.elements.eventLimit.value),
-    autoAnalyzeToday: settingsForm.elements.autoAnalyzeToday.checked,
+    autoAnalyzeCurrentLog: settingsForm.elements.autoAnalyzeCurrentLog.checked,
+    protectMonitoring: settingsForm.elements.protectMonitoring.checked,
     rememberSelection: settingsForm.elements.rememberSelection.checked,
     notifyMarkedPlayers: settingsForm.elements.notifyMarkedPlayers.checked,
     notifyCrashAvatars: settingsForm.elements.notifyCrashAvatars.checked,
@@ -887,7 +924,8 @@ const ACTIVATION_ERROR_MESSAGES = Object.freeze({
     author_alias_invalid_characters: "В имени разрешены буквы, цифры, пробел, точка, дефис и подчёркивание.",
     author_alias_mixed_scripts: "Не смешивайте кириллицу и латиницу в имени автора.",
     author_alias_reserved: "Это имя зарезервировано. Выберите другое.",
-    author_alias_taken: "Это имя уже используется другим ключом."
+    author_alias_taken: "Это имя уже используется другим ключом.",
+    too_many_activation_attempts: "Слишком много неудачных попыток активации с этого подключения. Подождите до 15 минут и попробуйте снова."
 });
 
 function activationErrorCode(error) {
@@ -915,10 +953,10 @@ function formatVrchatAuthError(error, matchOnly = false) {
   };
   for (const [code, friendly] of Object.entries(known)) if (message.includes(code)) return friendly;
   if (/VRChat auth cookie is not configured/iu.test(message)) {
-    return "Аккаунт VRChat не подключён. Войдите в него через Настройки и повторите действие.";
+    return "Аккаунт VRChat не подключён. Нажмите кнопку «VRChat» и войдите в аккаунт.";
   }
   if (/VRChat (?:account )?session is invalid/iu.test(message)) {
-    return "Сессия VRChat истекла. Войдите в аккаунт заново через Настройки.";
+    return "Сессия VRChat истекла. Нажмите кнопку «VRChat» и войдите заново.";
   }
   if (/VRChat user profile is unavailable|VRChat API HTTP 401/iu.test(message)) {
     return "VRChat не открыл запрошенные данные. Ваша сессия сохранена.";
@@ -948,6 +986,11 @@ function setStoredCookieState(hasStoredCookie) {
     panel.dataset.connected = hasStoredCookie ? "true" : "false";
     if (hasStoredCookie && !status?.dataset.busy) hideVrchatTwoFactor(panel);
     if (status && !status.dataset.busy) status.textContent = hasStoredCookie ? "Аккаунт VRChat подключён." : "";
+  });
+  document.querySelectorAll("[data-vrchat-account-open]").forEach((button) => {
+    button.dataset.connected = hasStoredCookie ? "true" : "false";
+    button.title = hasStoredCookie ? "Аккаунт VRChat подключён" : "Войти в VRChat";
+    button.setAttribute("aria-label", button.title);
   });
 }
 
@@ -1129,6 +1172,7 @@ async function showApp() {
   syncWorkspaceNavigation();
   renderCrash();
   syncBuilderControls();
+  if (state.builderCompact && !previewMode) startBuilderCompactHint();
   if (!state.dashboardClockTimer) {
     state.dashboardClockTimer = window.setInterval(() => {
       if (state.view === "session" && state.sessionSection === "dashboard") updateDashboardClock();
@@ -1153,8 +1197,8 @@ async function showApp() {
   showRuntimeConfigNotice(state.runtimeConfig);
   await syncNotificationMonitoring({ refreshNow: true, announceError: true });
   requestAnimationFrame(() => renderSession());
-  if (state.uiSettings.autoAnalyzeToday && !previewMode && !state.running) {
-    analyzeTodayLogs().catch((error) => setStatus(error.message || "Автоматический анализ логов за сегодня не выполнен.", true));
+  if (state.uiSettings.autoAnalyzeCurrentLog && !previewMode && !state.running) {
+    analyzeCurrentLogAutomatically().catch((error) => setStatus(error.message || "Автоматический анализ текущего лога не выполнен.", true));
   }
   if (previewMode) {
     const previewParams = new URLSearchParams(window.location.search);
@@ -1638,6 +1682,7 @@ function isAvatarEvent(event) {
 function invalidateAvatarData() {
   state.avatarDataDirty = true;
   state.avatarFilterDirty = true;
+  state.playerActivityCache.clear();
 }
 
 function invalidateAvatarFilter() {
@@ -1646,6 +1691,7 @@ function invalidateAvatarFilter() {
 
 function invalidateSessionData({ avatars = false } = {}) {
   state.sessionStatsCache = null;
+  state.playerActivityCache.clear();
   if (avatars) invalidateAvatarData();
 }
 
@@ -2231,7 +2277,7 @@ function renderAvatarDetail() {
   const saveBar = adminElement("div", "adminSaveBar");
   saveBar.append(adminElement("span", "", state.avatarSaving ? "Сохраняем…" : "До 2000 символов"));
   const save = adminElement("button", "primaryButton", state.avatarSaving ? "Сохранение…" : "Сохранить");
-  save.type = "submit";
+  save.type = "button";
   save.disabled = state.avatarSaving;
   saveBar.append(save);
   form.append(statusField, noteField, saveBar);
@@ -2693,6 +2739,7 @@ function builderInspectorAdminForm(userId) {
   noteField.append(textarea);
   const save = adminElement("button", "primaryButton", state.adminSaving ? "Сохранение…" : "Сохранить");
   save.type = "submit";
+  save.dataset.adminNoteSave = "true";
   save.disabled = state.adminSaving;
   form.append(statusField, noteField, save);
   return form;
@@ -3167,6 +3214,7 @@ function syncBuilderControls() {
   const compactMenuPanel = document.querySelector("#compactMenuPanel");
   const compactMenuOpen = state.builderCompact && state.builderCompactMenuOpen;
   compactMenu?.classList.toggle("menuOpen", compactMenuOpen);
+  compactMenu?.classList.toggle("hintVisible", state.builderCompact && state.builderCompactHintVisible);
   compactMenuToggle?.setAttribute("aria-expanded", String(compactMenuOpen));
   compactMenuToggle?.setAttribute("aria-label", t(compactMenuOpen ? "Скрыть компактное меню" : "Показать компактное меню"));
   compactMenuToggle?.setAttribute("title", t(compactMenuOpen ? "Скрыть компактное меню" : "Показать компактное меню"));
@@ -3223,14 +3271,35 @@ async function setBuilderAlwaysOnTop() {
   setStatus(next ? "Окно закреплено поверх остальных." : "Окно откреплено.");
 }
 
+function dismissBuilderCompactHint() {
+  if (state.builderCompactHintTimer) window.clearTimeout(state.builderCompactHintTimer);
+  state.builderCompactHintTimer = 0;
+  state.builderCompactHintVisible = false;
+}
+
+function startBuilderCompactHint() {
+  if (!state.builderCompact || localStorage.getItem("betaBuilderCompactHintSeen") === "true") return;
+  localStorage.setItem("betaBuilderCompactHintSeen", "true");
+  dismissBuilderCompactHint();
+  state.builderCompactHintVisible = true;
+  state.builderCompactHintTimer = window.setTimeout(() => {
+    state.builderCompactHintTimer = 0;
+    state.builderCompactHintVisible = false;
+    syncBuilderControls();
+  }, 5000);
+  syncBuilderControls();
+}
+
 async function setBuilderCompact() {
   const next = !state.builderCompact;
   await api.setCompactMode(next);
   state.builderCompact = next;
   state.builderCompactMenuOpen = false;
+  if (!next) dismissBuilderCompactHint();
   state.builderOverlayHidden = false;
   persistBuilderSettings();
   renderBuilder();
+  if (next) startBuilderCompactHint();
   setStatus(next ? "Компактный режим включён." : "Обычный размер восстановлен.");
 }
 
@@ -3950,7 +4019,7 @@ function renderSocial() {
   }
   if (!state.social) {
     const empty = adminElement("article", "panel adminPreviewEmpty");
-    empty.append(adminElement("h2", "", state.settings?.hasVrchatAuthCookie ? "Данные пока не загружены" : "Подключите аккаунт VRChat"), adminElement("p", "", state.socialError || "Войти в VRChat можно через настройки приложения."));
+    empty.append(adminElement("h2", "", state.settings?.hasVrchatAuthCookie ? "Данные пока не загружены" : "Подключите аккаунт VRChat"), adminElement("p", "", state.socialError || "Нажмите отдельную кнопку «VRChat» в панели приложения."));
     socialSummary.append(empty);
     return;
   }
@@ -3974,16 +4043,15 @@ function renderSocial() {
     const panel = socialPanel("Локально", "Журнал друзей", String(state.socialEvents.length));
     const list = adminElement("div", "socialList socialJournal");
     const labels = { "friend-added": "Добавлен в друзья", "friend-removed": "Удалён из друзей", online: "Появился онлайн", offline: "Ушёл офлайн", location: "Сменил локацию", renamed: "Сменил имя" };
-    for (const entry of state.socialEvents.slice(0, 500)) {
+    renderVirtualSocialRows(list, state.socialEvents.slice(0, 500), (entry) => {
       const row = adminElement("button", "socialRow socialEventRow");
       row.type = "button";
       row.dataset.socialProfile = entry.user_id;
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", labels[entry.event_type] || entry.event_type));
       row.append(copy, adminElement("em", "", adminDate(entry.occurred_at)));
-      list.append(row);
-    }
-    if (!state.socialEvents.length) list.append(emptyMessage("Журнал начнёт заполняться после второго полного обновления списка друзей."));
+      return row;
+    }, "Журнал начнёт заполняться после второго полного обновления списка друзей.");
     panel.append(list);
     socialSummary.append(panel);
     return;
@@ -4002,7 +4070,7 @@ function renderSocial() {
       const heading = panel.querySelector("h2");
       if (heading && location && location !== title) heading.title = location;
       const list = adminElement("div", "socialList");
-      for (const friend of rows) list.append(socialFriendRow(friend, favoriteIds));
+      renderVirtualSocialRows(list, rows, (friend) => socialFriendRow(friend, favoriteIds), "Друзей в этой локации нет.");
       panel.append(list);
       grid.append(panel);
     }
@@ -4014,8 +4082,7 @@ function renderSocial() {
     const favorites = sortedFriends.filter((friend) => favoriteIds.has(friend.userId));
     const panel = socialPanel("Локальная отметка", "Избранные друзья", String(favorites.length));
     const list = adminElement("div", "socialList");
-    for (const friend of favorites) list.append(socialFriendRow(friend, favoriteIds));
-    if (!favorites.length) list.append(emptyMessage("Добавьте игрока в избранное через его локальную карточку."));
+    renderVirtualSocialRows(list, favorites, (friend) => socialFriendRow(friend, favoriteIds), "Добавьте игрока в избранное через его локальную карточку.");
     panel.append(list);
     socialSummary.append(panel);
     return;
@@ -4023,8 +4090,7 @@ function renderSocial() {
   if (state.socialTab === "groups") {
     const panel = socialPanel("VRChat", "Группы", String(groups.length));
     const list = adminElement("div", "socialList");
-    for (const group of groups) list.append(socialGroupRow(group));
-    if (!groups.length) list.append(emptyMessage("Публичные группы не найдены."));
+    renderVirtualSocialRows(list, groups, socialGroupRow, "Публичные группы не найдены.");
     panel.append(list);
     socialSummary.append(panel);
     return;
@@ -4035,29 +4101,27 @@ function renderSocial() {
     const avatars = state.socialCollections["favorite-avatars"]?.rows || [];
     const worldPanel = socialPanel("Ваш аккаунт", "Избранные миры", String(worlds.length));
     const worldList = adminElement("div", "socialList");
-    for (const world of worlds) {
+    renderVirtualSocialRows(worldList, worlds, (world) => {
       const row = adminElement("button", "socialRow");
       row.type = "button";
       row.dataset.socialWorld = world.worldId;
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", world.worldName || world.worldId), userTextElement("small", "", world.authorName || world.worldId));
       row.append(copy, adminElement("em", "", world.occupants === null ? "" : `${world.occupants} онлайн`));
-      worldList.append(row);
-    }
-    if (!worlds.length) worldList.append(emptyMessage("Избранные миры не загружены или список пуст."));
+      return row;
+    }, "Избранные миры не загружены или список пуст.");
     worldPanel.append(worldList);
     const avatarPanel = socialPanel("Ваш аккаунт", "Избранные аватары", String(avatars.length));
     const avatarList = adminElement("div", "socialList");
-    for (const avatar of avatars) {
+    renderVirtualSocialRows(avatarList, avatars, (avatar) => {
       const row = adminElement("button", "socialRow");
       row.type = "button";
       row.dataset.avatarOpen = avatar.avatarId;
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", avatar.avatarName || avatar.avatarId), userTextElement("small", "", avatar.authorName || avatar.avatarId));
       row.append(copy, adminElement("em", "", avatar.releaseStatus || ""));
-      avatarList.append(row);
-    }
-    if (!avatars.length) avatarList.append(emptyMessage("Избранные аватары не загружены или список пуст."));
+      return row;
+    }, "Избранные аватары не загружены или список пуст.");
     avatarPanel.append(avatarList);
     columns.append(worldPanel, avatarPanel);
     socialSummary.append(columns);
@@ -4067,7 +4131,7 @@ function renderSocial() {
     const notifications = state.socialCollections.notifications?.rows || [];
     const panel = socialPanel("Ваш аккаунт", "Уведомления VRChat", String(notifications.length));
     const list = adminElement("div", "socialList");
-    for (const notification of notifications) {
+    renderVirtualSocialRows(list, notifications, (notification) => {
       const row = adminElement(notification.senderUserId ? "button" : "div", "socialRow socialEventRow");
       if (notification.senderUserId) {
         row.type = "button";
@@ -4077,9 +4141,8 @@ function renderSocial() {
       copy.append(userTextElement("strong", "", notification.senderUsername || notification.type), userTextElement("small", "", notification.message || notification.type));
       row.append(copy, adminElement("em", "", adminDate(notification.createdAt)));
       if (!notification.seen) row.classList.add("unread");
-      list.append(row);
-    }
-    if (!notifications.length) list.append(emptyMessage("Уведомлений VRChat нет."));
+      return row;
+    }, "Уведомлений VRChat нет.");
     panel.append(list);
     socialSummary.append(panel);
     return;
@@ -4087,13 +4150,11 @@ function renderSocial() {
   const columns = adminElement("div", "socialColumns");
   const friendPanel = socialPanel("VRChat", "Друзья", `${friends.length}${state.social.truncatedFriends ? "+" : ""}`);
   const friendList = adminElement("div", "socialList");
-  for (const friend of sortedFriends.slice(0, 150)) friendList.append(socialFriendRow(friend, favoriteIds));
-  if (!friends.length) friendList.append(emptyMessage("Список друзей пуст или недоступен."));
+  renderVirtualSocialRows(friendList, sortedFriends, (friend) => socialFriendRow(friend, favoriteIds), "Список друзей пуст или недоступен.");
   friendPanel.append(friendList);
   const groupPanel = socialPanel("Публичные данные", "Группы", String(groups.length));
   const groupList = adminElement("div", "socialList");
-  for (const group of groups) groupList.append(socialGroupRow(group));
-  if (!groups.length) groupList.append(emptyMessage("Публичные группы не найдены."));
+  renderVirtualSocialRows(groupList, groups, socialGroupRow, "Публичные группы не найдены.");
   groupPanel.append(groupList);
   columns.append(friendPanel, groupPanel);
   socialSummary.append(columns);
@@ -4107,6 +4168,14 @@ function socialPanel(eyebrow, title, count = "") {
   header.append(copy, adminElement("span", "", count));
   panel.append(header);
   return panel;
+}
+
+function renderVirtualSocialRows(container, rows, createRow, emptyText) {
+  const items = Array.isArray(rows) ? rows : [];
+  const render = (force = false) => renderVirtualRows(container, items, 58, createRow, emptyText, force);
+  container.addEventListener("scroll", () => render(), { passive: true });
+  render(true);
+  requestAnimationFrame(() => render(true));
 }
 
 function socialFriendRow(friend, favoriteIds = new Set()) {
@@ -4137,6 +4206,35 @@ function socialLocationLabel(location, friend = null) {
   if (!worldId) return value;
   const shortId = worldId.replace(/^wrld_/iu, "").slice(0, 8);
   return `Мир · ${shortId}${worldId.length > 13 ? "…" : ""}`;
+}
+
+function socialProfileLocation(profile, friend = null, local = null) {
+  const raw = String(profile?.location || friend?.location || "").trim();
+  if (!raw) {
+    return { title: i18n?.language?.() === "en" ? "Unavailable" : "недоступна", detail: "", raw };
+  }
+  if (["private", "traveling", "offline"].includes(raw)) {
+    return { title: socialLocationLabel(raw, friend), detail: "", raw };
+  }
+  const worldId = String(profile?.worldId || friend?.worldId || raw.match(/wrld_[0-9a-f-]+/iu)?.[0] || "");
+  const localWorld = (local?.worlds || []).find((world) => world?.world_id === worldId || world?.world_key === worldId);
+  const currentWorld = state.currentVrchatInstance?.worldId === worldId ? state.currentVrchatInstance : null;
+  const english = i18n?.language?.() === "en";
+  const title = String(profile?.worldName || friend?.worldName || localWorld?.world_name || currentWorld?.worldName || "").trim()
+    || (worldId ? (english ? "VRChat world" : "Мир VRChat") : socialLocationLabel(raw, friend));
+  const context = [];
+  const groupAccess = raw.match(/~groupAccessType\(([^)]+)\)/iu)?.[1]?.toLowerCase();
+  if (groupAccess === "public") context.push(english ? "group public" : "групповой публичный");
+  else if (groupAccess === "plus") context.push(english ? "group+" : "групповой+");
+  else if (groupAccess === "members") context.push(english ? "group members" : "для участников группы");
+  else if (/~group\(/iu.test(raw)) context.push(english ? "group instance" : "групповой инстанс");
+  else if (/~hidden\(/iu.test(raw)) context.push("Friends+");
+  else if (/~friends\(/iu.test(raw)) context.push(english ? "friends only" : "только друзья");
+  else if (/~private\(/iu.test(raw)) context.push(english ? "invite only" : "по приглашению");
+  else if (worldId) context.push(english ? "public instance" : "публичный инстанс");
+  const region = raw.match(/~region\(([^)]+)\)/iu)?.[1]?.trim().toUpperCase();
+  if (region) context.push(region);
+  return { title, detail: context.join(" · "), raw };
 }
 
 function socialGroupRow(group) {
@@ -4297,24 +4395,34 @@ async function openSocialProfile(userId) {
     }
     secondaryColumn.append(badges);
   }
+  const location = socialProfileLocation(profile, friend, local);
   const details = adminElement("section", "socialDetailSection socialFacts");
   details.append(adminElement("h3", "", "Доступные данные"));
-  for (const [label, value] of [["User ID", userId], ["Локация", profile?.location || friend?.location || "недоступна"], ["Последняя активность", adminDate(profile?.lastActivity || friend?.lastActivity)], ["Дата регистрации", profile?.dateJoined || "—"]]) {
+  for (const [label, value] of [["User ID", userId], ["Последняя активность", adminDate(profile?.lastActivity || friend?.lastActivity)], ["Дата регистрации", profile?.dateJoined || "—"]]) {
     const row = adminElement("div", "socialFact");
     row.append(adminElement("span", "", label), userTextElement("strong", "", value));
     details.append(row);
   }
+  const locationRow = adminElement("div", "socialFact");
+  const locationValue = adminElement("span", "socialLocationValue");
+  locationValue.append(userTextElement("strong", "", location.title || "недоступна"));
+  if (location.detail) locationValue.append(userTextElement("small", "", location.detail));
+  if (location.raw) locationValue.title = location.raw;
+  locationRow.append(adminElement("span", "", "Мир"), locationValue);
+  details.insertBefore(locationRow, details.children[2] || null);
   primaryColumn.append(details);
   if (profile?.groups?.length) {
-    const groups = adminElement("section", "socialDetailSection socialProfileGroups socialProfileScrollable");
-    groups.append(adminElement("h3", "", "Группы"));
-    for (const group of profile.groups) groups.append(socialGroupRow(group));
+    const groups = adminElement("section", "socialDetailSection socialProfileGroups");
+    const groupList = adminElement("div", "socialList socialProfileVirtualList");
+    groups.append(adminElement("h3", "", `Группы · ${profile.groups.length}`), groupList);
+    renderVirtualSocialRows(groupList, profile.groups, socialGroupRow, "Группы не найдены.");
     secondaryColumn.append(groups);
   }
   if (profile?.mutualFriends?.length) {
-    const mutuals = adminElement("section", "socialDetailSection socialProfileMutuals socialProfileScrollable");
-    mutuals.append(adminElement("h3", "", `Общие друзья · ${profile.mutualFriends.length}`));
-    for (const friend of profile.mutualFriends) mutuals.append(socialFriendRow(friend));
+    const mutuals = adminElement("section", "socialDetailSection socialProfileMutuals");
+    const mutualList = adminElement("div", "socialList socialProfileVirtualList");
+    mutuals.append(adminElement("h3", "", `Общие друзья · ${profile.mutualFriends.length}`), mutualList);
+    renderVirtualSocialRows(mutualList, profile.mutualFriends, socialFriendRow, "Общих друзей не найдено.");
     primaryColumn.append(mutuals);
   }
   if (local?.avatars?.length) {
@@ -4866,6 +4974,8 @@ function appendAdminMeta(container, label, value) {
 }
 
 function playerActivity(record) {
+  const cacheKey = String(record?.userId || record?.user_id || record?.id || record?.displayName || record?.playerName || "").trim().toLocaleLowerCase("ru-RU");
+  if (cacheKey && state.playerActivityCache.has(cacheKey)) return state.playerActivityCache.get(cacheKey);
   let currentWorldName = "";
   let worldName = "";
   let joinedAt = "";
@@ -4899,7 +5009,31 @@ function playerActivity(record) {
       }
     }
   }
-  return { online, joinedAt, leftAt, worldName, avatars, currentAvatar: avatars.at(-1) || null };
+  const resolvedAvatars = avatars.map((avatar) => resolveActivityAvatarFromCatalog(avatar, record));
+  const activity = { online, joinedAt, leftAt, worldName, avatars: resolvedAvatars, currentAvatar: resolvedAvatars.at(-1) || null };
+  if (cacheKey) state.playerActivityCache.set(cacheKey, activity);
+  return activity;
+}
+
+function resolveActivityAvatarFromCatalog(avatar, record) {
+  const existingId = String(avatar?.avatarId || "").trim();
+  if (AVATAR_ID_RE.test(existingId)) return { ...avatar, avatarId: existingId, key: avatarModel.idKey(existingId) };
+  const avatarName = String(avatar?.avatarName || "").trim();
+  if (!avatarName) return avatar;
+  const normalizedName = avatarName.toLocaleLowerCase("ru-RU");
+  const userId = String(record?.userId || record?.user_id || record?.id || "").trim();
+  const matches = [...state.avatarRows, ...state.avatarCatalog]
+    .map((row) => ({
+      avatarId: String(row?.avatarId || row?.avatar_id || "").trim(),
+      avatarName: String(row?.avatarName || row?.avatar_name || "").trim(),
+      userId: String(row?.userId || row?.user_id || "").trim()
+    }))
+    .filter((row) => AVATAR_ID_RE.test(row.avatarId) && row.avatarName.toLocaleLowerCase("ru-RU") === normalizedName);
+  const playerMatches = userId ? matches.filter((row) => row.userId === userId) : [];
+  const candidates = playerMatches.length ? playerMatches : matches;
+  const unique = [...new Map(candidates.map((row) => [row.avatarId, row])).values()];
+  if (unique.length !== 1) return avatar;
+  return { ...avatar, avatarId: unique[0].avatarId, key: avatarModel.idKey(unique[0].avatarId) };
 }
 
 function renderPlayerActivity(container, record) {
@@ -5119,7 +5253,8 @@ function renderAdminCard() {
   const saveBar = adminElement("div", "adminSaveBar");
   saveBar.append(adminElement("span", "", state.adminSaving ? "Сохраняем…" : "До 2000 символов"));
   const saveButton = adminElement("button", "primaryButton", state.adminSaving ? "Сохранение…" : "Сохранить");
-  saveButton.type = "submit";
+  saveButton.type = "button";
+  saveButton.dataset.adminNoteSave = "true";
   saveButton.disabled = state.adminSaving;
   saveBar.append(saveButton);
   form.append(statusField, noteField, saveBar);
@@ -5175,6 +5310,10 @@ async function saveAdminNote(form) {
     status: data.get("status"),
     note: data.get("note")
   });
+  if (!noteTools.hasEditorChanges(record, payload)) {
+    setStatus("Изменений для сохранения нет.", false, { kind: "info" });
+    return;
+  }
   state.adminNotes = noteTools.mergeSavedNote(state.adminNotes, payload, record);
   state.adminSaving = true;
   state.adminError = "";
@@ -6173,76 +6312,86 @@ function emptyMessage(text) {
   return empty;
 }
 
-async function chooseLog() {
-  const result = await api.chooseFile();
-  if (result.filePath) {
-    setFilePath(result.filePath);
-    setStatus("Лог выбран. Можно запускать чтение или анализ.");
-  } else {
-    setStatus("Выбор лога отменён.", false, { kind: "info" });
-  }
-}
-
 async function analyzeLog() {
+  const wasRunning = state.running;
+  clearMonitoringRestart();
+  state.monitoringStopRequested = false;
+  state.monitoringTransition = true;
   setStatus("Подготавливаем анализ текущего инстанса…");
-  const options = await api.prepareAnalyzeOptions({ filePath: state.filePath });
-  if (options?.canceled) {
-    setStatus("Анализ отменён");
-    return;
+  try {
+    const options = await api.prepareAnalyzeOptions({ filePath: state.filePath });
+    if (options?.canceled) {
+      setStatus("Анализ отменён");
+      return;
+    }
+    const payload = await api.analyzeCurrentInstance({ ...options, filePath: options?.filePath || state.filePath, deferPlaySession: true });
+    if (options?.filePath) setFilePath(options.filePath);
+    state.running = Boolean(payload?.followState?.running);
+    state.currentPlaySessionId = String(payload?.playSessionId || state.currentPlaySessionId || "");
+    if (payload?.currentUser) state.currentVrchatUser = payload.currentUser;
+    if (payload?.currentInstance) state.currentVrchatInstance = payload.currentInstance;
+    state.playSessionLastSyncAt = 0;
+    if (state.running) {
+      if (!state.startedAt) state.startedAt = Date.now();
+      state.stoppedAt = null;
+    }
+    document.querySelector('[data-action="start"]').disabled = state.running;
+    document.querySelector('[data-action="stop"]').disabled = !state.running;
+    if (state.view === "crash") renderCrash();
+    const instance = payload?.currentInstance;
+    const hasCapacity = instance?.capacity !== null && instance?.capacity !== undefined && Number.isFinite(Number(instance.capacity));
+    const online = instance?.nUsers !== null && instance?.nUsers !== undefined && Number.isFinite(Number(instance.nUsers))
+      ? ` · онлайн ${Number(instance.nUsers)}${hasCapacity ? `/${Number(instance.capacity)}` : ""}`
+      : "";
+    const synced = await syncCurrentPlaySession({ force: true, announceError: true });
+    setStatus(
+      `Анализ завершён${online}. Новые события отслеживаются автоматически.${synced ? "" : " Сессия будет синхронизирована позднее."}`,
+      false,
+      { kind: synced ? "success" : "warning" }
+    );
+  } catch (error) {
+    state.monitoringTransition = false;
+    if (wasRunning) scheduleMonitoringRestart("анализ был прерван");
+    throw error;
+  } finally {
+    state.monitoringTransition = false;
   }
-  const payload = await api.analyzeCurrentInstance({ ...options, filePath: options?.filePath || state.filePath, deferPlaySession: true });
-  if (options?.filePath) setFilePath(options.filePath);
-  state.running = Boolean(payload?.followState?.running);
-  state.currentPlaySessionId = String(payload?.playSessionId || state.currentPlaySessionId || "");
-  if (payload?.currentUser) state.currentVrchatUser = payload.currentUser;
-  if (payload?.currentInstance) state.currentVrchatInstance = payload.currentInstance;
-  state.playSessionLastSyncAt = 0;
-  if (state.running) {
-    if (!state.startedAt) state.startedAt = Date.now();
-    state.stoppedAt = null;
-  }
-  document.querySelector('[data-action="start"]').disabled = state.running;
-  document.querySelector('[data-action="stop"]').disabled = !state.running;
-  if (state.view === "crash") renderCrash();
-  const instance = payload?.currentInstance;
-  const hasCapacity = instance?.capacity !== null && instance?.capacity !== undefined && Number.isFinite(Number(instance.capacity));
-  const online = instance?.nUsers !== null && instance?.nUsers !== undefined && Number.isFinite(Number(instance.nUsers))
-    ? ` · онлайн ${Number(instance.nUsers)}${hasCapacity ? `/${Number(instance.capacity)}` : ""}`
-    : "";
-  const synced = await syncCurrentPlaySession({ force: true, announceError: true });
-  setStatus(
-    `Анализ завершён${online}. Новые события отслеживаются автоматически.${synced ? "" : " Сессия будет синхронизирована позднее."}`,
-    false,
-    { kind: synced ? "success" : "warning" }
-  );
 }
 
-async function analyzeTodayLogs() {
-  setStatus("Анализируем логи за текущий день…", false, { kind: "info" });
-  let filePath = state.filePath;
-  if (!filePath) {
+async function analyzeCurrentLogAutomatically() {
+  const wasRunning = state.running;
+  clearMonitoringRestart();
+  state.monitoringStopRequested = false;
+  state.monitoringTransition = true;
+  setStatus("Анализируем текущий лог…", false, { kind: "info" });
+  try {
     const latest = await api.latestFile();
-    filePath = latest?.filePath || "";
+    const filePath = latest?.filePath || "";
+    if (!filePath) throw new Error("Текущий лог VRChat не найден.");
+    const payload = await api.analyzeCurrentInstance({
+      filePath,
+      mode: "current",
+      maxFiles: 1,
+      maxLines: 30000,
+      maxBytesPerFile: 4 * 1024 * 1024,
+      deferPlaySession: true
+    });
+    setFilePath(payload?.followState?.filePath || filePath);
+    state.running = Boolean(payload?.followState?.running);
+    state.currentPlaySessionId = String(payload?.playSessionId || state.currentPlaySessionId || "");
+    if (payload?.currentUser) state.currentVrchatUser = payload.currentUser;
+    if (payload?.currentInstance) state.currentVrchatInstance = payload.currentInstance;
+    state.playSessionLastSyncAt = 0;
+    document.querySelector('[data-action="start"]').disabled = state.running;
+    document.querySelector('[data-action="stop"]').disabled = !state.running;
+    setStatus("Текущий лог проанализирован. Новые события отслеживаются автоматически.", false, { kind: "success" });
+  } catch (error) {
+    state.monitoringTransition = false;
+    if (wasRunning) scheduleMonitoringRestart("анализ текущего лога был прерван");
+    throw error;
+  } finally {
+    state.monitoringTransition = false;
   }
-  if (!filePath) throw new Error("Логи VRChat за сегодня не найдены.");
-  const payload = await api.analyzeCurrentInstance({
-    filePath,
-    mode: "today",
-    scope: "all",
-    maxFiles: 60,
-    maxLines: 100000,
-    maxBytesPerFile: 12 * 1024 * 1024,
-    deferPlaySession: true
-  });
-  setFilePath(payload?.followState?.filePath || filePath);
-  state.running = Boolean(payload?.followState?.running);
-  state.currentPlaySessionId = String(payload?.playSessionId || state.currentPlaySessionId || "");
-  if (payload?.currentUser) state.currentVrchatUser = payload.currentUser;
-  if (payload?.currentInstance) state.currentVrchatInstance = payload.currentInstance;
-  state.playSessionLastSyncAt = 0;
-  document.querySelector('[data-action="start"]').disabled = state.running;
-  document.querySelector('[data-action="stop"]').disabled = !state.running;
-  setStatus("Логи за текущий день проанализированы. Новые события отслеживаются автоматически.", false, { kind: "success" });
 }
 
 function buildSessionSnapshot() {
@@ -6278,8 +6427,16 @@ async function installUpdate() {
 }
 
 async function startTail() {
+  clearMonitoringRestart();
+  state.monitoringStopRequested = false;
+  state.monitoringTransition = true;
   const stats = sessionStats();
-  const payload = await api.startTail({ filePath: state.filePath, fromStart: false, worldName: stats.world === "—" ? "" : stats.world, deferPlaySession: true });
+  let payload;
+  try {
+    payload = await api.startTail({ filePath: state.filePath, fromStart: false, worldName: stats.world === "—" ? "" : stats.world, deferPlaySession: true });
+  } finally {
+    state.monitoringTransition = false;
+  }
   if (state.playSessionSyncTimer) window.clearTimeout(state.playSessionSyncTimer);
   state.playSessionSyncTimer = 0;
   state.running = true;
@@ -6303,10 +6460,17 @@ async function startTail() {
 
 async function stopTail() {
   const stoppedAt = Date.now();
+  clearMonitoringRestart();
+  state.monitoringStopRequested = true;
+  state.monitoringTransition = true;
   if (state.playSessionSyncTimer) window.clearTimeout(state.playSessionSyncTimer);
   state.playSessionSyncTimer = 0;
   if (state.playSessionSyncPromise) await state.playSessionSyncPromise;
-  await api.stopTail(currentPlaySessionStats());
+  try {
+    await api.stopTail(currentPlaySessionStats());
+  } finally {
+    state.monitoringTransition = false;
+  }
   state.running = false;
   state.currentPlaySessionId = "";
   state.playSessionLastSyncAt = 0;
@@ -6317,6 +6481,50 @@ async function stopTail() {
   document.querySelector('[data-action="stop"]').disabled = true;
   if (state.view === "crash") renderCrash();
   setStatus("Чтение лога остановлено");
+}
+
+function clearMonitoringRestart() {
+  if (state.monitoringRestartTimer) window.clearTimeout(state.monitoringRestartTimer);
+  state.monitoringRestartTimer = 0;
+}
+
+function scheduleMonitoringRestart(reason = "мониторинг остановился") {
+  if (!state.uiSettings.protectMonitoring || state.monitoringStopRequested || state.monitoringTransition || state.monitoringRestartTimer) return;
+  state.monitoringRestartAttempt += 1;
+  const attempt = state.monitoringRestartAttempt;
+  const delay = Math.min(30_000, 1000 * (2 ** Math.min(attempt - 1, 5)));
+  setStatus(`Мониторинг прерван: ${reason}. Восстанавливаем…`, false, { kind: "warning", sticky: true });
+  state.monitoringRestartTimer = window.setTimeout(() => {
+    state.monitoringRestartTimer = 0;
+    void restartMonitoringAfterFailure();
+  }, delay);
+}
+
+async function restartMonitoringAfterFailure() {
+  if (!state.uiSettings.protectMonitoring || state.monitoringStopRequested || state.monitoringTransition) return;
+  state.monitoringTransition = true;
+  try {
+    const stats = sessionStats();
+    const payload = await api.startTail({
+      filePath: state.filePath,
+      fromStart: false,
+      worldName: stats.world === "—" ? "" : stats.world,
+      deferPlaySession: true
+    });
+    if (payload?.filePath) setFilePath(payload.filePath);
+    state.running = true;
+    state.stoppedAt = null;
+    state.monitoringRestartAttempt = 0;
+    document.querySelector('[data-action="start"]').disabled = true;
+    document.querySelector('[data-action="stop"]').disabled = false;
+    setStatus("Мониторинг автоматически восстановлен.", false, { kind: "success" });
+  } catch (error) {
+    state.running = false;
+    state.monitoringTransition = false;
+    scheduleMonitoringRestart(error?.message || "повторный запуск не удался");
+    return;
+  }
+  state.monitoringTransition = false;
 }
 
 const VRCHAT_TWO_FACTOR_LABELS = Object.freeze({
@@ -6530,6 +6738,10 @@ settingsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const previousLanguage = state.uiSettings.language;
   state.uiSettings = readSettingsForm();
+  if (!state.uiSettings.protectMonitoring) {
+    clearMonitoringRestart();
+    state.monitoringRestartAttempt = 0;
+  }
   const cookieInput = settingsForm.elements.vrchatAuthCookie;
   if (cookieInput?.dataset.dirty === "true") {
     void api.saveSettings({ serverUrl: state.settings?.serverUrl, vrchatAuthCookie: cookieInput.value })
@@ -6659,12 +6871,6 @@ document.addEventListener("submit", (event) => {
   const form = event.target.closest("[data-player-note-form]");
   if (!form) return;
   event.preventDefault();
-  saveAdminNote(form).catch((error) => {
-    state.adminError = error.message || "Не удалось сохранить заметку.";
-    setStatus(state.adminError, true);
-    renderAdminCard();
-    if (state.builderInspector) renderBuilderInspector();
-  });
 });
 
 ownerModerationForm?.addEventListener("submit", (event) => {
@@ -6684,6 +6890,18 @@ ownerModerationForm?.addEventListener("change", syncOwnerModerationFields);
 
 document.addEventListener("click", (event) => {
   playRose337SelectionSound(event.target);
+  const adminNoteSave = event.target.closest("[data-admin-note-save]");
+  if (adminNoteSave) {
+    const form = adminNoteSave.closest("[data-player-note-form]");
+    if (!form) return;
+    saveAdminNote(form).catch((error) => {
+      state.adminError = error.message || "Не удалось сохранить заметку.";
+      setStatus(state.adminError, true);
+      renderAdminCard();
+      if (state.builderInspector) renderBuilderInspector();
+    });
+    return;
+  }
   if (state.builderCompactMenuOpen && !event.target.closest("[data-compact-menu]")) {
     state.builderCompactMenuOpen = false;
     syncBuilderControls();
@@ -6721,7 +6939,18 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-vrchat-account-open]")) {
+    openVrchatAuth();
+    return;
+  }
+
+  if (event.target.closest("[data-vrchat-auth-close]")) {
+    closeVrchatAuth();
+    return;
+  }
+
   if (event.target.closest("[data-compact-menu-toggle]")) {
+    dismissBuilderCompactHint();
     state.builderCompactMenuOpen = !state.builderCompactMenuOpen;
     syncBuilderControls();
     return;
@@ -7617,8 +7846,8 @@ document.addEventListener("click", (event) => {
   const action = actionButton?.dataset.action;
   if (!action) return;
   const operations = {
-    choose: chooseLog,
-    analyze: analyzeLog,
+    choose: analyzeLog,
+    analyze: analyzeCurrentLogAutomatically,
     snapshot: copySnapshot,
     community: openCommunity,
     start: startTail,
@@ -7987,6 +8216,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   event.preventDefault();
   if (state.statusCenterOpen) setStatusCenter(false);
+  else if (vrchatAuthDialog?.open) closeVrchatAuth();
   else if (settingsDialog?.open) closeSettings();
   else if (ownerDialog?.open) closeOwnerDialog();
   else if (!playerDrawer?.hidden) closeSessionPlayer();
@@ -8034,6 +8264,9 @@ api?.onTailStatus((status) => {
   const wasRunning = state.running;
   state.running = Boolean(status.running);
   if (state.running) {
+    clearMonitoringRestart();
+    state.monitoringRestartAttempt = 0;
+    state.monitoringStopRequested = false;
     if (!state.startedAt) state.startedAt = Date.now();
     state.stoppedAt = null;
   } else if (wasRunning && !state.stoppedAt) {
@@ -8045,14 +8278,23 @@ api?.onTailStatus((status) => {
   if (state.view === "crash") renderCrash();
   const currentStatus = baselineStatus();
   setStatus(currentStatus.message, false, { ...currentStatus, sticky: true, record: false });
+  if (!state.running && wasRunning && !state.monitoringStopRequested && !state.monitoringTransition) {
+    scheduleMonitoringRestart(status?.message || "чтение лога остановилось");
+  }
 });
 window.addEventListener("beforeunload", () => {
   if (state.dashboardClockTimer) window.clearInterval(state.dashboardClockTimer);
   if (state.statusResetTimer) window.clearTimeout(state.statusResetTimer);
   if (state.playSessionSyncTimer) window.clearTimeout(state.playSessionSyncTimer);
+  clearMonitoringRestart();
+  dismissBuilderCompactHint();
   stopNotificationMonitoring();
 });
-api?.onTailError((error) => setStatus(error?.message || "Ошибка чтения лога", true));
+api?.onTailError((error) => {
+  const message = error?.message || "Ошибка чтения лога";
+  setStatus(message, true);
+  if (state.running) scheduleMonitoringRestart(message);
+});
 api?.onAuthStatus?.((payload) => {
   if (!payload?.license) return;
   state.settings = { ...(state.settings || {}), license: payload.license };

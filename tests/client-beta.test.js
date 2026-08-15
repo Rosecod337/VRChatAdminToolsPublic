@@ -29,7 +29,11 @@ test("beta client is a separate product that reuses the trusted core", () => {
   assert.match(launcher, /VRCHAT_CLIENT_VARIANT = "beta"/u);
   assert.match(launcher, /client\/src\/main\.js/u);
   assert.match(coreMain, /!app\.isPackaged && developmentOverride/u);
-  assert.match(coreMain, /!app\.isPackaged \|\| isBetaClient\(\)/u);
+  assert.match(coreMain, /const beta = isBetaClient\(\)/u);
+  assert.match(coreMain, /autoUpdater\.allowPrerelease = beta/u);
+  assert.match(coreMain, /autoUpdater\.allowDowngrade = false/u);
+  assert.equal(packageJson.build.publish.provider, "github");
+  assert.equal(packageJson.build.publish.releaseType, "prerelease");
   assert.match(coreMain, /preserveStableSession = isBetaClient\(\) && settings\.importedStableSession === true/u);
 });
 
@@ -583,6 +587,19 @@ test("beta player-note helpers normalize server rows and keep one saved record",
   assert.equal(merged[0].userId, "usr_demo_nova");
   assert.equal(merged[0].status, "warned");
   assert.equal(merged[1].userId, "usr_demo_mira");
+  assert.equal(betaAdminNotes.hasEditorChanges(normalized, payload), true);
+  assert.equal(betaAdminNotes.hasEditorChanges(normalized, betaAdminNotes.editorPayload(normalized)), false);
+  assert.deepEqual(betaAdminNotes.STATUS_OPTIONS.at(-1), { value: "blocked elsewhere", label: "Заблокирован" });
+});
+
+test("beta player notes save only from the explicit button and skip unchanged values", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+
+  assert.match(renderer, /dataset\.adminNoteSave = "true"/u);
+  assert.match(renderer, /save\.type = "button"/u);
+  assert.match(renderer, /saveButton\.type = "button"/u);
+  assert.match(renderer, /event\.target\.closest\("\[data-admin-note-save\]"\)/u);
+  assert.match(renderer, /noteTools\.hasEditorChanges\(record, payload\)/u);
 });
 
 test("beta Admin Tools card derives session and avatar activity from the local log", () => {
@@ -594,6 +611,9 @@ test("beta Admin Tools card derives session and avatar activity from the local l
   assert.match(renderer, /linkedPlayer = sessionStats\(\)\.players\.find/u);
   assert.match(renderer, /row\.dataset\.eventType/u);
   assert.match(renderer, /event\.type === "avatar-changed" \|\| event\.type === "avatar-data"/u);
+  assert.match(renderer, /function resolveActivityAvatarFromCatalog\(avatar, record\)/u);
+  assert.match(renderer, /const resolvedAvatars = avatars\.map/u);
+  assert.match(renderer, /state\.playerActivityCache\.clear\(\)/u);
   assert.match(renderer, /data\.adminAvatarKey|dataset\.adminAvatarKey/u);
   assert.match(renderer, /renderPlayerActivity\(content, record\)/u);
   assert.match(styles, /\.adminPlayerActivity/u);
@@ -796,18 +816,45 @@ test("beta mirrors paid sessions locally without losing private event details", 
   assert.equal(store.details("player", "usr_paid").events.length, 1);
 });
 
-test("beta auto setting analyzes today's logs instead of starting an empty tail", () => {
+test("beta auto setting analyzes only the current log before following new events", () => {
   const renderer = read("apps/client-beta/renderer/app.js");
   const markup = read("apps/client-beta/renderer/index.html");
 
-  assert.match(markup, /name="autoAnalyzeToday"/u);
-  assert.match(markup, /Автоматически анализировать логи за текущий день/u);
+  assert.match(markup, /name="autoAnalyzeCurrentLog"/u);
+  assert.match(markup, /Автоматически анализировать текущий лог/u);
   assert.doesNotMatch(markup, /name="autoStart"/u);
-  assert.match(renderer, /autoAnalyzeToday: false/u);
-  assert.match(renderer, /mode: "today"/u);
-  assert.match(renderer, /scope: "all"/u);
-  assert.match(renderer, /analyzeTodayLogs\(\)/u);
+  assert.match(renderer, /autoAnalyzeCurrentLog: false/u);
+  assert.match(renderer, /mode: "current"/u);
+  assert.match(renderer, /maxFiles: 1/u);
+  assert.doesNotMatch(renderer, /scope: "all"/u);
+  assert.match(renderer, /analyzeCurrentLogAutomatically\(\)/u);
+  assert.match(renderer, /source\.autoAnalyzeToday/u);
+  assert.match(renderer, /delete next\.autoAnalyzeToday/u);
   assert.doesNotMatch(renderer, /state\.uiSettings\.autoStart/u);
+});
+
+test("beta can recover monitoring after an unexpected stop without overriding manual Stop", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const markup = read("apps/client-beta/renderer/index.html");
+
+  assert.match(markup, /name="protectMonitoring"/u);
+  assert.match(renderer, /protectMonitoring: true/u);
+  assert.match(renderer, /function scheduleMonitoringRestart\(reason/u);
+  assert.match(renderer, /function restartMonitoringAfterFailure\(\)/u);
+  assert.match(renderer, /state\.monitoringStopRequested = true/u);
+  assert.match(renderer, /!state\.monitoringStopRequested && !state\.monitoringTransition/u);
+});
+
+test("beta analyzes the latest current log from the primary action and keeps source choices separate", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const markup = read("apps/client-beta/renderer/index.html");
+
+  assert.match(markup, /data-action="choose" title="Выбрать источник и глубину анализа"/u);
+  assert.match(markup, /data-action="analyze" title="Проанализировать текущий лог"/u);
+  assert.match(renderer, /choose: analyzeLog/u);
+  assert.match(renderer, /analyze: analyzeCurrentLogAutomatically/u);
+  assert.match(renderer, /const latest = await api\.latestFile\(\);\s+const filePath = latest\?\.filePath \|\| "";/u);
+  assert.doesNotMatch(renderer, /async function chooseLog/u);
 });
 
 test("beta distinguishes missing VRChat cookie from license access errors", () => {
@@ -815,20 +862,36 @@ test("beta distinguishes missing VRChat cookie from license access errors", () =
 
   assert.match(renderer, /formatVrchatAuthError\(value, true\)/u);
   assert.match(renderer, /VRChat auth cookie is not configured/u);
-  assert.match(renderer, /Аккаунт VRChat не подключён\. Войдите в него через Настройки/u);
+  assert.match(renderer, /Аккаунт VRChat не подключён\. Нажмите кнопку «VRChat» и войдите в аккаунт/u);
   assert.match(renderer, /VRChat \(\?:account \)\?session is invalid/u);
   assert.match(renderer, /VRChat user profile is unavailable\|VRChat API HTTP 401/u);
   assert.match(renderer, /state\.avatarOnlineError = friendlyStatusMessage\(error\?\.message, true\)/u);
 });
 
 test("beta keeps the collapsed rail centered and shortens the visible log path", () => {
+  const markup = read("apps/client-beta/renderer/index.html");
   const renderer = read("apps/client-beta/renderer/app.js");
   const styles = read("apps/client-beta/renderer/styles.css");
   assert.match(renderer, /state\.filePath\.split\(\/\[\\\\\/\]\/u\)/u);
   assert.match(styles, /\.appShell\.uiChromeCollapsed \.navItem \{[\s\S]*?margin-inline: auto/u);
   assert.match(styles, /\.appShell\.uiChromeCollapsed \.railActionsToggle \{[\s\S]*?width: 42px;[\s\S]*?min-height: 42px/u);
   assert.match(styles, /\.appShell\.uiChromeCollapsed \.windowActions button \{[^}]*width: 42px;[^}]*min-height: 42px/u);
+  assert.match(styles, /\.appShell\.uiChromeCollapsed \.workspaceModeSwitch button::before,[\s\S]*?\.appShell\.uiChromeCollapsed \.navItem::before \{[\s\S]*?top: 50%;[\s\S]*?left: 50%;[\s\S]*?transform: translate\(-50%, -50%\)/u);
+  assert.match(markup, /data-vrchat-account-open/u);
   assert.match(styles, /\.insightSessionsLayout \{[^}]*repeat\(2, minmax\(0, 1fr\)\)/u);
+});
+
+test("beta VRChat authentication has a dedicated dialog outside general settings", () => {
+  const markup = read("apps/client-beta/renderer/index.html");
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const settingsBlock = markup.match(/<dialog class="settingsDialog" data-settings-dialog>[\s\S]*?<\/dialog>/u)?.[0] || "";
+  const authBlock = markup.match(/<dialog class="settingsDialog vrchatAuthDialog" data-vrchat-auth-dialog>[\s\S]*?<\/dialog>/u)?.[0] || "";
+
+  assert.doesNotMatch(settingsBlock, /data-vrchat-login/u);
+  assert.match(authBlock, /data-vrchat-account-connect/u);
+  assert.match(authBlock, /data-vrchat-login/u);
+  assert.match(renderer, /function openVrchatAuth\(\)/u);
+  assert.match(renderer, /button\.dataset\.connected = hasStoredCookie/u);
 });
 
 test("beta saved worlds expose safe page and launch actions", () => {
@@ -853,6 +916,7 @@ test("beta Builder supports editable dashboards and a locked compact overlay", (
   assert.match(markup, /data-builder-overlay-toggle/u);
   assert.match(markup, /data-compact-menu/u);
   assert.match(markup, /data-compact-menu-toggle/u);
+  assert.match(markup, /data-compact-menu-toggle[^>]*>[\s\S]*?<span aria-hidden="true"><\/span>/u);
   assert.match(markup, /data-compact-return-builder/u);
   assert.match(markup, /data-builder-workspace/u);
   assert.match(markup, /data-builder-inspector/u);
@@ -874,6 +938,13 @@ test("beta Builder supports editable dashboards and a locked compact overlay", (
   assert.match(renderer, /dataset\.builderBlockLimit = kind/u);
   assert.match(renderer, /function setBuilderOverlayHidden/u);
   assert.match(renderer, /builderCompactMenuOpen/u);
+  assert.match(renderer, /betaBuilderCompactHintSeen/u);
+  assert.match(renderer, /builderCompactHintTimer = window\.setTimeout\([\s\S]*?5000\)/u);
+  assert.match(renderer, /compactMenu\?\.classList\.toggle\("hintVisible"/u);
+  assert.match(styles, /\.appShell\.compactMode \.compactMenuHandle\s*\{[\s\S]*?width:\s*60px;[\s\S]*?height:\s*14px;/u);
+  assert.match(styles, /\.appShell\.compactMode \.compactMenuHandle > span\s*\{[\s\S]*?rotate\(45deg\)/u);
+  assert.match(styles, /@keyframes compactMenuHint/u);
+  assert.match(styles, /\.compactMenuDock\.hintVisible:not\(\.menuOpen\) \.compactMenuHandle/u);
   assert.match(renderer, /selectView\("builder"\)/u);
   assert.match(renderer, /dataset\.builderFontAdjust/u);
   assert.match(renderer, /dataset\.builderAdminUser = item\.userId/u);
@@ -910,6 +981,9 @@ test("beta Social exposes internal profiles, locations, friend log, and on-deman
   assert.match(script, /getVrchatPersonalCollection/u);
   assert.match(script, /socialProfileActionMenu/u);
   assert.match(script, /socialProfileColumns/u);
+  assert.match(script, /function socialProfileLocation/u);
+  assert.match(script, /location\.detail/u);
+  assert.doesNotMatch(script, /\["Локация", profile\?\.location/u);
   assert.match(script, /primaryColumn\.append\(details\)/u);
   assert.match(script, /secondaryColumn\.append\(groups\)/u);
   assert.match(script, /dataset\.socialCopyUser = userId/u);
@@ -1027,4 +1101,29 @@ test("beta has a real renderer performance smoke check", () => {
   assert.match(performanceCheck, /BETA_PREVIEW_CLICK_SELECTOR/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_TEXT/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_SELECTOR/u);
+});
+
+test("beta avoids expensive full-screen blur and virtualizes data-heavy social lists", () => {
+  const css = read("apps/client-beta/renderer/styles.css");
+  const script = read("apps/client-beta/renderer/app.js");
+
+  assert.doesNotMatch(css, /settingsDialog::backdrop\s*\{[^}]*backdrop-filter/su);
+  assert.doesNotMatch(css, /playerDrawerBackdrop\s*\{[^}]*backdrop-filter/su);
+  assert.match(script, /function renderVirtualSocialRows\(/u);
+  assert.match(script, /renderVirtualSocialRows\(friendList, sortedFriends/u);
+  assert.match(script, /renderVirtualSocialRows\(list, state\.socialEvents\.slice\(0, 500\)/u);
+  assert.match(script, /playerActivityCache: new Map\(\)/u);
+});
+
+test("beta settings stay accessible in small scaled windows", () => {
+  const css = read("apps/client-beta/renderer/styles.css");
+  const script = read("apps/client-beta/renderer/app.js");
+
+  assert.match(script, /const unscaledViewport = 100 \/ scale/u);
+  assert.match(script, /--ui-viewport-width/u);
+  assert.match(script, /--ui-viewport-height/u);
+  assert.match(css, /\.settingsDialog\s*\{[^}]*var\(--ui-viewport-width[^}]*var\(--ui-viewport-height/su);
+  assert.match(css, /\.settingsGrid\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/su);
+  assert.match(css, /\.settingsDialog footer\s*\{[^}]*flex-wrap:\s*wrap/su);
+  assert.match(css, /@container settings-dialog \(max-width:\s*520px\)/u);
 });
