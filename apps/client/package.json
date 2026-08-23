@@ -16,7 +16,7 @@
   "build": {
     "appId": "com.vrchatlogsuite.client",
     "productName": "VRChat Log Analyzer",
-    "electronVersion": "42.3.3",
+    "electronVersion": "42.9.3",
     "asar": true,
     "icon": "../../logo.ico",
     "asarUnpack": [

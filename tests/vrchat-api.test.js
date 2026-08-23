@@ -224,6 +224,7 @@ test("fetchUserProfile exposes only authenticated API fields and public groups",
     const value = String(url);
     if (value.includes(`/users/${userId}/mutuals/friends`)) return responseJson([]);
     if (value.includes(`/users/${userId}/groups`)) return responseJson([{ groupId: "grp_33333333-3333-4333-8333-333333333333", name: "Group" }]);
+    if (value.includes("/instances/wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:123")) return responseJson({ world: { name: "Midnight Rooftop" } });
     if (value.includes(`/users/${userId}`)) return responseJson({ id: userId, displayName: "Friend", bio: "Hello", allowAvatarCopying: true, location: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:123" });
     throw new Error(`unexpected url ${url}`);
   };
@@ -233,6 +234,7 @@ test("fetchUserProfile exposes only authenticated API fields and public groups",
   assert.equal(result.bio, "Hello");
   assert.equal(result.allowAvatarCopying, true);
   assert.equal(result.worldId, "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+  assert.equal(result.worldName, "Midnight Rooftop");
   assert.equal(result.groups[0].name, "Group");
 });
 
@@ -425,6 +427,48 @@ test("fetchPersonalCollection normalizes only the current account collections", 
   assert.equal(worlds.rows[0].worldName, "Favorite World");
   assert.equal(notifications.rows[0].type, "invite");
   await assert.rejects(() => resolver.fetchPersonalCollection("someone-elses-favorites"), /invalid/u);
+});
+
+test("profile queue stops retrying HTTP 429 and honors the configured retry limit", async (t) => {
+  const originalFetch = global.fetch;
+  const userId = "usr_99999999-9999-4999-8999-999999999999";
+  let calls = 0;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async () => {
+    calls += 1;
+    return {
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+      headers: {
+        get: (name) => String(name).toLowerCase() === "retry-after" ? "0" : null,
+        getSetCookie: () => []
+      }
+    };
+  };
+
+  const resolver = new VrchatUserResolver({ queueIntervalMs: 0, maxRetries: 2, retryBaseDelayMs: 1 });
+  const result = await resolver.resolve(userId);
+
+  assert.equal(result, null);
+  assert.equal(calls, 3);
+});
+
+test("profile cache evicts the least recently used entry at its hard limit", async () => {
+  const resolver = new VrchatUserResolver({ queueIntervalMs: 0, profileCacheLimit: 2 });
+  resolver.fetchUser = async (userId) => ({ userId, displayName: userId });
+  const ids = [
+    "usr_11111111-1111-4111-8111-111111111111",
+    "usr_22222222-2222-4222-8222-222222222222",
+    "usr_33333333-3333-4333-8333-333333333333"
+  ];
+
+  for (const userId of ids) await resolver.resolve(userId);
+
+  assert.equal(resolver.cache.size, 2);
+  assert.equal(resolver.cache.has(ids[0]), false);
+  assert.equal(resolver.cache.has(ids[1]), true);
+  assert.equal(resolver.cache.has(ids[2]), true);
 });
 
 function responseJson(body, ok = true, status = 200, setCookies = []) {

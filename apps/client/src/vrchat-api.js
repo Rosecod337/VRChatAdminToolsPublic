@@ -5,7 +5,12 @@ const AVATAR_ID_RE = /^avtr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const QUEUE_INTERVAL_MS = 350;
 const MAX_RETRIES = 3;
 const FETCH_TIMEOUT_MS = 15_000;
+const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
+const PROFILE_CACHE_MAX_ENTRIES = 1_000;
 const AVATAR_SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
+const AVATAR_SEARCH_CACHE_MAX_ENTRIES = 100;
+const AVATAR_COLLECTION_CACHE_MAX_ENTRIES = 12;
+const MAX_RETRY_DELAY_MS = 60_000;
 const AVATAR_COLLECTION_PAGE_SIZE = 100;
 const AVATAR_COLLECTION_MAX_PAGES = 3;
 const SOCIAL_CACHE_TTL_MS = 60_000;
@@ -71,6 +76,33 @@ function normalizeAvatarName(value) {
     .slice(0, 180);
 }
 
+function freshCacheValue(cache, key, now = Date.now()) {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (Number(entry.expiresAt) <= now) {
+    cache.delete(key);
+    return undefined;
+  }
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry.value;
+}
+
+function setBoundedCacheValue(cache, key, value, expiresAt, maximumEntries) {
+  cache.delete(key);
+  cache.set(key, { expiresAt, value });
+  while (cache.size > maximumEntries) cache.delete(cache.keys().next().value);
+}
+
+function retryAfterMilliseconds(response) {
+  const raw = typeof response?.headers?.get === "function" ? response.headers.get("retry-after") : "";
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, seconds * 1000));
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? Math.min(MAX_RETRY_DELAY_MS, Math.max(0, timestamp - Date.now())) : 0;
+}
+
 async function fetchVrchat(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -85,7 +117,8 @@ async function fetchVrchat(url, options = {}) {
 }
 
 class VrchatUserResolver {
-  constructor() {
+  constructor(options = {}) {
+    const safeOptions = options && typeof options === "object" ? options : {};
     this.cache = new Map();
     this.pending = new Map();
     this.queue = [];
@@ -100,6 +133,11 @@ class VrchatUserResolver {
     this.pendingLoginCookie = "";
     this.pendingLoginMethods = [];
     this.authCookieChangeHandler = null;
+    this.queueIntervalMs = Math.max(0, Number(safeOptions.queueIntervalMs ?? QUEUE_INTERVAL_MS) || 0);
+    this.maxRetries = Math.max(0, Number(safeOptions.maxRetries ?? MAX_RETRIES) || 0);
+    this.retryBaseDelayMs = Math.max(1, Number(safeOptions.retryBaseDelayMs ?? 500) || 500);
+    this.profileCacheLimit = Math.max(1, Number(safeOptions.profileCacheLimit ?? PROFILE_CACHE_MAX_ENTRIES) || PROFILE_CACHE_MAX_ENTRIES);
+    this.profileCacheTtlMs = Math.max(1, Number(safeOptions.profileCacheTtlMs ?? PROFILE_CACHE_TTL_MS) || PROFILE_CACHE_TTL_MS);
   }
 
   setAuthCookie(authCookie) {
@@ -224,14 +262,15 @@ class VrchatUserResolver {
 
   async resolve(userId) {
     if (!USER_ID_RE.test(String(userId || ""))) return null;
-    if (this.cache.has(userId)) return this.cache.get(userId);
+    const cached = freshCacheValue(this.cache, userId);
+    if (cached) return cached;
     if (this.pending.has(userId)) return this.pending.get(userId);
 
     const promise = new Promise((resolve) => {
       this.queue.push({ userId, resolve, retries: 0 });
       this._scheduleQueue();
     }).then((profile) => {
-      if (profile) this.cache.set(userId, profile);
+      if (profile) setBoundedCacheValue(this.cache, userId, profile, Date.now() + this.profileCacheTtlMs, this.profileCacheLimit);
       this.pending.delete(userId);
       return profile;
     });
@@ -242,7 +281,7 @@ class VrchatUserResolver {
 
   _scheduleQueue() {
     if (this.queueTimer) return;
-    this.queueTimer = setTimeout(() => this._processNext(), QUEUE_INTERVAL_MS);
+    this.queueTimer = setTimeout(() => this._processNext(), this.queueIntervalMs);
   }
 
   async _processNext() {
@@ -254,12 +293,13 @@ class VrchatUserResolver {
       const profile = await this.fetchUser(item.userId);
       item.resolve(profile);
     } catch (error) {
-      const isRateLimit = error.message?.includes("429");
-      if (isRateLimit || item.retries < MAX_RETRIES) {
+      const isRateLimit = error?.status === 429 || error.message?.includes("429");
+      if (item.retries < this.maxRetries) {
         item.retries += 1;
-        const delay = isRateLimit ? 2000 : 500 * item.retries;
+        const exponentialDelay = Math.min(MAX_RETRY_DELAY_MS, this.retryBaseDelayMs * (2 ** (item.retries - 1)));
+        const delay = isRateLimit ? Math.max(exponentialDelay, Number(error?.retryAfterMs) || 0) : exponentialDelay;
         setTimeout(() => {
-          this.queue.unshift(item);
+          this.queue.push(item);
           this._scheduleQueue();
         }, delay);
       } else {
@@ -268,7 +308,7 @@ class VrchatUserResolver {
     }
 
     if (this.queue.length > 0) {
-      this.queueTimer = setTimeout(() => this._processNext(), QUEUE_INTERVAL_MS);
+      this.queueTimer = setTimeout(() => this._processNext(), this.queueIntervalMs);
     }
   }
 
@@ -287,7 +327,12 @@ class VrchatUserResolver {
       await this.fetchCurrentUser();
       throw new Error("VRChat user profile is unavailable");
     }
-    if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`VRChat API HTTP ${response.status}`);
+      error.status = response.status;
+      if (response.status === 429) error.retryAfterMs = retryAfterMilliseconds(response);
+      throw error;
+    }
     const data = await response.json();
     return normalizeUserProfile(data, userId);
   }
@@ -300,16 +345,26 @@ class VrchatUserResolver {
       "user-agent": this.userAgent,
       "cookie": this.authCookie
     };
-    const [groupsResponse, mutualsResponse] = await Promise.all([
+    const instanceRequest = profile.worldId && profile.instanceId
+      ? fetchVrchat(`https://api.vrchat.cloud/api/1/instances/${encodeURIComponent(profile.worldId)}:${encodeURIComponent(profile.instanceId)}`, { headers }).catch(() => null)
+      : Promise.resolve(null);
+    const [groupsResponse, mutualsResponse, instanceResponse] = await Promise.all([
       fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}/groups`, { headers }).catch(() => null),
-      fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}/mutuals/friends?n=100&offset=0`, { headers }).catch(() => null)
+      fetchVrchat(`https://api.vrchat.cloud/api/1/users/${encodeURIComponent(userId)}/mutuals/friends?n=100&offset=0`, { headers }).catch(() => null),
+      instanceRequest
     ]);
     const groups = groupsResponse?.ok ? normalizeGroups(await groupsResponse.json()) : [];
     const mutualRows = mutualsResponse?.ok ? await mutualsResponse.json() : [];
+    const instance = instanceResponse?.ok ? await instanceResponse.json().catch(() => null) : null;
     const mutualFriends = (Array.isArray(mutualRows) ? mutualRows : [])
       .map((row) => normalizeFriend(row, row?.status === "offline"))
       .filter(Boolean);
-    return { ...profile, groups, mutualFriends };
+    return {
+      ...profile,
+      worldName: String(instance?.world?.name || instance?.worldName || instance?.name || profile.worldName || "").slice(0, 300),
+      groups,
+      mutualFriends
+    };
   }
 
   async fetchGroup(groupId) {
@@ -338,8 +393,8 @@ class VrchatUserResolver {
     if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
     const safeKind = ["favorite-worlds", "favorite-avatars", "notifications"].includes(kind) ? kind : "";
     if (!safeKind) throw new Error("VRChat personal collection is invalid");
-    const cached = this.personalCache.get(safeKind);
-    if (!force && cached?.expiresAt > Date.now()) return cached.value;
+    const cached = force ? undefined : freshCacheValue(this.personalCache, safeKind);
+    if (cached) return cached;
     const pathName = {
       "favorite-worlds": "/worlds/favorites?n=100&offset=0&sort=updated&order=descending",
       "favorite-avatars": "/avatars/favorites?n=100&offset=0&sort=updated&order=descending&releaseStatus=all",
@@ -360,7 +415,7 @@ class VrchatUserResolver {
         ? (Array.isArray(data) ? data : []).map((row) => normalizeAvatarCandidate(row, "favorite")).filter(Boolean)
         : (Array.isArray(data) ? data : []).map(normalizeNotification).filter(Boolean);
     const value = { kind: safeKind, rows, fetchedAt: new Date().toISOString(), truncated: rows.length >= 100 };
-    this.personalCache.set(safeKind, { expiresAt: Date.now() + SOCIAL_CACHE_TTL_MS, value });
+    setBoundedCacheValue(this.personalCache, safeKind, value, Date.now() + SOCIAL_CACHE_TTL_MS, 3);
     return value;
   }
 
@@ -554,16 +609,13 @@ class VrchatUserResolver {
     if (!nameKey) return { query, candidates: [] };
     if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
 
-    const cached = this.avatarSearchCache.get(nameKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = freshCacheValue(this.avatarSearchCache, nameKey);
+    if (cached) return cached;
     if (this.avatarSearchPending.has(nameKey)) return this.avatarSearchPending.get(nameKey);
 
     const pending = this._searchAvatarCandidates(query, nameKey)
       .then((value) => {
-        this.avatarSearchCache.set(nameKey, {
-          expiresAt: Date.now() + AVATAR_SEARCH_CACHE_TTL_MS,
-          value
-        });
+        setBoundedCacheValue(this.avatarSearchCache, nameKey, value, Date.now() + AVATAR_SEARCH_CACHE_TTL_MS, AVATAR_SEARCH_CACHE_MAX_ENTRIES);
         return value;
       })
       .finally(() => this.avatarSearchPending.delete(nameKey));
@@ -579,16 +631,13 @@ class VrchatUserResolver {
     if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
 
     const cacheKey = `browse:${searchKey}`;
-    const cached = this.avatarSearchCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = freshCacheValue(this.avatarSearchCache, cacheKey);
+    if (cached) return cached;
     if (this.avatarSearchPending.has(cacheKey)) return this.avatarSearchPending.get(cacheKey);
 
     const pending = this._searchAvatars(query, searchKey)
       .then((value) => {
-        this.avatarSearchCache.set(cacheKey, {
-          expiresAt: Date.now() + AVATAR_SEARCH_CACHE_TTL_MS,
-          value
-        });
+        setBoundedCacheValue(this.avatarSearchCache, cacheKey, value, Date.now() + AVATAR_SEARCH_CACHE_TTL_MS, AVATAR_SEARCH_CACHE_MAX_ENTRIES);
         return value;
       })
       .finally(() => this.avatarSearchPending.delete(cacheKey));
@@ -682,8 +731,8 @@ class VrchatUserResolver {
   }
 
   async _fetchCachedAvatarCollection(cacheKey, pathName, baseParams) {
-    const cached = this.avatarCollectionCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = freshCacheValue(this.avatarCollectionCache, cacheKey);
+    if (cached) return cached;
 
     const rows = [];
     for (let page = 0; page < AVATAR_COLLECTION_MAX_PAGES; page += 1) {
@@ -696,10 +745,7 @@ class VrchatUserResolver {
       if (pageRows.length < AVATAR_COLLECTION_PAGE_SIZE) break;
     }
 
-    this.avatarCollectionCache.set(cacheKey, {
-      expiresAt: Date.now() + AVATAR_SEARCH_CACHE_TTL_MS,
-      value: rows
-    });
+    setBoundedCacheValue(this.avatarCollectionCache, cacheKey, rows, Date.now() + AVATAR_SEARCH_CACHE_TTL_MS, AVATAR_COLLECTION_CACHE_MAX_ENTRIES);
     return rows;
   }
 
@@ -757,6 +803,7 @@ function normalizeFriend(data, offlineHint = false) {
     location,
     worldId: parseWorldId(location),
     instanceId: parseInstanceId(location),
+    worldName: String(data?.worldName || data?.world?.name || "").slice(0, 300),
     platform: String(data?.platform || data?.last_platform || ""),
     lastActivity: String(data?.last_activity || data?.last_login || ""),
     bio: String(data?.bio || "").slice(0, 1000),
@@ -779,6 +826,7 @@ function normalizeUserProfile(data, fallbackUserId = "") {
     location,
     worldId: String(data?.worldId || parseWorldId(location)),
     instanceId: String(data?.instanceId || parseInstanceId(location)),
+    worldName: String(data?.worldName || data?.world?.name || "").slice(0, 300),
     platform: String(data?.platform || data?.last_platform || ""),
     lastActivity: String(data?.last_activity || data?.last_login || ""),
     dateJoined: String(data?.date_joined || ""),

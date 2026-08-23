@@ -1,11 +1,17 @@
 "use strict";
 
 const path = require("node:path");
+const fs = require("node:fs");
+const { once } = require("node:events");
 const { createHash, randomUUID } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const MAX_LOCAL_SESSIONS = 5_000;
+const MAX_LOCAL_SOCIAL_EVENTS = 20_000;
 const MAX_SEARCH_RESULTS = 100;
+const ENTITY_SCHEMA_VERSION = "4";
+const ENTITY_BACKFILL_BATCH_SIZE = 25;
+const EXPORT_PAGE_SIZE = 250;
 const USER_ID_RE = /^usr_[a-z0-9_-]{3,80}$/iu;
 const WORLD_ID_RE = /^wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const AVATAR_ID_RE = /^avtr_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -64,9 +70,39 @@ function normalizedAvatar({ avatarName = "", avatarId = "" } = {}) {
   };
 }
 
+function playerEventIdentity(source = {}) {
+  return JSON.stringify([
+    String(source.user_id ?? source.userId ?? "").trim(),
+    String(source.display_name ?? source.displayName ?? source.playerName ?? "").trim().slice(0, 160),
+    String(source.event_type ?? source.type ?? "").trim(),
+    isoTimestamp(source.occurred_at ?? source.seenAt),
+    String(source.world_name ?? source.worldName ?? "").trim().slice(0, 300),
+    String(source.world_id ?? source.worldId ?? "").trim().slice(0, 80)
+  ]);
+}
+
+function worldVisitIdentity(source = {}) {
+  const existingWorldKey = String(source.world_key ?? source.worldKey ?? "").trim();
+  if (existingWorldKey) return JSON.stringify([existingWorldKey, isoTimestamp(source.seen_at ?? source.seenAt)]);
+  const world = normalizedWorld({
+    worldName: source.world_name ?? source.worldName,
+    worldId: source.world_id ?? source.worldId
+  });
+  if (!world) return "";
+  return JSON.stringify([world.worldKey, isoTimestamp(source.seen_at ?? source.seenAt)]);
+}
+
+async function writeStreamChunk(stream, chunk) {
+  if (stream.errored) throw stream.errored;
+  if (!stream.write(chunk)) await once(stream, "drain");
+}
+
 class LocalCompanionStore {
   constructor(filePath) {
     if (!path.isAbsolute(filePath)) throw new Error("Local companion database path must be absolute");
+    this.closed = false;
+    this.backfillHandle = null;
+    this.maintenanceHandle = null;
     this.database = new DatabaseSync(filePath);
     this.database.exec(`
       PRAGMA foreign_keys = ON;
@@ -219,13 +255,8 @@ class LocalCompanionStore {
       );
     `);
     const entitySchema = this.database.prepare("SELECT value FROM companion_meta WHERE key = 'entity_schema'").get();
-    if (entitySchema?.value !== "4") {
-      this.backfillEntities();
-      this.database.prepare(`
-        INSERT INTO companion_meta (key, value) VALUES ('entity_schema', '4')
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run();
-    }
+    if (entitySchema?.value !== ENTITY_SCHEMA_VERSION) this.scheduleBackfillEntities();
+    this.scheduleMaintenance();
   }
 
   createSession({ worldName = "", startedAt = Date.now() } = {}) {
@@ -235,6 +266,7 @@ class LocalCompanionStore {
       INSERT INTO play_sessions (id, started_at, world_name, updated_at)
       VALUES (?, ?, ?, ?)
     `).run(id, timestamp, String(worldName || "").slice(0, 300), timestamp);
+    this.pruneOverflow();
     return id;
   }
 
@@ -259,6 +291,15 @@ class LocalCompanionStore {
     const hasAvatarCount = Object.hasOwn(safeStats, "avatarCount");
     const hasEventCount = Object.hasOwn(safeStats, "eventCount");
     const hasSnapshot = Object.hasOwn(safeStats, "snapshot") && safeStats.snapshot !== null;
+    const nextWorldName = hasWorldName ? String(safeStats.worldName || "").slice(0, 300) : null;
+    const nextSnapshot = hasSnapshot ? snapshotJson(safeStats.snapshot) : null;
+    const previous = (hasSnapshot || hasWorldName)
+      ? this.database.prepare("SELECT world_name, snapshot FROM play_sessions WHERE id = ?").get(sessionId)
+      : null;
+    const entitiesChanged = Boolean(previous) && (
+      (hasWorldName && previous.world_name !== nextWorldName)
+      || (hasSnapshot && previous.snapshot !== nextSnapshot)
+    );
     const result = this.database.prepare(`
       UPDATE play_sessions
       SET ended_at = CASE WHEN ? THEN ? ELSE ended_at END,
@@ -272,15 +313,15 @@ class LocalCompanionStore {
     `).run(
       end ? 1 : 0,
       timestamp,
-      hasWorldName ? String(safeStats.worldName || "").slice(0, 300) : null,
+      nextWorldName,
       hasPlayerCount ? Math.max(0, Number(safeStats.playerCount) || 0) : null,
       hasAvatarCount ? Math.max(0, Number(safeStats.avatarCount) || 0) : null,
       hasEventCount ? Math.max(0, Number(safeStats.eventCount) || 0) : null,
-      hasSnapshot ? snapshotJson(safeStats.snapshot) : null,
+      nextSnapshot,
       timestamp,
       sessionId
     );
-    if (result.changes > 0 && (hasSnapshot || hasWorldName)) {
+    if (result.changes > 0 && entitiesChanged) {
       const row = this.database.prepare(`
         SELECT started_at, world_name, snapshot
         FROM play_sessions
@@ -288,6 +329,7 @@ class LocalCompanionStore {
       `).get(sessionId);
       if (row) this.syncSessionEntities(sessionId, row, timestamp);
     }
+    if (end) this.pruneOverflow();
     return { ok: result.changes > 0, playSessionId: sessionId };
   }
 
@@ -350,6 +392,8 @@ class LocalCompanionStore {
   }
 
   syncSessionEntities(sessionId, session, updatedAt = isoTimestamp()) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
     const snapshot = snapshotObject(session?.snapshot);
     const seenAt = isoTimestamp(session?.started_at || updatedAt);
     const players = new Map();
@@ -386,7 +430,6 @@ class LocalCompanionStore {
         last_seen_at = MAX(local_player_names.last_seen_at, excluded.last_seen_at),
         seen_count = MAX(local_player_names.seen_count, excluded.seen_count)
     `);
-    this.database.prepare("DELETE FROM session_players WHERE session_id = ?").run(sessionId);
     for (const [userId, displayName] of players) {
       upsertPlayer.run(userId, displayName, seenAt, seenAt, updatedAt);
       upsertSessionPlayer.run(sessionId, userId, displayName, seenAt);
@@ -399,29 +442,48 @@ class LocalCompanionStore {
         (session_id, event_index, user_id, display_name, event_type, occurred_at, world_name, world_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    this.database.prepare("DELETE FROM local_player_events WHERE session_id = ?").run(sessionId);
-    playerEvents.forEach((event, eventIndex) => {
+    const existingPlayerEvents = this.database.prepare(`
+      SELECT event_index, user_id, display_name, event_type, occurred_at, world_name, world_id
+      FROM local_player_events
+      WHERE session_id = ?
+      ORDER BY event_index DESC
+      LIMIT 2500
+    `).all(sessionId);
+    const existingPlayerEventKeys = new Set(existingPlayerEvents.map(playerEventIdentity));
+    let nextPlayerEventIndex = existingPlayerEvents.reduce((maximum, row) => Math.max(maximum, Number(row.event_index) || 0), -1) + 1;
+    playerEvents.forEach((event) => {
       const userId = String(event?.userId || "").trim();
       const eventType = String(event?.type || "").trim();
       if (!USER_ID_RE.test(userId) || !["player-joined", "player-left"].includes(eventType)) return;
       const eventSeenAt = isoTimestamp(event?.seenAt || seenAt);
       const displayName = String(event?.displayName || event?.playerName || "").trim().slice(0, 160);
+      const normalizedEvent = {
+        userId,
+        displayName,
+        type: eventType,
+        seenAt: eventSeenAt,
+        worldName: String(event?.worldName || "").trim().slice(0, 300),
+        worldId: String(event?.worldId || "").trim().slice(0, 80)
+      };
+      const eventKey = playerEventIdentity(normalizedEvent);
+      if (existingPlayerEventKeys.has(eventKey)) return;
       upsertPlayer.run(userId, displayName, eventSeenAt, eventSeenAt, updatedAt);
       if (displayName) upsertPlayerName.run(userId, displayName, eventSeenAt, eventSeenAt);
       insertPlayerEvent.run(
         sessionId,
-        eventIndex,
+        nextPlayerEventIndex,
         userId,
         displayName,
         eventType,
         eventSeenAt,
-        String(event?.worldName || "").trim().slice(0, 300),
-        String(event?.worldId || "").trim().slice(0, 80)
+        normalizedEvent.worldName,
+        normalizedEvent.worldId
       );
+      nextPlayerEventIndex += 1;
+      existingPlayerEventKeys.add(eventKey);
     });
 
     const world = normalizedWorld({ worldName: session?.world_name, worldId: snapshot.worldId });
-    this.database.prepare("DELETE FROM session_worlds WHERE session_id = ?").run(sessionId);
     if (world) {
       this.database.prepare(`
         INSERT INTO local_worlds (world_key, world_id, world_name, first_seen_at, last_seen_at, updated_at)
@@ -454,13 +516,25 @@ class LocalCompanionStore {
       INSERT INTO local_world_visits (session_id, visit_index, world_key, seen_at)
       VALUES (?, ?, ?, ?)
     `);
-    this.database.prepare("DELETE FROM local_world_visits WHERE session_id = ?").run(sessionId);
-    worldVisits.forEach((visit, visitIndex) => {
+    const existingWorldVisits = this.database.prepare(`
+      SELECT visit_index, world_key, seen_at
+      FROM local_world_visits
+      WHERE session_id = ?
+      ORDER BY visit_index DESC
+      LIMIT 1000
+    `).all(sessionId);
+    const existingWorldVisitKeys = new Set(existingWorldVisits.map(worldVisitIdentity));
+    let nextWorldVisitIndex = existingWorldVisits.reduce((maximum, row) => Math.max(maximum, Number(row.visit_index) || 0), -1) + 1;
+    worldVisits.forEach((visit) => {
       const normalized = normalizedWorld(visit || {});
       if (!normalized) return;
       const visitAt = isoTimestamp(visit?.seenAt || seenAt);
+      const visitKey = worldVisitIdentity({ worldId: normalized.worldId, worldName: normalized.worldName, seenAt: visitAt });
+      if (existingWorldVisitKeys.has(visitKey)) return;
       upsertWorld.run(normalized.worldKey, normalized.worldId, normalized.worldName, visitAt, visitAt, updatedAt);
-      insertWorldVisit.run(sessionId, visitIndex, normalized.worldKey, visitAt);
+      insertWorldVisit.run(sessionId, nextWorldVisitIndex, normalized.worldKey, visitAt);
+      nextWorldVisitIndex += 1;
+      existingWorldVisitKeys.add(visitKey);
     });
 
     const upsertAvatar = this.database.prepare(`
@@ -480,7 +554,6 @@ class LocalCompanionStore {
         display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE session_avatars.display_name END,
         seen_at = MAX(session_avatars.seen_at, excluded.seen_at)
     `);
-    this.database.prepare("DELETE FROM session_avatars WHERE session_id = ?").run(sessionId);
     for (const observation of Array.isArray(snapshot.avatars) ? snapshot.avatars : []) {
       const avatar = normalizedAvatar(observation);
       if (!avatar) continue;
@@ -490,16 +563,91 @@ class LocalCompanionStore {
       upsertAvatar.run(avatar.avatarKey, avatar.avatarId, avatar.avatarName, avatarSeenAt, avatarSeenAt, updatedAt);
       upsertSessionAvatar.run(sessionId, avatar.avatarKey, userId, displayName, avatarSeenAt);
     }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
-  backfillEntities() {
+  scheduleBackfillEntities() {
+    if (this.closed || this.backfillHandle) return;
+    this.backfillHandle = setImmediate(() => {
+      this.backfillHandle = null;
+      if (this.closed) return;
+      try {
+        const result = this.backfillEntities(ENTITY_BACKFILL_BATCH_SIZE);
+        if (!result.complete) this.scheduleBackfillEntities();
+      } catch {
+        // Оставляем cursor и повторяем миграцию при следующем запуске.
+      }
+    });
+  }
+
+  backfillEntities(batchSize = ENTITY_BACKFILL_BATCH_SIZE) {
+    const safeBatchSize = Math.min(100, Math.max(1, Number(batchSize) || ENTITY_BACKFILL_BATCH_SIZE));
+    const cursor = Math.max(0, Number(this.database.prepare("SELECT value FROM companion_meta WHERE key = 'entity_backfill_cursor'").get()?.value) || 0);
     const rows = this.database.prepare(`
-      SELECT id, started_at, world_name, snapshot, updated_at
+      SELECT rowid AS cursor_id, id, started_at, world_name, snapshot, updated_at
       FROM play_sessions
-      ORDER BY started_at ASC
+      WHERE rowid > ?
+      ORDER BY rowid ASC
       LIMIT ?
-    `).all(MAX_LOCAL_SESSIONS);
+    `).all(cursor, safeBatchSize);
     for (const row of rows) this.syncSessionEntities(row.id, row, row.updated_at);
+    if (rows.length === safeBatchSize) {
+      this.database.prepare(`
+        INSERT INTO companion_meta (key, value) VALUES ('entity_backfill_cursor', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(String(rows.at(-1).cursor_id));
+      return { complete: false, processed: rows.length };
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        INSERT INTO companion_meta (key, value) VALUES ('entity_schema', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(ENTITY_SCHEMA_VERSION);
+      this.database.prepare("DELETE FROM companion_meta WHERE key = 'entity_backfill_cursor'").run();
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return { complete: true, processed: rows.length };
+  }
+
+  scheduleMaintenance() {
+    if (this.closed || this.maintenanceHandle) return;
+    this.maintenanceHandle = setImmediate(() => {
+      this.maintenanceHandle = null;
+      if (this.closed) return;
+      try {
+        this.pruneOverflow();
+      } catch {
+        // Обслуживание повторится при следующей записи или запуске.
+      }
+    });
+  }
+
+  pruneOverflow() {
+    const removedSessions = Number(this.database.prepare(`
+      DELETE FROM play_sessions
+      WHERE id IN (
+        SELECT id FROM play_sessions
+        ORDER BY started_at DESC, id DESC
+        LIMIT -1 OFFSET ?
+      )
+    `).run(MAX_LOCAL_SESSIONS).changes) || 0;
+    const removedSocialEvents = Number(this.database.prepare(`
+      DELETE FROM local_social_events
+      WHERE id IN (
+        SELECT id FROM local_social_events
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT -1 OFFSET ?
+      )
+    `).run(MAX_LOCAL_SOCIAL_EVENTS).changes) || 0;
+    return removedSessions + removedSocialEvents;
   }
 
   search(query = "", limit = 40) {
@@ -792,6 +940,7 @@ class LocalCompanionStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+    if (eventCount > 0) this.pruneOverflow();
     return { ok: true, complete, friends: seen.size, events: eventCount, baselineCreated: !baselineReady && complete };
   }
 
@@ -836,6 +985,54 @@ class LocalCompanionStore {
       retentionDays: this.getRetentionDays(),
       uiSettings: uiSettings && typeof uiSettings === "object" && !Array.isArray(uiSettings) ? uiSettings : {}
     };
+  }
+
+  async exportToFile(filePath, uiSettings = {}) {
+    if (!path.isAbsolute(filePath)) throw new Error("Local companion export path must be absolute");
+    const output = fs.createWriteStream(filePath, { encoding: "utf8", flags: "w" });
+    const completion = new Promise((resolve, reject) => {
+      output.once("finish", resolve);
+      output.once("error", reject);
+    });
+    void completion.catch(() => {});
+    const safeUiSettings = uiSettings && typeof uiSettings === "object" && !Array.isArray(uiSettings) ? uiSettings : {};
+    const writeRows = async (key, query) => {
+      await writeStreamChunk(output, `${JSON.stringify(key)}:[`);
+      const statement = this.database.prepare(`${query} LIMIT ? OFFSET ?`);
+      let offset = 0;
+      let first = true;
+      while (true) {
+        const rows = statement.all(EXPORT_PAGE_SIZE, offset);
+        for (const row of rows) {
+          await writeStreamChunk(output, `${first ? "" : ","}${JSON.stringify(row)}`);
+          first = false;
+        }
+        if (rows.length < EXPORT_PAGE_SIZE) break;
+        offset += rows.length;
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await writeStreamChunk(output, "]");
+    };
+
+    try {
+      await writeStreamChunk(output, `{${JSON.stringify("format")}:${JSON.stringify("vrchat-admin-tools-local-backup")},${JSON.stringify("version")}:1,${JSON.stringify("exportedAt")}:${JSON.stringify(isoTimestamp())},`);
+      await writeRows("sessions", "SELECT id, started_at, ended_at, world_name, player_count, avatar_count, event_count, snapshot FROM play_sessions ORDER BY started_at ASC");
+      await writeStreamChunk(output, ",");
+      await writeRows("playerPreferences", "SELECT * FROM local_player_preferences ORDER BY updated_at ASC");
+      await writeStreamChunk(output, ",");
+      await writeRows("worldPreferences", "SELECT * FROM local_world_preferences ORDER BY updated_at ASC");
+      await writeStreamChunk(output, ",");
+      await writeRows("socialFriends", "SELECT * FROM local_social_friends ORDER BY last_seen_at ASC");
+      await writeStreamChunk(output, ",");
+      await writeRows("socialEvents", "SELECT * FROM local_social_events ORDER BY occurred_at ASC, id ASC");
+      await writeStreamChunk(output, `,${JSON.stringify("retentionDays")}:${this.getRetentionDays()},${JSON.stringify("uiSettings")}:${JSON.stringify(safeUiSettings)}}\n`);
+      output.end();
+      await completion;
+      return { ok: true, filePath };
+    } catch (error) {
+      output.destroy();
+      throw error;
+    }
   }
 
   importData(payload = {}) {
@@ -894,10 +1091,12 @@ class LocalCompanionStore {
 
   prune(retentionDays = this.getRetentionDays()) {
     const days = Number(retentionDays);
-    if (!days) return 0;
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-    const removed = Number(this.database.prepare("DELETE FROM play_sessions WHERE started_at < ?").run(cutoff).changes) || 0;
-    this.database.prepare("DELETE FROM local_social_events WHERE occurred_at < ?").run(cutoff);
+    let removed = this.pruneOverflow();
+    if (days) {
+      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+      removed += Number(this.database.prepare("DELETE FROM play_sessions WHERE started_at < ?").run(cutoff).changes) || 0;
+      removed += Number(this.database.prepare("DELETE FROM local_social_events WHERE occurred_at < ?").run(cutoff).changes) || 0;
+    }
     this.database.exec(`
       DELETE FROM local_players
       WHERE NOT EXISTS (SELECT 1 FROM session_players WHERE session_players.user_id = local_players.user_id)
@@ -953,6 +1152,11 @@ class LocalCompanionStore {
   }
 
   close() {
+    this.closed = true;
+    if (this.backfillHandle) clearImmediate(this.backfillHandle);
+    if (this.maintenanceHandle) clearImmediate(this.maintenanceHandle);
+    this.backfillHandle = null;
+    this.maintenanceHandle = null;
     this.database.close();
   }
 }

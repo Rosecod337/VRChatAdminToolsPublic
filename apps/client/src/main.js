@@ -19,7 +19,10 @@ const { LocalCompanionStore } = require("./local-companion-store");
 const { VrchatUserResolver } = require("./vrchat-api");
 
 const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
-const RETIRED_SERVER_URLS = new Set();
+const RETIRED_SERVER_URLS = new Set([
+  "https://web-production-a9b1cd.up.railway.app",
+  "https://web-production-a54bb.up.railway.app"
+]);
 
 function isBetaClient() {
   return process.env.VRCHAT_CLIENT_VARIANT === "beta" || /\bbeta\b/iu.test(app.getName());
@@ -553,9 +556,11 @@ async function startHeartbeat() {
 }
 
 function setupAutoUpdater() {
-  if (!app.isPackaged || isBetaClient()) return;
+  if (!app.isPackaged) return;
 
-  autoUpdater.allowPrerelease = false;
+  const beta = isBetaClient();
+  autoUpdater.allowPrerelease = beta;
+  autoUpdater.allowDowngrade = false;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.logger = {
@@ -1073,9 +1078,7 @@ ipcMain.handle("companion:export", async (event, uiSettings) => {
   };
   const result = await (parent ? dialog.showSaveDialog(parent, saveOptions) : dialog.showSaveDialog(saveOptions));
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-  const payload = companionStore().exportData(uiSettings || {});
-  await fs.writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  return { ok: true, filePath: result.filePath };
+  return companionStore().exportToFile(result.filePath, uiSettings || {});
 });
 
 ipcMain.handle("companion:import", async (event) => {

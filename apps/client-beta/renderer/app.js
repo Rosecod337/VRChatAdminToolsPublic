@@ -112,6 +112,7 @@ const BUILDER_ROW_LIMITS = Object.freeze([5, 10, 20, 40, 60, 80]);
 const SESSION_EVENT_FILTERS = Object.freeze(["joins", "leaves", "avatars", "worlds", "other"]);
 const AVATAR_PAGE_SIZES = Object.freeze([25, 50, 100, 200]);
 const AVATAR_RENDER_THROTTLE_MS = 180;
+const PROFILE_RENDER_CACHE_LIMIT = 1_000;
 const UI_SIDEBAR_COLLAPSED_WIDTH = 84;
 const UI_SIDEBAR_MIN_WIDTH = 220;
 const UI_SIDEBAR_MAX_WIDTH = 360;
@@ -8230,6 +8231,7 @@ document.addEventListener("keydown", (event) => {
 
 function resetAnalysisEvents() {
   state.events = [];
+  state.profiles.clear();
   invalidateSessionData({ avatars: true });
   state.startedAt = null;
   state.stoppedAt = null;
@@ -8254,7 +8256,9 @@ api?.onTailRotation?.((payload) => {
 api?.onUserResolved?.((profile) => {
   const userId = String(profile?.userId || profile?.id || "").trim();
   if (!userId) return;
+  state.profiles.delete(userId);
   state.profiles.set(userId, { ...profile, userId, displayName: String(profile?.displayName || userId) });
+  while (state.profiles.size > PROFILE_RENDER_CACHE_LIMIT) state.profiles.delete(state.profiles.keys().next().value);
   if (state.view === "session") scheduleSessionRender();
   if (state.view === "admin") scheduleAdminRender();
   if (state.view === "owner") scheduleOwnerRender();
