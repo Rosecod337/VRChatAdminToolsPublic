@@ -898,6 +898,7 @@ class LocalCompanionStore {
         const platform = String(friend?.platform || "").slice(0, 80);
         const online = typeof friend?.online === "boolean" ? friend.online : (status !== "offline" && status !== "");
         const previous = previousById.get(userId);
+        const previousSnapshot = snapshotObject(previous?.snapshot);
         const safeSnapshot = snapshotJson(friend);
         upsert.run(userId, displayName, status, statusDescription, location, platform, online ? 1 : 0, previous?.first_seen_at || occurredAt, occurredAt, safeSnapshot);
         if (!baselineReady) continue;
@@ -907,7 +908,8 @@ class LocalCompanionStore {
           continue;
         }
         if (!previous) continue;
-        if (Boolean(previous.online) !== online) {
+        const onlineChanged = Boolean(previous.online) !== online;
+        if (onlineChanged) {
           insertEvent.run(online ? "online" : "offline", userId, displayName, previous.online ? "online" : "offline", online ? "online" : "offline", occurredAt, safeSnapshot);
           eventCount += 1;
         }
@@ -917,6 +919,16 @@ class LocalCompanionStore {
         }
         if (previous.display_name !== displayName) {
           insertEvent.run("renamed", userId, displayName, previous.display_name, displayName, occurredAt, safeSnapshot);
+          eventCount += 1;
+        }
+        for (const [eventType, before, after] of [
+          ["status", onlineChanged ? status : previous.status, status],
+          ["status-description", previous.status_description, statusDescription],
+          ["avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, friend.avatarId || friend.avatarImageUrl],
+          ["bio", previousSnapshot.bio, friend.bio]
+        ]) {
+          if (String(before || "") === String(after || "")) continue;
+          insertEvent.run(eventType, userId, displayName, String(before || "").slice(0, 2_000), String(after || "").slice(0, 2_000), occurredAt, safeSnapshot);
           eventCount += 1;
         }
       }
@@ -942,6 +954,85 @@ class LocalCompanionStore {
     }
     if (eventCount > 0) this.pruneOverflow();
     return { ok: true, complete, friends: seen.size, events: eventCount, baselineCreated: !baselineReady && complete };
+  }
+
+  recordSocialPipelineEvent(event = {}) {
+    const type = String(event?.type || "");
+    const content = event?.content && typeof event.content === "object" ? event.content : {};
+    const user = content.user && typeof content.user === "object" ? content.user : {};
+    const userId = String(content.userId || user.id || "").trim();
+    if (!USER_ID_RE.test(userId)) return { ok: false, ignored: true };
+    const occurredAt = isoTimestamp(event?.occurredAt);
+    const previous = this.database.prepare("SELECT * FROM local_social_friends WHERE user_id = ?").get(userId);
+    const previousSnapshot = snapshotObject(previous?.snapshot);
+    const displayName = String(user.displayName || previous?.display_name || userId).slice(0, 160);
+    const status = String(type === "friend-offline" ? "offline" : (user.status || previous?.status || (type === "friend-active" ? "active" : "online"))).slice(0, 60);
+    const statusDescription = String(user.statusDescription ?? previous?.status_description ?? "").slice(0, 300);
+    const location = String(type === "friend-offline" ? "offline" : (content.location ?? user.location ?? previous?.location ?? "")).slice(0, 600);
+    const platform = String(content.platform ?? user.platform ?? user.last_platform ?? previous?.platform ?? "").slice(0, 80);
+    const online = type === "friend-offline" ? false : (["friend-online", "friend-location"].includes(type) ? true : (type === "friend-active" ? false : (status !== "offline" && status !== "")));
+    const safeSnapshot = {
+      ...previousSnapshot,
+      userId,
+      displayName,
+      status,
+      statusDescription,
+      location,
+      platform,
+      online,
+      bio: String(user.bio ?? previousSnapshot.bio ?? "").slice(0, 2_000),
+      avatarId: String(user.currentAvatar ?? user.currentAvatarId ?? previousSnapshot.avatarId ?? "").slice(0, 120),
+      avatarImageUrl: String(user.currentAvatarImageUrl ?? user.currentAvatarThumbnailImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000)
+    };
+    const serialized = snapshotJson(safeSnapshot);
+    const insertEvent = this.database.prepare(`
+      INSERT INTO local_social_events (
+        event_type, user_id, display_name, previous_value, current_value, occurred_at, snapshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const changes = [];
+    const addChange = (eventType, before, after) => {
+      if (String(before ?? "") !== String(after ?? "")) changes.push([eventType, String(before ?? "").slice(0, 2_000), String(after ?? "").slice(0, 2_000)]);
+    };
+    if (type === "friend-add") changes.push(["friend-added", "", "friend"]);
+    if (type === "friend-delete") changes.push(["friend-removed", "friend", ""]);
+    if (previous) {
+      const onlineChanged = Boolean(previous.online) !== online;
+      addChange(online ? "online" : "offline", previous.online ? "online" : "offline", online ? "online" : "offline");
+      if (online) addChange("location", previous.location, location);
+      addChange("renamed", previous.display_name, displayName);
+      addChange("status", onlineChanged ? status : previous.status, status);
+      addChange("status-description", previous.status_description, statusDescription);
+      addChange("avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, safeSnapshot.avatarId || safeSnapshot.avatarImageUrl);
+      addChange("bio", previousSnapshot.bio, safeSnapshot.bio);
+    } else if (!["friend-add", "friend-delete"].includes(type)) {
+      changes.push([online ? "online" : "offline", "", online ? "online" : "offline"]);
+    }
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      if (type === "friend-delete") {
+        this.database.prepare("DELETE FROM local_social_friends WHERE user_id = ?").run(userId);
+      } else {
+        this.database.prepare(`
+          INSERT INTO local_social_friends (
+            user_id, display_name, status, status_description, location, platform, online,
+            first_seen_at, last_seen_at, snapshot
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET
+            display_name = excluded.display_name, status = excluded.status,
+            status_description = excluded.status_description, location = excluded.location,
+            platform = excluded.platform, online = excluded.online,
+            last_seen_at = excluded.last_seen_at, snapshot = excluded.snapshot
+        `).run(userId, displayName, status, statusDescription, location, platform, online ? 1 : 0, previous?.first_seen_at || occurredAt, occurredAt, serialized);
+      }
+      for (const [eventType, before, after] of changes) insertEvent.run(eventType, userId, displayName, before, after, occurredAt, serialized);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    if (changes.length) this.pruneOverflow();
+    return { ok: true, events: changes.length, userId };
   }
 
   listSocialEvents(limit = 500) {

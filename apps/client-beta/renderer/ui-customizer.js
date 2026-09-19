@@ -15,7 +15,7 @@
     }
     if (Object.hasOwn(FONTS, input?.theme?.font)) profile.theme.font = input.theme.font;
     if (input?.theme?.radius !== undefined) profile.theme.radius = bounded(input.theme.radius, 0, 32);
-    if (input?.theme?.scale !== undefined) profile.theme.scale = bounded(input.theme.scale, 80, 120);
+    if (input?.theme?.scale !== undefined) profile.theme.scale = bounded(input.theme.scale, 90, 110);
     for (const [selector, item] of Object.entries(input?.elements || {}).slice(0, 250)) {
       if (!SELECTOR.test(selector) || !item || typeof item !== "object") continue;
       const setting = {};
@@ -60,10 +60,11 @@
     const originalSkip = new WeakMap();
     const staticLabels = new WeakSet();
     // Capture only initial static captions. Runtime data and password fields are never relabelled.
-    document.querySelectorAll("h1,h2,h3,h4,button,label,summary,a,span,p,small,legend").forEach((element) => {
+    document.querySelectorAll("button,label,summary,a,span,p,small,legend").forEach((element) => {
       const text = element.textContent.trim();
       const runtimeValue = element.getAttributeNames().some((name) => /^data-.*(?:title|name|status|count|message|error|time|value|user|instance|id)$/u.test(name));
-      if (!runtimeValue && !element.children.length && text && !/^[\d\s—–.:-]+$/u.test(text) && !element.closest("[data-activation-view], [data-vrchat-auth-dialog], [data-i18n-skip]")) staticLabels.add(element);
+      const structuralControl = element.closest(".topNavigation, [data-view-button], [data-library-tab], [role='tablist']");
+      if (!runtimeValue && !structuralControl && !element.children.length && text && !/^[\d\s—–.:-]+$/u.test(text) && !element.closest("[data-activation-view], [data-vrchat-auth-dialog], [data-i18n-skip]")) staticLabels.add(element);
     });
     // A file:// stylesheet has an opaque origin in Chrome. Keep overrides in
     // a constructable stylesheet, without changing the renderer CSP.
@@ -117,8 +118,8 @@
     }
     const fontLabel = make("label", "", "Шрифт"); fontLabel.append(font); themeFields.append(fontLabel);
     font.addEventListener("change", () => { current().theme.font = font.value; saveAndApply(); });
-    const scale = field(themeFields, "Масштаб, %", "number", 80, 120);
-    scale.addEventListener("change", () => { current().theme.scale = bounded(scale.value, 80, 120); saveAndApply(); });
+    const scale = field(themeFields, "Масштаб, %", "number", 90, 110);
+    scale.addEventListener("change", () => { current().theme.scale = bounded(scale.value, 90, 110); saveAndApply(); });
     const radius = field(themeFields, "Скругление панелей", "number", 0, 32);
     radius.addEventListener("change", () => { current().theme.radius = bounded(radius.value, 0, 32); saveAndApply(); });
     panel.append(make("h3", "", "Общий вид"), themeFields);
@@ -150,7 +151,7 @@
         saveAndApply();
       });
     }
-    panel.append(elementFields, make("small", "", "Подпись доступна для статических кнопок и заголовков. Динамические имена, события и идентификаторы не заменяются."));
+    panel.append(elementFields, make("small", "", "Подпись доступна только для безопасных статических элементов. Названия разделов, вкладок, динамические данные и идентификаторы не заменяются."));
     const resetElement = make("button", "", "Сбросить выбранный элемент"); resetElement.type = "button";
     resetElement.dataset.uiAction = "reset-element";
     resetElement.addEventListener("click", () => {
@@ -164,8 +165,8 @@
     });
     panel.append(resetElement, resetAll, status);
     document.body.append(button, panel);
-    button.addEventListener("click", () => { panel.hidden = !panel.hidden; if (panel.hidden) dismissSelection(); });
-    close.addEventListener("click", () => { panel.hidden = true; dismissSelection(); });
+    button.addEventListener("click", () => { panel.hidden = !panel.hidden; document.body.classList.toggle("uiCustomOpen", !panel.hidden); if (panel.hidden) dismissSelection(); apply(); });
+    close.addEventListener("click", () => { panel.hidden = true; document.body.classList.remove("uiCustomOpen"); dismissSelection(); apply(); });
     pick.addEventListener("click", () => {
       selecting = !selecting; pick.textContent = selecting ? "Выберите элемент; Esc — отмена" : "Выбрать элемент на экране";
       document.body.classList.toggle("uiCustomPicking", selecting);
@@ -186,6 +187,7 @@
       root.requestAnimationFrame(() => { scheduled = false; applyElements(); });
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    root.addEventListener("resize", () => { if (!panel.hidden) apply(); });
     syncControls(); apply();
 
     function make(tag, className, text = "") {
@@ -210,8 +212,10 @@
       const theme = current().theme;
       const variables = Object.entries(COLORS).filter(([key]) => theme[key]).map(([key, variable]) => `${variable}:${theme[key]}`);
       if (theme.font) variables.push(`font-family:${FONTS[theme.font]}`);
-      if (theme.scale) variables.push(`zoom:${theme.scale / 100}`);
       if (variables.length) sheet.insertRule(`:root {${variables.join(";")}}`, sheet.cssRules.length);
+      const scaleFactor = bounded(theme.scale ?? 100, 90, 110) / 100;
+      const dockPadding = !panel.hidden && root.innerWidth >= 1180 ? 386 / scaleFactor : 0;
+      sheet.insertRule(`.appShell {zoom:${scaleFactor};width:${100 / scaleFactor}vw;height:${100 / scaleFactor}vh;padding-right:${dockPadding}px}`, sheet.cssRules.length);
       if (theme.surface) sheet.insertRule(`.panel {background:${theme.surface}}`, sheet.cssRules.length);
       if (theme.radius !== undefined) sheet.insertRule(`.panel,dialog {border-radius:${theme.radius}px}`, sheet.cssRules.length);
       for (const [selector, setting] of Object.entries(current().elements)) {

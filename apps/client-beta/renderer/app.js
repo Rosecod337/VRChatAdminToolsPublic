@@ -189,7 +189,8 @@ function normalizedUiSettings(value = {}) {
   if (!["ru", "en"].includes(next.language)) next.language = "ru";
   if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = "top";
   next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || 272));
-  if (!["session", "insights", "players", "worlds", "local-avatars", "social", "admin", "owner", "crash", "history", "builder"].includes(next.startView)) next.startView = "session";
+  if (["players", "worlds", "local-avatars"].includes(next.startView)) next.startView = "library";
+  if (!["session", "insights", "library", "social", "admin", "owner", "crash", "history", "builder"].includes(next.startView)) next.startView = "session";
   if (!["comfortable", "compact", "vr"].includes(next.density)) next.density = "comfortable";
   next.scale = [100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
@@ -227,6 +228,7 @@ const state = {
   view: "session",
   workspaceMode: localStorage.getItem("betaWorkspaceMode") === "team" ? "team" : "personal",
   workspaceLastView: loadLocalJson("betaWorkspaceLastView", { personal: "session", team: "admin" }),
+  libraryTab: ["players", "worlds", "local-avatars"].includes(localStorage.getItem("betaLibraryTab")) ? localStorage.getItem("betaLibraryTab") : "players",
   sessionPlayerMode: "online-first",
   sessionPlayerQuery: "",
   sessionEventFilters: loadLocalJson("betaSessionEventFilters", ["all"]),
@@ -455,10 +457,8 @@ function rememberSelections() {
 const viewTitles = {
   session: "Живая сессия",
   insights: "Мой VRChat",
-  players: "Игроки",
-  social: "Социальное",
-  worlds: "Миры",
-  "local-avatars": "Аватары",
+  library: "Библиотека",
+  social: "Друзья",
   admin: "Admin Tools",
   owner: "Owner",
   crash: "Crash Analyzer",
@@ -469,10 +469,8 @@ const viewTitles = {
 const viewEyebrows = {
   session: "Текущая сессия",
   insights: "Личная статистика",
-  players: "Локальная история игроков",
+  library: "Локальные игроки, миры и аватары",
   social: "Друзья и группы VRChat",
-  worlds: "Локальная история миров",
-  "local-avatars": "Локальные наблюдения аватаров",
   admin: "Командная работа",
   owner: "Управление VRChat-группой",
   crash: "Диагностика",
@@ -1128,7 +1126,7 @@ function syncOwnerAccess() {
 
 function viewWorkspaceMode(view) {
   if (view === "admin" || view === "owner") return "team";
-  if (view === "players" || view === "worlds" || view === "local-avatars" || view === "social") return "personal";
+  if (view === "library" || view === "social") return "personal";
   return "shared";
 }
 
@@ -3501,6 +3499,10 @@ function addEvent(event) {
 }
 
 function selectView(view) {
+  if (["players", "worlds", "local-avatars"].includes(view)) {
+    selectLibraryTab(view);
+    view = "library";
+  }
   if (!viewTitles[view]) return;
   if (view === "admin" && !hasPaidAccess()) return;
   if (view === "owner" && !hasOwnerAccess()) return;
@@ -3529,7 +3531,10 @@ function selectView(view) {
   });
   if (view === "insights") void refreshInsights();
   if (view === "social") void refreshSocial();
-  if (["players", "worlds", "local-avatars"].includes(view)) void refreshLocalDirectory(view);
+  if (view === "library") {
+    syncLibraryTabs();
+    void refreshLocalDirectory(state.libraryTab);
+  }
   if (view === "history") void refreshHistory();
   if (view === "admin") void refreshAdmin();
   if (view === "owner") void refreshOwner({ silent: true });
@@ -3539,6 +3544,28 @@ function selectView(view) {
     void refreshBuilderSources();
   }
   if (view === "session") requestAnimationFrame(() => renderSession());
+}
+
+function syncLibraryTabs() {
+  document.querySelectorAll("[data-library-tab]").forEach((button) => {
+    const active = button.dataset.libraryTab === state.libraryTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll("[data-library-pane]").forEach((pane) => {
+    const active = pane.dataset.libraryPane === state.libraryTab;
+    pane.classList.toggle("active", active);
+    pane.hidden = !active;
+  });
+}
+
+function selectLibraryTab(tab) {
+  if (!["players", "worlds", "local-avatars"].includes(tab)) return;
+  state.libraryTab = tab;
+  localStorage.setItem("betaLibraryTab", tab);
+  syncLibraryTabs();
+  if (state.view === "library") void refreshLocalDirectory(tab);
 }
 
 function formatDuration(milliseconds) {
@@ -4072,7 +4099,7 @@ function renderSocial() {
   if (state.socialTab === "journal") {
     const panel = socialPanel("Локально", "Журнал друзей", String(state.socialEvents.length));
     const list = adminElement("div", "socialList socialJournal");
-    const labels = { "friend-added": "Добавлен в друзья", "friend-removed": "Удалён из друзей", online: "Появился онлайн", offline: "Ушёл офлайн", location: "Сменил локацию", renamed: "Сменил имя" };
+    const labels = { "friend-added": "Добавлен в друзья", "friend-removed": "Удалён из друзей", online: "Появился онлайн", offline: "Ушёл офлайн", location: "Сменил локацию", renamed: "Сменил имя", status: "Сменил статус", "status-description": "Изменил текст статуса", avatar: "Сменил аватар", bio: "Изменил профиль" };
     renderVirtualSocialRows(list, state.socialEvents.slice(0, 500), (entry) => {
       const row = adminElement("button", "socialRow socialEventRow");
       row.type = "button";
@@ -4081,7 +4108,7 @@ function renderSocial() {
       copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", labels[entry.event_type] || entry.event_type));
       row.append(copy, adminElement("em", "", adminDate(entry.occurred_at)));
       return row;
-    }, "Журнал начнёт заполняться после второго полного обновления списка друзей.");
+    }, "Лента начнёт заполняться после подключения аккаунта VRChat. Приложение должно быть запущено.");
     panel.append(list);
     socialSummary.append(panel);
     return;
@@ -7077,6 +7104,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const libraryTab = event.target.closest("[data-library-tab]")?.dataset.libraryTab;
+  if (libraryTab) {
+    selectLibraryTab(libraryTab);
+    return;
+  }
+
   const workspaceModeButton = event.target.closest("[data-workspace-mode]");
   if (workspaceModeButton) {
     switchWorkspaceMode(workspaceModeButton.dataset.workspaceMode);
@@ -8356,6 +8389,12 @@ function resetAnalysisEvents() {
 }
 
 api?.onLogEvent(addEvent);
+api?.onSocialActivity?.(() => {
+  api.listLocalSocialEvents(500).then((events) => {
+    state.socialEvents = Array.isArray(events) ? events : [];
+    if (state.view === "social" && state.socialTab === "journal") renderSocial();
+  }).catch(() => {});
+});
 api?.onAnalysisStart?.(() => {
   resetAnalysisEvents();
   setStatus("Читаем выбранный лог заново…", false, { kind: "info" });

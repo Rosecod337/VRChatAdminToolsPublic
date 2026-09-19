@@ -17,6 +17,7 @@ const { RuntimeConfigManager } = require("./runtime-config");
 const { importStableSettings } = require("./stable-settings-import");
 const { LocalCompanionStore } = require("./local-companion-store");
 const { VrchatUserResolver } = require("./vrchat-api");
+const { VrchatFriendPipeline } = require("./vrchat-friend-pipeline");
 
 const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
 const RETIRED_SERVER_URLS = new Set([
@@ -78,6 +79,13 @@ let alwaysOnTopReapplyTimer = null;
 let localCompanionStore = null;
 const tailer = new LogTailer();
 const resolver = new VrchatUserResolver();
+const friendPipeline = new VrchatFriendPipeline({
+  onEvent: (event) => {
+    if (!isBetaClient()) return;
+    const result = companionStore().recordSocialPipelineEvent(event);
+    if (result.events) send("companion:social-activity", { userId: result.userId, count: result.events });
+  }
+});
 const SETTINGS_SECRET_FIELDS = ["sessionToken", "vrchatAuthCookie"];
 const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) => [field, ""]));
 let lastKnownSettings = null;
@@ -116,6 +124,21 @@ function companionStore() {
   if (!isBetaClient()) throw new Error("Local companion storage is only available in Beta");
   localCompanionStore ??= new LocalCompanionStore(path.join(app.getPath("userData"), "companion.sqlite"));
   return localCompanionStore;
+}
+
+async function syncFriendPipeline(authCookie, { createBaseline = false } = {}) {
+  if (!isBetaClient() || !authCookie) {
+    friendPipeline.stop();
+    return false;
+  }
+  resolver.setAuthCookie(authCookie);
+  if (createBaseline) {
+    try {
+      const summary = await resolver.fetchSocialSummary({ force: true });
+      companionStore().recordSocialSnapshot(summary);
+    } catch { /* The realtime feed can still connect and build a new baseline. */ }
+  }
+  return friendPipeline.start(authCookie);
 }
 
 function isFreeMode(settings) {
@@ -235,6 +258,7 @@ resolver.setAuthCookieChangeHandler((authCookie) => {
     const settings = await readSettings();
     if (!authCookie || settings.vrchatAuthCookie === authCookie) return;
     await writeSettings({ ...settings, vrchatAuthCookie: authCookie });
+    await syncFriendPipeline(authCookie).catch(() => {});
   }).catch(() => {});
 });
 
@@ -630,6 +654,7 @@ app.whenReady().then(async () => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   createWindow();
+  void syncFriendPipeline(settings.vrchatAuthCookie, { createBaseline: true });
   initialRuntimeConfigRefresh = refreshRuntimeConfig();
   initialRuntimeConfigRefresh.catch(() => {});
   runtimeConfigTimer = setInterval(() => {
@@ -644,6 +669,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", async () => {
+  friendPipeline.stop();
   if (runtimeConfigTimer) clearInterval(runtimeConfigTimer);
   runtimeConfigTimer = null;
   await endCurrentPlaySession().catch(() => {});
@@ -652,6 +678,7 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("before-quit", (event) => {
+  friendPipeline.stop();
   if (quitFinalizationStarted || !currentPlaySessionId) {
     localCompanionStore?.close();
     localCompanionStore = null;
@@ -728,6 +755,7 @@ async function persistVrchatAccountSession(result) {
     vrchatAuthCookie: resolver.getAuthCookie()
   });
   resolver.setAuthCookie(saved.vrchatAuthCookie);
+  await syncFriendPipeline(saved.vrchatAuthCookie, { createBaseline: true }).catch(() => {});
   return result;
 }
 
@@ -751,6 +779,7 @@ ipcMain.handle("vrchat:account-cancel", () => {
 ipcMain.handle("vrchat:account-disconnect", async () => {
   resolver.cancelAccountLogin();
   resolver.setAuthCookie("");
+  friendPipeline.stop();
   const oldSettings = await readSettings();
   await writeSettings({ ...oldSettings, vrchatAuthCookie: "" });
   return { ok: true, hasVrchatAuthCookie: false };

@@ -841,6 +841,8 @@ function normalizeFriend(data, offlineHint = false) {
     lastActivity: String(data?.last_activity || data?.last_login || ""),
     bio: String(data?.bio || "").slice(0, 1000),
     bioLinks: (Array.isArray(data?.bioLinks) ? data.bioLinks : []).map(String).slice(0, 8),
+    avatarId: String(data?.currentAvatar || data?.currentAvatarId || "").slice(0, 120),
+    avatarImageUrl: String(data?.currentAvatarImageUrl || data?.currentAvatarThumbnailImageUrl || "").slice(0, 1000),
     allowAvatarCopying: Boolean(data?.allowAvatarCopying),
     profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`
   };

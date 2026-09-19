@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("clientApi", {
   saveLocalPlayerPreference: (preference) => ipcRenderer.invoke("companion:save-player-preference", preference),
   listLocalWatchedPlayers: () => ipcRenderer.invoke("companion:list-watched-players"),
   listLocalSocialEvents: (limit = 500) => ipcRenderer.invoke("companion:social-events", limit),
+  onSocialActivity: (handler) => ipcRenderer.on("companion:social-activity", (_event, payload) => handler(payload)),
   saveLocalWorldPreference: (preference) => ipcRenderer.invoke("companion:save-world-preference", preference),
   getLocalStorageStats: () => ipcRenderer.invoke("companion:storage-stats"),
   setLocalRetention: (days) => ipcRenderer.invoke("companion:set-retention", days),

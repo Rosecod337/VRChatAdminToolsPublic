@@ -4,6 +4,8 @@ Local implementation checkpoint: 2026-09-19. Source remains `apps/client-beta/`;
 
 ## Appearance editor
 
+Beta.4 limits profile scale to 90–110% and compensates the viewport, so reduced scale no longer leaves a blank area. On wide windows the editor reserves space on the right. Structural headings and navigation tabs cannot be renamed; safe static captions remain editable. Older saved scale values below 90% are clamped automatically.
+
 Open **Оформление / Appearance** in the lower-right corner. It applies throughout the Beta renderer, beyond Builder.
 
 - Global background, panel, secondary, text, muted, accent and border colors; three font families; 80–120% scale; panel corner radius.
@@ -17,6 +19,9 @@ Open **Оформление / Appearance** in the lower-right corner. It applies
 Implementation: `renderer/ui-customizer.js` and `ui-customizer.css`, loaded by `index.html`. No privileged IPC was added.
 
 ## Read-only VRChat additions
+
+- Beta.4 adds a local friend activity feed backed by the authenticated VRChat pipeline. It records online/offline, location, display name, status, status text, avatar and bio changes while the app is running. It does not backfill events that happened while the app was closed.
+- Players, worlds and locally observed avatars now share one top-level Library view with three internal tabs. The friend view is named Friends and stays separate because it uses authenticated VRChat data.
 
 The user selected **view and search only** for this VRCX pass. Group creation, edits, transfers, moderation deletion, cosmetic edits and instance announcements remain outside this pass.
 
@@ -43,7 +48,8 @@ Reference: [VRCX v2026.09.16 release](https://github.com/vrcx-team/VRCX/releases
 | Group creation/edit/transfer | Deferred by user |
 | Bulk moderation deletion | Deferred by read-only scope |
 | Inventory filtering | Implemented for loaded first-page metadata |
-| Group-event notifications | Filter added for delivered types; v2 transport remains pending |
+| Friend activity feed | Realtime friend pipeline added with local SQLite history; events while the app is closed cannot be recovered |
+| Group-event notifications | Filter added for delivered types; notification-v2 UI remains separate from the friend activity feed |
 | In-instance announcements | Deferred by read-only scope |
 | Dialog design and full notes | Existing native dialog layout retained, appearance editor added, manager note hover added |
 | VRCX-specific fixes and Linux/macOS runtime changes | Not copied: different database, runtime and platform code |

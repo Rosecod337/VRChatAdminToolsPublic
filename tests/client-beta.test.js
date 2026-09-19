@@ -122,9 +122,10 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(html, /data-companion-search-detail/u);
   assert.match(html, /data-workspace-mode="personal"/u);
   assert.match(html, /data-workspace-mode="team"/u);
-  assert.match(html, /data-view-button="players"/u);
-  assert.match(html, /data-view-button="worlds"/u);
-  assert.match(html, /data-view-button="local-avatars"/u);
+  assert.match(html, /data-view-button="library"/u);
+  assert.match(html, /data-library-tab="players"/u);
+  assert.match(html, /data-library-tab="worlds"/u);
+  assert.match(html, /data-library-tab="local-avatars"/u);
   assert.match(html, /data-directory-kind="player"/u);
   assert.match(html, /data-directory-kind="world"/u);
   assert.match(html, /data-directory-kind="avatar"/u);
@@ -787,6 +788,27 @@ test("beta records complete friend snapshots locally without false removals", (c
   const backup = store.exportData();
   assert.equal(backup.socialFriends.length, 1);
   assert.equal(backup.socialEvents.length, 1);
+});
+
+test("beta records realtime friend profile and avatar changes from the VRChat pipeline", (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-pipeline-"));
+  const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));
+  context.after(() => {
+    store.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  store.recordSocialSnapshot({
+    completeFriends: true,
+    fetchedAt: "2026-09-19T10:00:00.000Z",
+    friends: [{ userId: "usr_demo", displayName: "Demo", status: "active", statusDescription: "Old", bio: "Before", avatarId: "avtr_old", online: true }]
+  });
+  const result = store.recordSocialPipelineEvent({
+    type: "friend-update",
+    occurredAt: "2026-09-19T10:01:00.000Z",
+    content: { userId: "usr_demo", user: { id: "usr_demo", displayName: "Demo", status: "active", statusDescription: "New", bio: "After", currentAvatar: "avtr_new" } }
+  });
+  assert.equal(result.events, 3);
+  assert.deepEqual(new Set(store.listSocialEvents().map((row) => row.event_type)), new Set(["status-description", "avatar", "bio"]));
 });
 
 test("beta mirrors paid sessions locally without losing private event details", (context) => {

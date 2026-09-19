@@ -98,10 +98,8 @@
     <nav class="topNavigation" role="tablist" aria-label="Разделы Beta" data-workspace-navigation="personal">
       <button class="navItem active" id="viewTabSession" type="button" role="tab" aria-selected="true" aria-controls="viewPanelSession" data-nav-scope="shared" data-view-button="session">Сессия</button>
       <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-nav-scope="shared" data-view-button="insights">Мой VRChat</button>
-      <button class="navItem" id="viewTabPlayers" type="button" role="tab" aria-selected="false" aria-controls="viewPanelPlayers" tabindex="-1" data-nav-scope="personal" data-view-button="players">Игроки</button>
-      <button class="navItem" id="viewTabWorlds" type="button" role="tab" aria-selected="false" aria-controls="viewPanelWorlds" tabindex="-1" data-nav-scope="personal" data-view-button="worlds">Миры</button>
-      <button class="navItem" id="viewTabLocalAvatars" type="button" role="tab" aria-selected="false" aria-controls="viewPanelLocalAvatars" tabindex="-1" data-nav-scope="personal" data-view-button="local-avatars">Аватары</button>
-      <button class="navItem" id="viewTabSocial" type="button" role="tab" aria-selected="false" aria-controls="viewPanelSocial" tabindex="-1" data-nav-scope="personal" data-view-button="social">Социальное</button>
+      <button class="navItem" id="viewTabSocial" type="button" role="tab" aria-selected="false" aria-controls="viewPanelSocial" tabindex="-1" data-nav-scope="personal" data-view-button="social">Друзья</button>
+      <button class="navItem" id="viewTabLibrary" type="button" role="tab" aria-selected="false" aria-controls="viewPanelLibrary" tabindex="-1" data-nav-scope="personal" data-view-button="library">Библиотека</button>
       <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-nav-scope="shared" data-view-button="crash">Crash Analyzer</button>
       <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-nav-scope="shared" data-view-button="history">История</button>
       <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-nav-scope="shared" data-view-button="builder">Ещё · Рабочее место</button>
@@ -250,26 +248,34 @@
         </div>
       </section>
 
-      <section class="viewPanel localDirectoryView" id="viewPanelPlayers" role="tabpanel" aria-labelledby="viewTabPlayers" data-view="players" data-directory-kind="player" hidden>
+      <section class="viewPanel libraryView" id="viewPanelLibrary" role="tabpanel" aria-labelledby="viewTabLibrary" data-view="library" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">Локальные данные</span><h2>Библиотека</h2><p>Встреченные игроки, посещённые миры и обнаруженные аватары собраны в одном месте.</p></div></div>
+        <div class="segmented libraryNavigation" role="tablist" aria-label="Разделы библиотеки">
+          <button class="active" type="button" role="tab" aria-selected="true" data-library-tab="players">Игроки</button>
+          <button type="button" role="tab" aria-selected="false" data-library-tab="worlds">Миры</button>
+          <button type="button" role="tab" aria-selected="false" data-library-tab="local-avatars">Аватары</button>
+        </div>
+      <section class="localDirectoryView active" id="viewPanelPlayers" data-library-pane="players" data-directory-kind="player">
         <div class="sectionIntro"><div><span class="eyebrow">Локальная история</span><h2>Игроки</h2><p>Все встреченные игроки из сохранённых логов и сессий на этом устройстве.</p></div></div>
         <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных игроков</span><input type="search" data-directory-search placeholder="Ник или User ID…" autocomplete="off"></label>
         <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Встреченные</span><h2>Локальные игроки</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">История игроков пока пуста.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">P</span><h2>Выберите игрока</h2><p>История встреч появится здесь.</p></article></div>
       </section>
 
-      <section class="viewPanel localDirectoryView" id="viewPanelWorlds" role="tabpanel" aria-labelledby="viewTabWorlds" data-view="worlds" data-directory-kind="world" hidden>
+      <section class="localDirectoryView" id="viewPanelWorlds" data-library-pane="worlds" data-directory-kind="world" hidden>
         <div class="sectionIntro"><div><span class="eyebrow">Локальная история</span><h2>Миры</h2><p>Посещённые миры из логов с переходом на страницу и запуском VRChat.</p></div></div>
         <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных миров</span><input type="search" data-directory-search placeholder="Название мира или World ID…" autocomplete="off"></label>
         <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Посещённые</span><h2>Локальные миры</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">История миров пока пуста.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">W</span><h2>Выберите мир</h2><p>История посещений появится здесь.</p></article></div>
       </section>
 
-      <section class="viewPanel localDirectoryView" id="viewPanelLocalAvatars" role="tabpanel" aria-labelledby="viewTabLocalAvatars" data-view="local-avatars" data-directory-kind="avatar" hidden>
+      <section class="localDirectoryView" id="viewPanelLocalAvatars" data-library-pane="local-avatars" data-directory-kind="avatar" hidden>
         <div class="sectionIntro"><div><span class="eyebrow">Только локальные данные</span><h2>Аватары</h2><p>Наблюдения из ваших логов. Скрытые системой защиты аватары сюда не попадают.</p></div></div>
         <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных аватаров</span><input type="search" data-directory-search placeholder="Название или Avatar ID…" autocomplete="off"></label>
         <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Обнаруженные</span><h2>Локальные аватары</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">Локальных наблюдений пока нет.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Локальная история наблюдений появится здесь.</p></article></div>
       </section>
+      </section>
 
       <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">Только чтение</span><h2>Социальное</h2><p>Ваши друзья и публичные группы из VRChat. Данные запрашиваются только при открытии или ручном обновлении.</p></div><button type="button" data-social-refresh>Обновить</button></div>
+        <div class="sectionIntro"><div><span class="eyebrow">Только чтение</span><h2>Друзья</h2><p>Список друзей, их локации и локальная лента изменений VRChat.</p></div><button type="button" data-social-refresh>Обновить</button></div>
         <div class="segmented socialNavigation" data-social-navigation aria-label="Разделы социального экрана">
           <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button><button type="button" data-social-tab="prints">Prints</button><button type="button" data-social-tab="inventory">Инвентарь</button>
         </div>
@@ -456,7 +462,7 @@
           <section class="settingsSection settingsInterfaceSection"><h3>Интерфейс</h3>
             <label class="adminField"><span>Язык интерфейса</span><select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>
             <label class="adminField"><span>Расположение управления</span><select name="uiPlacement"><option value="top">Сверху</option><option value="left">Слева</option></select></label>
-            <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="players">Игроки</option><option value="worlds">Миры</option><option value="local-avatars">Аватары</option><option value="social">Социальное</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Builder</option></select></label>
+            <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="social">Друзья</option><option value="library">Библиотека</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Builder</option></select></label>
             <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option><option value="vr">VR-крупная</option></select></label>
             <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>
             <label class="checkRow"><input name="animations" type="checkbox"><span>Использовать анимации</span></label>

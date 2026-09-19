@@ -21,6 +21,7 @@
 | Beta-интерфейс, Social и сохранённые рабочие пространства | `apps/client-beta/renderer/app.js` | `index.html`, `styles.css`, `tests/client-beta.test.js` |
 | Профили оформления, настройка отдельных элементов и статических подписей | `apps/client-beta/renderer/ui-customizer.js` | `ui-customizer.css`, `tests/client-beta-ui-customizer.test.js` |
 | Профили VRChat, избранное, Prints, инвентарь и календарь группы | `apps/client/src/vrchat-api.js` | `main.js`, `tests/vrchat-api.test.js` |
+| Realtime-лента друзей VRChat | `apps/client/src/vrchat-friend-pipeline.js` | `main.js`, `local-companion-store.js`, `tests/vrchat-friend-pipeline.test.js` |
 | Чтение и анализ VRChat-логов | `apps/client/src/log-tailer.js` | `packages/parser/index.js` |
 | Интерфейс, диагностика, заметки, архив и условная вкладка Owner | `apps/client/renderer/renderer.js` | `index.html`, `styles.css` |
 | Управление ключами | `apps/admin/src/main.js` | `apps/admin/renderer/` |

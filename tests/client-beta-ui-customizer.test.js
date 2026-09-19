@@ -15,7 +15,7 @@ test("interface profile import rejects executable CSS and bounds resource usage"
   assert.equal(profile.name.length, 60);
   assert.equal(profile.theme.background, undefined);
   assert.equal(profile.theme.font, undefined);
-  assert.equal(profile.theme.scale, 120);
+  assert.equal(profile.theme.scale, 110);
   assert.equal(profile.theme.accent, "#aBc123");
   assert.deepEqual(Object.keys(profile.elements), [target]);
   assert.equal(profile.elements[target].color, undefined);
