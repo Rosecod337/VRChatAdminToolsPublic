@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
   <title>VRChat Admin Tools Beta</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ui-customizer.css" data-ui-custom-styles>
   <script src="admin-notes.js" defer></script>
   <script src="session-model.js" defer></script>
   <script src="crash-model.js" defer></script>
@@ -13,6 +14,7 @@
   <script src="avatar-model.js" defer></script>
   <script src="notification-model.js" defer></script>
   <script src="i18n.js" defer></script>
+  <script src="ui-customizer.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -224,6 +226,7 @@
         </div>
         <section class="companionSearch" aria-label="Поиск в локальной истории">
           <label class="playerSearch"><span class="visuallyHidden">Поиск игроков и миров</span><input type="search" data-companion-search placeholder="Найти игрока, User ID, мир или World ID…" autocomplete="off"></label>
+          <label><input type="checkbox" data-companion-favorites-only> Только избранное</label>
           <div class="companionSearchLayout" data-companion-search-layout hidden>
             <article class="panel companionSearchResults"><header><div><span class="eyebrow">Локальная база</span><h2>Результаты поиска</h2></div><span data-companion-search-count>0 найдено</span></header><div data-companion-search-results><p class="emptyState">Введите минимум два символа.</p></div></article>
             <article class="panel companionSearchDetail adminPreviewEmpty" data-companion-search-detail><span class="profileAvatar">⌕</span><h2>Выберите результат</h2><p>Здесь появятся встречи, посещения и быстрые действия.</p></article>
@@ -268,8 +271,11 @@
       <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
         <div class="sectionIntro"><div><span class="eyebrow">Только чтение</span><h2>Социальное</h2><p>Ваши друзья и публичные группы из VRChat. Данные запрашиваются только при открытии или ручном обновлении.</p></div><button type="button" data-social-refresh>Обновить</button></div>
         <div class="segmented socialNavigation" data-social-navigation aria-label="Разделы социального экрана">
-          <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button>
+          <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button><button type="button" data-social-tab="prints">Prints</button><button type="button" data-social-tab="inventory">Инвентарь</button>
         </div>
+        <label class="playerSearch"><span class="visuallyHidden">Поиск в загруженных данных</span><input type="search" data-social-search placeholder="Имя, название, тип или ID…" autocomplete="off"></label>
+        <select data-social-inventory-type aria-label="Тип предмета" hidden><option value="">Все типы</option></select>
+        <select data-social-notification-filter aria-label="Фильтр уведомлений" hidden><option value="">Все уведомления</option><option value="group-events">События группы</option></select>
         <p class="formStatus" data-social-status aria-live="polite"></p>
         <div class="socialSummary" data-social-summary><article class="panel adminPreviewEmpty"><h2>Подключите аккаунт VRChat</h2><p>Нажмите отдельную кнопку «VRChat» в панели приложения. Пароль не сохраняется, а сессия хранится зашифрованной локально.</p></article></div>
       </section>

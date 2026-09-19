@@ -429,6 +429,85 @@ test("fetchPersonalCollection normalizes only the current account collections", 
   await assert.rejects(() => resolver.fetchPersonalCollection("someone-elses-favorites"), /invalid/u);
 });
 
+test("prints use the authenticated account ID and reject foreign owners", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const ownId = "usr_22222222-2222-4222-8222-222222222222";
+  const printId = "prnt_11111111-1111-4111-8111-111111111111";
+  const requested = [];
+  global.fetch = async (url) => {
+    requested.push(String(url));
+    if (String(url).endsWith("/auth/user")) return responseJson({ id: ownId });
+    if (String(url).endsWith(`/prints/user/${ownId}`)) return responseJson([
+      { id: printId, ownerId: ownId, note: "Our evening" },
+      { id: printId, ownerId: "usr_someone_else", note: "Private" }
+    ]);
+    throw new Error("unexpected endpoint");
+  };
+  const resolver = new VrchatUserResolver(); resolver.setAuthCookie("auth=authcookie_test");
+  const prints = await resolver.fetchPersonalCollection("prints");
+  assert.equal(prints.rows.length, 1);
+  assert.equal(prints.rows[0].name, "Our evening");
+  assert.equal(requested.length, 2);
+  await resolver.fetchPersonalCollection("prints");
+  assert.equal(requested.length, 2);
+  resolver.setAuthCookie("auth=authcookie_another");
+  await resolver.fetchPersonalCollection("prints");
+  assert.equal(requested.length, 4);
+});
+
+test("inventory normalizes bounded metadata and does not turn malformed data into an empty success", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async () => responseJson({ data: Array.from({ length: 150 }, () => ({
+    id: "inv_11111111-1111-4111-8111-111111111111", name: "Frame", itemType: "iconFrame", privateSecret: "not exported"
+  })), totalCount: 500 });
+  const resolver = new VrchatUserResolver(); resolver.setAuthCookie("auth=authcookie_test");
+  const inventory = await resolver.fetchPersonalCollection("inventory");
+  assert.equal(inventory.rows.length, 100);
+  assert.equal(inventory.truncated, true);
+  assert.equal(inventory.rows[0].itemType, "iconFrame");
+  assert.equal(inventory.rows[0].privateSecret, undefined);
+  global.fetch = async () => responseJson({ unavailable: true });
+  await assert.rejects(() => resolver.fetchPersonalCollection("inventory", { force: true }), /unavailable/u);
+});
+
+test("new public profile endpoint remains usable when the legacy profile is unavailable", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_22222222-2222-4222-8222-222222222222";
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith(`/profile/${userId}`)) return responseJson({ id: userId, displayName: "Friend", iconFrame: "inv_frame", themeButtonColor: "bb66ff", bannerColor: "red;display:none" });
+    if (value.endsWith(`/profile/${userId}/private`)) return responseJson({ id: userId, isFriend: true, activity: { location: "offline" } });
+    return responseJson([]);
+  };
+  const resolver = new VrchatUserResolver(); resolver.setAuthCookie("auth=authcookie_test");
+  resolver.fetchUser = async () => { throw new Error("Legacy unavailable"); };
+  const profile = await resolver.fetchUserProfile(userId);
+  assert.equal(profile.displayName, "Friend");
+  assert.equal(profile.isFriend, true);
+  assert.equal(profile.cosmetics.iconFrame, "inv_frame");
+  assert.equal(profile.cosmetics.themeButtonColor, "#bb66ff");
+  assert.equal(profile.cosmetics.bannerColor, undefined);
+});
+
+test("group events distinguish unavailable permission from an empty calendar", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const groupId = "grp_33333333-3333-4333-8333-333333333333";
+  global.fetch = async (url) => {
+    if (String(url).includes("/calendar/")) return responseJson({ results: [{ id: "cal_11111111-1111-4111-8111-111111111111", title: "Meetup", startsAt: "2026-09-20T18:00:00Z" }], hasNext: true });
+    if (String(url).endsWith("/instances")) return responseJson([]);
+    return responseJson({ id: groupId, name: "Group" });
+  };
+  const resolver = new VrchatUserResolver(); resolver.setAuthCookie("auth=authcookie_test");
+  const group = await resolver.fetchGroup(groupId);
+  assert.equal(group.events[0].title, "Meetup");
+  assert.equal(group.eventsUnavailable, false);
+  assert.equal(group.eventsTruncated, true);
+});
+
 test("profile queue stops retrying HTTP 429 and honors the configured retry limit", async (t) => {
   const originalFetch = global.fetch;
   const userId = "usr_99999999-9999-4999-8999-999999999999";

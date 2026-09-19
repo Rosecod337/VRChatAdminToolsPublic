@@ -127,6 +127,95 @@ try {
       awaitPromise: true
     });
   }
+  if (process.env.BETA_PREVIEW_CUSTOMIZER_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(async () => {
+        const assert = (value, message) => { if (!value) throw new Error(message); };
+        const panel = document.querySelector('.uiCustomPanel');
+        assert(document.querySelector('.uiCustomLauncher'), 'customizer missing: ' + JSON.stringify({ module: Boolean(window.betaUiCustomizer), sheet: Boolean(document.querySelector('link[data-ui-custom-styles]')?.sheet) }));
+        document.querySelector('.uiCustomLauncher').click();
+        assert(panel && !panel.hidden, 'customizer panel did not open');
+        const button = (action) => panel.querySelector('[data-ui-action="' + action + '"]');
+        const field = (key) => panel.querySelector('[data-ui-' + (key === 'accent' ? 'theme' : 'element') + '="' + key + '"]');
+        const change = (input, value) => { input.value = value; input.dispatchEvent(new Event('change', { bubbles: true })); };
+        const heading = [...document.querySelectorAll('h2')].find((item) => !item.children.length && !item.closest('.uiCustomPanel,dialog'));
+        assert(heading, 'no static heading');
+        const caption = heading.textContent;
+        change(field('accent'), '#bb66ff');
+        assert(getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim() === '#bb66ff', 'palette not applied under CSP');
+        button('pick').click(); heading.click();
+        assert(!field('text').disabled, 'static label not editable');
+        change(field('text'), '<img src=x onerror=alert(1)>');
+        assert(!heading.children.length && heading.textContent.startsWith('<img'), 'caption became markup');
+        change(field('text'), 'Мой VRChat');
+        heading.textContent = 'System translation';
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        assert(heading.textContent === 'Мой VRChat', 'dynamic translation lost custom label');
+        button('reset-element').click();
+        assert(heading.textContent === 'System translation', 'reset lost new system translation');
+        heading.textContent = caption;
+        change(field('text'), 'Мой VRChat');
+        button('new').click();
+        assert(JSON.parse(localStorage.getItem('betaInterfaceProfilesV1')).profiles.length === 2, 'profile clone not saved');
+        return { caption, status: 'ok' };
+      })()`,
+      awaitPromise: true, returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    await cdp.send("Page.reload");
+    await cdp.send("Runtime.evaluate", { expression: "new Promise((resolve) => setTimeout(resolve, 2000))", awaitPromise: true });
+    const persisted = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const assert = (value, message) => { if (!value) throw new Error(message); };
+        const panel = document.querySelector('.uiCustomPanel');
+        document.querySelector('.uiCustomLauncher').click();
+        assert(getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim() === '#bb66ff', 'palette did not survive reload');
+        assert([...document.querySelectorAll('[data-ui-relabelled]')].some((item) => item.textContent === 'Мой VRChat'), 'caption did not survive reload');
+        panel.querySelector('[data-ui-action="reset-profile"]').click();
+        assert(!document.querySelector('[data-ui-relabelled]'), 'profile reset left custom captions');
+        assert(getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim() === '#58d6e7', 'profile reset left palette');
+        return { customizer: 'ok', savedProfiles: JSON.parse(localStorage.getItem('betaInterfaceProfilesV1')).profiles.length };
+      })()`, returnByValue: true
+    });
+    if (persisted.exceptionDetails) throw new Error(persisted.exceptionDetails.exception?.description || persisted.exceptionDetails.text);
+    console.log(JSON.stringify(persisted.result.value));
+  }
+  if (process.env.BETA_PREVIEW_SOCIAL_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(async () => {
+        const assert = (value, message) => { if (!value) throw new Error(message); };
+        const wait = () => new Promise((resolve) => setTimeout(resolve, 150));
+        const tab = (name) => document.querySelector('[data-social-tab="' + name + '"]').click();
+        await refreshSocial(true);
+        tab('inventory'); await wait();
+        assert(document.querySelector('[data-social-summary]').textContent.includes('Neon frame'), 'inventory did not load');
+        const query = document.querySelector('[data-social-search]');
+        query.value = 'does-not-exist'; query.dispatchEvent(new Event('input', { bubbles: true }));
+        assert(!document.querySelector('[data-social-summary]').textContent.includes('Neon frame'), 'inventory search not applied');
+        query.value = 'Neon'; query.dispatchEvent(new Event('input', { bubbles: true }));
+        assert(document.querySelector('[data-social-summary]').textContent.includes('Neon frame'), 'inventory match missing');
+        const type = document.querySelector('[data-social-inventory-type]');
+        assert([...type.options].some((option) => option.value === 'iconFrame'), 'inventory types missing');
+        query.value = ''; query.dispatchEvent(new Event('input', { bubbles: true }));
+        tab('prints'); await wait();
+        assert(document.querySelector('[data-social-summary]').textContent.includes('Group Public'), 'prints did not load');
+        const original = api.getVrchatPersonalCollection;
+        let complete;
+        api.getVrchatPersonalCollection = () => new Promise((resolve) => { complete = resolve; });
+        const pending = loadSocialCollection('inventory', true);
+        resetSocialAccount();
+        complete({ rows: [{ name: 'Previous account secret', id: 'old' }] });
+        await pending;
+        assert(!state.socialCollections.inventory, 'old account result survived reset');
+        api.getVrchatPersonalCollection = original;
+        await refreshSocial(true);
+        tab('inventory'); await wait();
+        return { social: 'ok', accountSwitch: 'ok' };
+      })()`, awaitPromise: true, returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
   if (process.env.BETA_PREVIEW_EXPECT_TEXT) {
     const expected = JSON.stringify(process.env.BETA_PREVIEW_EXPECT_TEXT);
     const found = await cdp.send("Runtime.evaluate", {

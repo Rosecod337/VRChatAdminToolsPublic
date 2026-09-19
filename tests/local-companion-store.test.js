@@ -68,3 +68,17 @@ test("streaming export preserves the backup format without building one giant pa
   assert.equal(backup.sessions[0].id, sessionId);
   assert.deepEqual(backup.uiSettings, { language: "ru" });
 });
+
+test("quick search keeps an older local favorite when the result limit is reached", async (t) => {
+  const { store } = await temporaryStore(t);
+  const favorite = "usr_old_favorite";
+  store.savePlayerPreference({ userId: favorite, alias: "Demo Favorite", status: "favorite" });
+  store.database.prepare("UPDATE local_players SET last_seen_at=? WHERE user_id=?").run("2020-01-01T00:00:00.000Z", favorite);
+  for (let index = 0; index < 5; index += 1) {
+    store.savePlayerPreference({ userId: `usr_new_${index}`, alias: `Demo Recent ${index}` });
+  }
+  const result = store.search("Demo", 1);
+  assert.equal(result.players.length, 1);
+  assert.equal(result.players[0].user_id, favorite);
+  assert.equal(result.players[0].status, "favorite");
+});

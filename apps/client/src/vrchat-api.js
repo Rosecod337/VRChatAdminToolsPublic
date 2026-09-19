@@ -339,12 +339,30 @@ class VrchatUserResolver {
 
   async fetchUserProfile(userId) {
     if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
-    const profile = await this.fetchUser(userId);
+    if (!USER_ID_RE.test(String(userId || ""))) throw new Error("VRChat user id is invalid");
     const headers = {
       "accept": "application/json",
       "user-agent": this.userAgent,
       "cookie": this.authCookie
     };
+    const [legacy, publicResponse] = await Promise.all([
+      this.fetchUser(userId).then((value) => ({ value }), (error) => ({ error })),
+      fetchVrchat(`https://api.vrchat.cloud/api/1/profile/${encodeURIComponent(userId)}`, { headers }).catch(() => null)
+    ]);
+    const publicData = publicResponse?.ok ? await publicResponse.json().catch(() => null) : null;
+    const validPublic = publicData && publicData.id === userId;
+    if (!legacy.value && !validPublic) throw legacy.error || new Error("VRChat profile is unavailable");
+    const profile = legacy.value || normalizeUserProfile(publicData, userId);
+    if (validPublic) {
+      profile.cosmetics = normalizeProfileCosmetics(publicData);
+      profile.displayName = String(publicData.displayName || profile.displayName).slice(0, 300);
+      profile.bio = String(publicData.bio || profile.bio).slice(0, 2000);
+    }
+    if (!legacy.value) {
+      const privateResponse = await fetchVrchat(`https://api.vrchat.cloud/api/1/profile/${encodeURIComponent(userId)}/private`, { headers }).catch(() => null);
+      const privateData = privateResponse?.ok ? await privateResponse.json().catch(() => null) : null;
+      if (privateData?.id === userId) Object.assign(profile, normalizeUserProfile({ ...publicData, ...privateData, ...privateData.activity }, userId));
+    }
     const instanceRequest = profile.worldId && profile.instanceId
       ? fetchVrchat(`https://api.vrchat.cloud/api/1/instances/${encodeURIComponent(profile.worldId)}:${encodeURIComponent(profile.instanceId)}`, { headers }).catch(() => null)
       : Promise.resolve(null);
@@ -376,29 +394,39 @@ class VrchatUserResolver {
       "user-agent": this.userAgent,
       "cookie": this.authCookie
     };
-    const [response, instancesResponse] = await Promise.all([
+    const [response, instancesResponse, calendarResponse] = await Promise.all([
       fetchVrchat(`https://api.vrchat.cloud/api/1/groups/${encodeURIComponent(id)}`, { headers }),
-      fetchVrchat(`https://api.vrchat.cloud/api/1/groups/${encodeURIComponent(id)}/instances`, { headers }).catch(() => null)
+      fetchVrchat(`https://api.vrchat.cloud/api/1/groups/${encodeURIComponent(id)}/instances`, { headers }).catch(() => null),
+      fetchVrchat(`https://api.vrchat.cloud/api/1/calendar/${encodeURIComponent(id)}?n=100&offset=0`, { headers }).catch(() => null)
     ]);
     if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
     const data = await response.json();
     const instanceRows = instancesResponse?.ok ? await instancesResponse.json() : [];
+    const calendar = calendarResponse?.ok ? await calendarResponse.json().catch(() => null) : null;
     return {
       ...normalizeGroup(data, id),
-      instances: (Array.isArray(instanceRows) ? instanceRows : []).map(normalizeGroupInstance).filter(Boolean).slice(0, 50)
+      instances: (Array.isArray(instanceRows) ? instanceRows : []).map(normalizeGroupInstance).filter(Boolean).slice(0, 50),
+      events: (Array.isArray(calendar?.results) ? calendar.results : []).slice(0, 100).map(normalizeCalendarEvent).filter(Boolean),
+      eventsUnavailable: !Array.isArray(calendar?.results),
+      eventsTruncated: Boolean(calendar?.hasNext) || Number(calendar?.totalCount || 0) > 100
     };
   }
 
   async fetchPersonalCollection(kind, { force = false } = {}) {
     if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
-    const safeKind = ["favorite-worlds", "favorite-avatars", "notifications"].includes(kind) ? kind : "";
+    const safeKind = ["favorite-worlds", "favorite-avatars", "notifications", "prints", "inventory"].includes(kind) ? kind : "";
     if (!safeKind) throw new Error("VRChat personal collection is invalid");
     const cached = force ? undefined : freshCacheValue(this.personalCache, safeKind);
     if (cached) return cached;
+    const ownUser = safeKind === "prints" ? await this.fetchCurrentUser() : null;
+    if (ownUser && !USER_ID_RE.test(ownUser.userId)) throw new Error("VRChat account session is invalid");
+    const collectionCookie = this.authCookie;
     const pathName = {
       "favorite-worlds": "/worlds/favorites?n=100&offset=0&sort=updated&order=descending",
       "favorite-avatars": "/avatars/favorites?n=100&offset=0&sort=updated&order=descending&releaseStatus=all",
-      notifications: "/auth/user/notifications?n=100"
+      notifications: "/auth/user/notifications?n=100",
+      prints: `/prints/user/${encodeURIComponent(ownUser?.userId || "")}`,
+      inventory: "/inventory?n=100&offset=0"
     }[safeKind];
     const response = await fetchVrchat(`https://api.vrchat.cloud/api/1${pathName}`, {
       headers: {
@@ -409,13 +437,18 @@ class VrchatUserResolver {
     });
     if (!response.ok) throw new Error(`VRChat API HTTP ${response.status}`);
     const data = await response.json();
-    const rows = safeKind === "favorite-worlds"
+    if (collectionCookie !== this.authCookie) throw new Error("VRChat account changed during collection request");
+    const rows = safeKind === "prints" ? (Array.isArray(data) ? data : []).slice(0, 100).filter((row) => row?.ownerId === ownUser.userId).map(normalizePrint).filter(Boolean)
+      : safeKind === "inventory" ? (Array.isArray(data?.data) ? data.data : []).slice(0, 100).map(normalizeInventoryItem).filter(Boolean)
+      : safeKind === "favorite-worlds"
       ? (Array.isArray(data) ? data : []).map(normalizeFavoriteWorld).filter(Boolean)
       : safeKind === "favorite-avatars"
         ? (Array.isArray(data) ? data : []).map((row) => normalizeAvatarCandidate(row, "favorite")).filter(Boolean)
         : (Array.isArray(data) ? data : []).map(normalizeNotification).filter(Boolean);
-    const value = { kind: safeKind, rows, fetchedAt: new Date().toISOString(), truncated: rows.length >= 100 };
-    setBoundedCacheValue(this.personalCache, safeKind, value, Date.now() + SOCIAL_CACHE_TTL_MS, 3);
+    if ((safeKind === "prints" && !Array.isArray(data)) || (safeKind === "inventory" && !Array.isArray(data?.data))) throw new Error("VRChat collection response is unavailable");
+    const sourceCount = Array.isArray(data) ? data.length : Array.isArray(data?.data) ? data.data.length : rows.length;
+    const value = { kind: safeKind, rows, fetchedAt: new Date().toISOString(), truncated: sourceCount >= 100 || Number(data?.totalCount || 0) > sourceCount };
+    setBoundedCacheValue(this.personalCache, safeKind, value, Date.now() + SOCIAL_CACHE_TTL_MS, 5);
     return value;
   }
 
@@ -865,6 +898,39 @@ function normalizeGroup(data, fallbackGroupId = "") {
     profileUrl: `https://vrchat.com/home/group/${encodeURIComponent(groupId)}`,
     source: "api"
   };
+}
+
+function normalizeProfileCosmetics(data) {
+  const result = {};
+  for (const key of ["backgroundType", "backgroundTextureId", "bannerType", "themeId", "iconFrame", "nameplateEffect", "profileEffect", "pronouns"]) {
+    if (typeof data?.[key] === "string") result[key] = data[key].slice(0, 200);
+  }
+  for (const key of ["bannerColor", "themeButtonColor", "themeIconColor", "themeSubtextColor"]) {
+    const color = String(data?.[key] || "").replace(/^#/u, "");
+    if (/^[0-9a-f]{6}$/iu.test(color)) result[key] = `#${color}`;
+  }
+  return result;
+}
+
+function normalizePrint(data) {
+  if (!/^prnt_[0-9a-f-]{36}$/iu.test(String(data?.id || ""))) return null;
+  return { id: data.id, name: String(data.note || data.worldName || data.id).slice(0, 500),
+    authorName: String(data.authorName || "").slice(0, 200), worldId: String(data.worldId || "").slice(0, 100),
+    worldName: String(data.worldName || "").slice(0, 300), createdAt: String(data.createdAt || data.timestamp || "") };
+}
+
+function normalizeInventoryItem(data) {
+  if (!/^inv_[0-9a-f-]{36}$/iu.test(String(data?.id || ""))) return null;
+  return { id: data.id, name: String(data.name || data.id).slice(0, 300),
+    description: String(data.description || "").slice(0, 1000), itemType: String(data.itemType || "").slice(0, 80),
+    equipSlot: String(data.equipSlot || "").slice(0, 80), archived: Boolean(data.isArchived),
+    createdAt: String(data.created_at || "") };
+}
+
+function normalizeCalendarEvent(data) {
+  if (!/^cal_[0-9a-f-]{36}$/iu.test(String(data?.id || ""))) return null;
+  return { id: data.id, title: String(data.title || data.id).slice(0, 300), description: String(data.description || "").slice(0, 2000),
+    startsAt: String(data.startsAt || ""), endsAt: String(data.endsAt || ""), category: String(data.category || "").slice(0, 80) };
 }
 
 function normalizeGroupAnnouncement(data) {

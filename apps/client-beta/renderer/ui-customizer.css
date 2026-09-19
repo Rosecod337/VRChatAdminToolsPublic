@@ -1,0 +1,20 @@
+.uiCustomLauncher { position: fixed; right: 22px; bottom: 18px; z-index: 900; padding: 8px 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel-2); color: var(--text); cursor: pointer; -webkit-app-region: no-drag; }
+.uiCustomPanel { position: fixed; top: 72px; right: 18px; bottom: 62px; width: 350px; z-index: 950; overflow: auto; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--text); box-shadow: 0 18px 70px #0009; font: 12px/1.5 "Segoe UI", sans-serif; -webkit-app-region: no-drag; }
+.uiCustomPanel[hidden] { display: none; }
+.uiCustomHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.uiCustomPanel h3 { margin: 18px 0 8px; font-size: 14px; }
+.uiCustomPanel p,.uiCustomPanel small { color: var(--muted); }
+.uiCustomPanel button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--text); cursor: pointer; }
+.uiCustomPanel > button { margin: 6px 0; width: 100%; }
+.uiCustomActions { display: flex; gap: 5px; margin-top: 7px; }
+.uiCustomFields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.uiCustomFields label { display: flex; flex-direction: column; gap: 4px; }
+.uiCustomPanel input,.uiCustomPanel select { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; }
+.uiCustomPanel input[type="color"] { height: 30px; padding: 2px; }
+.uiCustomPanel input:disabled { opacity: 0.4; }
+.uiCustomStatus { min-height: 18px; }
+.uiCustomSelection { word-break: break-word; }
+.uiCustomPicking *:not(.uiCustomPanel):not(.uiCustomPanel *) { cursor: crosshair !important; }
+.uiCustomSelected { outline: 2px solid var(--cyan) !important; outline-offset: 2px; }
+.uiCustomPanel button:focus-visible,.uiCustomLauncher:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+body.compactMode .uiCustomLauncher,body.compactMode .uiCustomPanel { display: none; }

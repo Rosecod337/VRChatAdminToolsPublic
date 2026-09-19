@@ -666,7 +666,7 @@ class LocalCompanionStore {
          OR pref.alias LIKE ? ESCAPE '\\' COLLATE NOCASE
          OR pref.note LIKE ? ESCAPE '\\' COLLATE NOCASE
       GROUP BY p.user_id
-      ORDER BY p.last_seen_at DESC, p.display_name COLLATE NOCASE
+      ORDER BY (COALESCE(pref.status, 'none') = 'favorite') DESC, p.last_seen_at DESC, p.display_name COLLATE NOCASE
       LIMIT ?
     `).all(pattern, pattern, pattern, pattern, safeLimit);
     const worlds = this.database.prepare(`
