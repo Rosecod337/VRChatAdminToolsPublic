@@ -15,7 +15,6 @@
     }
     if (Object.hasOwn(FONTS, input?.theme?.font)) profile.theme.font = input.theme.font;
     if (input?.theme?.radius !== undefined) profile.theme.radius = bounded(input.theme.radius, 0, 32);
-    if (input?.theme?.scale !== undefined) profile.theme.scale = bounded(input.theme.scale, 90, 110);
     for (const [selector, item] of Object.entries(input?.elements || {}).slice(0, 250)) {
       if (!SELECTOR.test(selector) || !item || typeof item !== "object") continue;
       const setting = {};
@@ -118,8 +117,6 @@
     }
     const fontLabel = make("label", "", "Шрифт"); fontLabel.append(font); themeFields.append(fontLabel);
     font.addEventListener("change", () => { current().theme.font = font.value; saveAndApply(); });
-    const scale = field(themeFields, "Масштаб, %", "number", 90, 110);
-    scale.addEventListener("change", () => { current().theme.scale = bounded(scale.value, 90, 110); saveAndApply(); });
     const radius = field(themeFields, "Скругление панелей", "number", 0, 32);
     radius.addEventListener("change", () => { current().theme.radius = bounded(radius.value, 0, 32); saveAndApply(); });
     panel.append(make("h3", "", "Общий вид"), themeFields);
@@ -213,9 +210,8 @@
       const variables = Object.entries(COLORS).filter(([key]) => theme[key]).map(([key, variable]) => `${variable}:${theme[key]}`);
       if (theme.font) variables.push(`font-family:${FONTS[theme.font]}`);
       if (variables.length) sheet.insertRule(`:root {${variables.join(";")}}`, sheet.cssRules.length);
-      const scaleFactor = bounded(theme.scale ?? 100, 90, 110) / 100;
-      const dockPadding = !panel.hidden && root.innerWidth >= 1180 ? 386 / scaleFactor : 0;
-      sheet.insertRule(`.appShell {zoom:${scaleFactor};width:${100 / scaleFactor}vw;height:${100 / scaleFactor}vh;padding-right:${dockPadding}px}`, sheet.cssRules.length);
+      const dockPadding = !panel.hidden && root.innerWidth >= 1180 ? 386 : 0;
+      sheet.insertRule(`.appShell {padding-right:${dockPadding}px}`, sheet.cssRules.length);
       if (theme.surface) sheet.insertRule(`.panel {background:${theme.surface}}`, sheet.cssRules.length);
       if (theme.radius !== undefined) sheet.insertRule(`.panel,dialog {border-radius:${theme.radius}px}`, sheet.cssRules.length);
       for (const [selector, setting] of Object.entries(current().elements)) {
@@ -257,7 +253,7 @@
       profileSelect.value = String(active);
       profileName.value = current().name;
       for (const key of Object.keys(COLORS)) themeInputs[key].value = current().theme[key] || defaults[key];
-      font.value = current().theme.font || "system"; scale.value = String(current().theme.scale || 100); radius.value = String(current().theme.radius ?? 14);
+      font.value = current().theme.font || "system"; radius.value = String(current().theme.radius ?? 14);
       updateSelection();
     }
     function updateSelection() {

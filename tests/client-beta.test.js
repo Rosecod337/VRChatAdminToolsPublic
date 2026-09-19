@@ -76,6 +76,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.doesNotMatch(html, /class="sessionEventFilters"/u);
   assert.match(html, /class="panel eventFeedPanel"><header class="eventFeedHeader"[\s\S]*?data-session-event-filter="all"[\s\S]*?data-feed-count/u);
   assert.match(html, /data-session-section="feed"/u);
+  assert.match(html, /data-session-section="friends"/u);
   assert.match(html, /data-session-section="avatars"/u);
   assert.match(html, /data-session-section="dashboard"/u);
   assert.match(html, /data-avatar-search/u);
@@ -995,7 +996,9 @@ test("beta Social exposes internal profiles, locations, friend log, and on-deman
   const html = read("apps/client-beta/renderer/index.html");
   const script = read("apps/client-beta/renderer/app.js");
   assert.match(html, /data-social-tab="locations"/u);
-  assert.match(html, /data-social-tab="journal"/u);
+  assert.doesNotMatch(html, /data-social-tab="journal"/u);
+  assert.match(html, /data-friend-activity-feed/u);
+  assert.match(script, /function renderFriendActivityFeed/u);
   assert.match(html, /data-social-tab="vrchat-favorites"/u);
   assert.match(html, /data-social-detail-dialog/u);
   assert.match(script, /function openSocialProfile/u);

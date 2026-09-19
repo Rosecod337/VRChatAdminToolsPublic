@@ -148,6 +148,7 @@
         </div>
         <div class="segmented sessionSubnav" role="tablist" aria-label="Экраны Сессии">
           <button class="active" id="sessionTabFeed" type="button" role="tab" aria-selected="true" aria-controls="sessionPaneFeed" data-session-section="feed">Лента</button>
+          <button id="sessionTabFriends" type="button" role="tab" aria-selected="false" aria-controls="sessionPaneFriends" tabindex="-1" data-session-section="friends">Друзья</button>
           <button id="sessionTabAvatars" type="button" role="tab" aria-selected="false" aria-controls="sessionPaneAvatars" tabindex="-1" data-session-section="avatars">Аватары</button>
           <button id="sessionTabDashboard" type="button" role="tab" aria-selected="false" aria-controls="sessionPaneDashboard" tabindex="-1" data-session-section="dashboard">Дашборд</button>
         </div>
@@ -170,6 +171,13 @@
             <article class="panel eventFeedPanel"><header class="eventFeedHeader"><div><span class="eyebrow">Сейчас</span><h2>Лента событий</h2></div><div class="feedHeaderActions"><div class="segmented eventFilterChips" aria-label="Фильтры ленты событий"><button class="active" type="button" data-session-event-filter="all" aria-pressed="true">Все</button><button type="button" data-session-event-filter="joins" aria-pressed="false">Входы</button><button type="button" data-session-event-filter="leaves" aria-pressed="false">Выходы</button><button type="button" data-session-event-filter="avatars" aria-pressed="false">Аватары</button><button type="button" data-session-event-filter="worlds" aria-pressed="false">Миры и порталы</button><button type="button" data-session-event-filter="other" aria-pressed="false">Другое</button></div><span data-feed-count>0 записей</span></div></header><div class="eventFeed" data-event-feed tabindex="0" aria-label="Лента событий"><p class="emptyState">Запустите чтение лога — новые события появятся здесь.</p></div></article>
             <article class="panel"><header><div><span class="eyebrow">Люди</span><h2>Игроки сессии</h2></div><span data-player-count>0 игроков</span></header><div class="playerList" data-player-list tabindex="0" aria-label="Игроки сессии"><p class="emptyState">Пока никого нет.</p></div></article>
           </div>
+        </div>
+
+        <div class="sessionPane" id="sessionPaneFriends" role="tabpanel" aria-labelledby="sessionTabFriends" data-session-pane="friends" hidden>
+          <article class="panel eventFeedPanel friendActivityPanel">
+            <header class="eventFeedHeader"><div><span class="eyebrow">VRChat</span><h2>Лента друзей</h2></div><div class="feedHeaderActions"><span data-friend-activity-count>0 записей</span><button type="button" data-friend-activity-refresh>Обновить</button></div></header>
+            <div class="eventFeed friendActivityFeed" data-friend-activity-feed tabindex="0" aria-label="Лента событий друзей"><p class="emptyState">Подключите аккаунт VRChat. Новые события появятся, пока приложение запущено.</p></div>
+          </article>
         </div>
 
         <div class="sessionPane" id="sessionPaneAvatars" role="tabpanel" aria-labelledby="sessionTabAvatars" data-session-pane="avatars" hidden>
@@ -277,7 +285,7 @@
       <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
         <div class="sectionIntro"><div><span class="eyebrow">Только чтение</span><h2>Друзья</h2><p>Список друзей, их локации и локальная лента изменений VRChat.</p></div><button type="button" data-social-refresh>Обновить</button></div>
         <div class="segmented socialNavigation" data-social-navigation aria-label="Разделы социального экрана">
-          <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="journal">Журнал друзей</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button><button type="button" data-social-tab="prints">Prints</button><button type="button" data-social-tab="inventory">Инвентарь</button>
+          <button type="button" data-social-tab="overview">Обзор</button><button type="button" data-social-tab="locations">Локации друзей</button><button type="button" data-social-tab="favorites">Избранные друзья</button><button type="button" data-social-tab="groups">Группы</button><button type="button" data-social-tab="vrchat-favorites">Избранное VRChat</button><button type="button" data-social-tab="notifications">Уведомления VRChat</button><button type="button" data-social-tab="prints">Prints</button><button type="button" data-social-tab="inventory">Инвентарь</button>
         </div>
         <label class="playerSearch"><span class="visuallyHidden">Поиск в загруженных данных</span><input type="search" data-social-search placeholder="Имя, название, тип или ID…" autocomplete="off"></label>
         <select data-social-inventory-type aria-label="Тип предмета" hidden><option value="">Все типы</option></select>

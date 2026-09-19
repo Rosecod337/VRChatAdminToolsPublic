@@ -31,6 +31,8 @@ const statusCenterToggle = document.querySelector("[data-status-center-toggle]")
 const filePathLabel = document.querySelector("[data-file-path]");
 const eventCount = document.querySelector("[data-event-count]");
 const eventFeed = document.querySelector("[data-event-feed]");
+const friendActivityFeed = document.querySelector("[data-friend-activity-feed]");
+const friendActivityCount = document.querySelector("[data-friend-activity-count]");
 const playerList = document.querySelector("[data-player-list]");
 const playerCount = document.querySelector("[data-player-count]");
 const playerSearch = document.querySelector("[data-session-player-search]");
@@ -390,7 +392,7 @@ const state = {
   uiSettings: normalizedUiSettings(loadLocalJson("betaUiSettings", DEFAULT_UI_SETTINGS))
 };
 
-if (!["overview", "locations", "favorites", "journal", "groups", "vrchat-favorites", "notifications"].includes(state.socialTab)) state.socialTab = "overview";
+if (!["overview", "locations", "favorites", "groups", "vrchat-favorites", "notifications", "prints", "inventory"].includes(state.socialTab)) state.socialTab = "overview";
 state.builderDashboards = (Array.isArray(state.builderDashboards) ? state.builderDashboards : []).filter((dashboard) => dashboard && typeof dashboard === "object" && dashboard.id).slice(0, 12);
 if (!state.builderDashboards.length) {
   state.builderDashboards = [{
@@ -428,7 +430,7 @@ const savedPlayerMode = localStorage.getItem("betaSessionPlayerMode");
 if (["online-first", "online-only", "all"].includes(savedPlayerMode)) state.sessionPlayerMode = savedPlayerMode;
 else state.sessionPlayerMode = state.uiSettings.sessionPlayerMode;
 const savedSessionSection = localStorage.getItem("betaSessionSection");
-if (["feed", "avatars", "dashboard"].includes(savedSessionSection)) state.sessionSection = savedSessionSection;
+if (["feed", "friends", "avatars", "dashboard"].includes(savedSessionSection)) state.sessionSection = savedSessionSection;
 const savedOwnerMode = localStorage.getItem("betaOwnerPlayerMode");
 if (["online-first", "online-only", "all"].includes(savedOwnerMode)) state.ownerPlayerMode = savedOwnerMode;
 const savedAdminMode = localStorage.getItem("betaAdminPlayerMode");
@@ -1219,7 +1221,7 @@ async function showApp() {
       state.builderCompact = true;
       syncBuilderControls();
     }
-    if (["feed", "avatars", "dashboard"].includes(previewParams.get("section"))) state.sessionSection = previewParams.get("section");
+    if (["feed", "friends", "avatars", "dashboard"].includes(previewParams.get("section"))) state.sessionSection = previewParams.get("section");
     if (previewParams.get("seed") === "1") await startTail();
     const previewView = previewParams.get("view");
     if (previewView === "owner" && previewParams.get("source") === "group") state.ownerSource = "group";
@@ -1964,15 +1966,67 @@ function scheduleAdminRender() {
 }
 
 function setSessionSection(section) {
-  if (!["feed", "avatars", "dashboard"].includes(section)) return;
+  if (!["feed", "friends", "avatars", "dashboard"].includes(section)) return;
   state.sessionSection = section;
   localStorage.setItem("betaSessionSection", section);
   renderSession();
   if (section === "avatars") void refreshAvatars();
+  if (section === "friends") void refreshFriendActivity();
   if (section === "feed") requestAnimationFrame(() => {
     renderVirtualEventRows(true);
     renderVirtualPlayerRows(true);
   });
+}
+
+const FRIEND_ACTIVITY_LABELS = Object.freeze({
+  "friend-added": "Добавлен в друзья",
+  "friend-removed": "Удалён из друзей",
+  online: "Появился онлайн",
+  offline: "Ушёл офлайн",
+  location: "Сменил локацию",
+  renamed: "Сменил имя",
+  status: "Сменил статус",
+  "status-description": "Изменил текст статуса",
+  avatar: "Сменил аватар",
+  bio: "Изменил профиль"
+});
+
+function renderFriendActivityFeed() {
+  if (!friendActivityFeed) return;
+  const rows = state.socialEvents.slice(0, 500);
+  if (friendActivityCount) friendActivityCount.textContent = `${rows.length} записей`;
+  if (!rows.length) {
+    friendActivityFeed.replaceChildren(emptyMessage("Подключите аккаунт VRChat. Новые события появятся, пока приложение запущено."));
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const entry of rows) {
+    const tone = entry.event_type === "offline" || entry.event_type === "friend-removed"
+      ? " left"
+      : entry.event_type === "location" ? " world" : "";
+    const row = adminElement("button", `eventRow friendActivityRow${tone}`);
+    row.type = "button";
+    row.dataset.socialProfile = entry.user_id;
+    const time = adminElement("time", "", eventTime({ timestamp: entry.occurred_at }));
+    const dot = adminElement("i");
+    const identity = adminElement("div", "eventIdentity");
+    identity.append(
+      userTextElement("strong", "eventName", entry.display_name || entry.user_id),
+      document.createTextNode(" · "),
+      adminElement("strong", "eventKind", FRIEND_ACTIVITY_LABELS[entry.event_type] || entry.event_type || "Событие")
+    );
+    const detail = userTextElement("span", "", entry.current_value || entry.previous_value || "—");
+    row.append(time, dot, identity, detail);
+    fragment.append(row);
+  }
+  friendActivityFeed.replaceChildren(fragment);
+}
+
+async function refreshFriendActivity() {
+  if (!api.listLocalSocialEvents) return;
+  try { state.socialEvents = await api.listLocalSocialEvents(500) || []; }
+  catch { state.socialEvents = []; }
+  if (state.sessionSection === "friends") renderFriendActivityFeed();
 }
 
 function openAvatarFromEvent(avatarKey) {
@@ -2611,6 +2665,8 @@ function renderSession() {
     if (playerCount) playerCount.textContent = `${state.sessionVisiblePlayers.length} игроков`;
     renderVirtualEventRows(true);
     renderVirtualPlayerRows(true);
+  } else if (state.sessionSection === "friends") {
+    renderFriendActivityFeed();
   } else if (state.sessionSection === "avatars") {
     renderAvatarSession();
   } else if (state.sessionSection === "dashboard") {
@@ -4099,13 +4155,12 @@ function renderSocial() {
   if (state.socialTab === "journal") {
     const panel = socialPanel("Локально", "Журнал друзей", String(state.socialEvents.length));
     const list = adminElement("div", "socialList socialJournal");
-    const labels = { "friend-added": "Добавлен в друзья", "friend-removed": "Удалён из друзей", online: "Появился онлайн", offline: "Ушёл офлайн", location: "Сменил локацию", renamed: "Сменил имя", status: "Сменил статус", "status-description": "Изменил текст статуса", avatar: "Сменил аватар", bio: "Изменил профиль" };
     renderVirtualSocialRows(list, state.socialEvents.slice(0, 500), (entry) => {
       const row = adminElement("button", "socialRow socialEventRow");
       row.type = "button";
       row.dataset.socialProfile = entry.user_id;
       const copy = adminElement("span");
-      copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", labels[entry.event_type] || entry.event_type));
+      copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", FRIEND_ACTIVITY_LABELS[entry.event_type] || entry.event_type));
       row.append(copy, adminElement("em", "", adminDate(entry.occurred_at)));
       return row;
     }, "Лента начнёт заполняться после подключения аккаунта VRChat. Приложение должно быть запущено.");
@@ -7121,6 +7176,11 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (event.target.closest("[data-friend-activity-refresh]")) {
+    void refreshFriendActivity();
+    return;
+  }
+
   const socialTab = event.target.closest("[data-social-tab]")?.dataset.socialTab;
   if (socialTab && ["overview", "locations", "favorites", "journal", "groups", "vrchat-favorites", "notifications", "prints", "inventory"].includes(socialTab)) {
     state.socialTab = socialTab;
@@ -8393,6 +8453,7 @@ api?.onSocialActivity?.(() => {
   api.listLocalSocialEvents(500).then((events) => {
     state.socialEvents = Array.isArray(events) ? events : [];
     if (state.view === "social" && state.socialTab === "journal") renderSocial();
+    if (state.view === "session" && state.sessionSection === "friends") renderFriendActivityFeed();
   }).catch(() => {});
 });
 api?.onAnalysisStart?.(() => {

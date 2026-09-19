@@ -4,7 +4,7 @@ Local implementation checkpoint: 2026-09-19. Source remains `apps/client-beta/`;
 
 ## Appearance editor
 
-Beta.4 limits profile scale to 90–110% and compensates the viewport, so reduced scale no longer leaves a blank area. On wide windows the editor reserves space on the right. Structural headings and navigation tabs cannot be renamed; safe static captions remain editable. Older saved scale values below 90% are clamped automatically.
+Beta.5 removes profile scale from the appearance editor because CSS zoom distorted the workspace width. The regular application scale remains in Settings. On wide windows the editor reserves space on the right. Structural headings and navigation tabs cannot be renamed; safe static captions remain editable. Older saved appearance-scale values are ignored automatically.
 
 Open **Оформление / Appearance** in the lower-right corner. It applies throughout the Beta renderer, beyond Builder.
 
