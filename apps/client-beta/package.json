@@ -1,7 +1,7 @@
 {
   "name": "vrchat-admin-tools-beta",
   "productName": "VRChat Admin Tools Beta",
-  "version": "2.0.0-beta.6",
+  "version": "2.0.0-beta.7",
   "main": "src/main.js",
   "private": true,
   "description": "Separate beta client for the next VRChat Admin Tools interface.",
@@ -48,7 +48,7 @@
     "publish": {
       "provider": "github",
       "owner": "Rosecod337",
-      "repo": "VRChatAdminToolsPublic",
+      "repo": "VRChatAdminTools",
       "releaseType": "prerelease"
     }
   }

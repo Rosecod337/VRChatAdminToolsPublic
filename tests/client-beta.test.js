@@ -29,8 +29,7 @@ test("beta client is a separate product that reuses the trusted core", () => {
   assert.match(launcher, /VRCHAT_CLIENT_VARIANT = "beta"/u);
   assert.match(launcher, /client\/src\/main\.js/u);
   assert.match(coreMain, /!app\.isPackaged && developmentOverride/u);
-  assert.match(coreMain, /const beta = isBetaClient\(\)/u);
-  assert.match(coreMain, /autoUpdater\.allowPrerelease = beta/u);
+  assert.match(coreMain, /autoUpdater\.allowPrerelease = isPrereleaseVersion\(app\.getVersion\(\)\)/u);
   assert.match(coreMain, /autoUpdater\.allowDowngrade = false/u);
   assert.equal(packageJson.build.publish.provider, "github");
   assert.equal(packageJson.build.publish.releaseType, "prerelease");

@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs/promises");
+const { mkdirSync } = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
@@ -18,6 +19,13 @@ const { importStableSettings } = require("./stable-settings-import");
 const { LocalCompanionStore } = require("./local-companion-store");
 const { VrchatUserResolver } = require("./vrchat-api");
 const { VrchatFriendPipeline } = require("./vrchat-friend-pipeline");
+const { isModernClientVersion, isPrereleaseVersion, modernUserDataPath } = require("./release-channel");
+
+if (isModernClientVersion(app.getVersion()) && !isPrereleaseVersion(app.getVersion())) {
+  const userDataPath = modernUserDataPath(app.getPath("appData"));
+  mkdirSync(userDataPath, { recursive: true });
+  app.setPath("userData", userDataPath);
+}
 
 const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
 const RETIRED_SERVER_URLS = new Set([
@@ -26,7 +34,7 @@ const RETIRED_SERVER_URLS = new Set([
 ]);
 
 function isBetaClient() {
-  return process.env.VRCHAT_CLIENT_VARIANT === "beta" || /\bbeta\b/iu.test(app.getName());
+  return process.env.VRCHAT_CLIENT_VARIANT === "beta" || isModernClientVersion(app.getVersion());
 }
 
 function clientRendererPath() {
@@ -473,7 +481,7 @@ function createWindow() {
     height: 820,
     minWidth: 980,
     minHeight: 660,
-    title: isBetaClient() ? "VRChat Admin Tools Beta" : "VRChat Log Analyzer",
+    title: isBetaClient() ? app.getName() : "VRChat Log Analyzer",
     backgroundColor: "#111111",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -584,8 +592,7 @@ async function startHeartbeat() {
 function setupAutoUpdater() {
   if (!app.isPackaged) return;
 
-  const beta = isBetaClient();
-  autoUpdater.allowPrerelease = beta;
+  autoUpdater.allowPrerelease = isPrereleaseVersion(app.getVersion());
   autoUpdater.allowDowngrade = false;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
