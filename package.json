@@ -22,7 +22,7 @@
     "build:client": "node scripts/build-electron.mjs client",
     "build:client-beta": "node scripts/build-electron.mjs client-beta",
     "build:client-stable": "node scripts/build-electron.mjs client-stable",
-    "build:all": "npm run test && npm run build:client && npm run build:client-beta",
+    "build:all": "npm run test && npm run build:client-stable",
     "release:check": "node scripts/verify-release.mjs"
   },
   "dependencies": {
