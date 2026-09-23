@@ -172,10 +172,10 @@ test("fetchSocialSummary returns authenticated friends and public groups and cac
       return responseJson({ id: "usr_11111111-1111-4111-8111-111111111111", displayName: "Rose337" });
     }
     if (value.includes("/auth/user/friends")) {
-      return responseJson([{ id: "usr_22222222-2222-4222-8222-222222222222", displayName: "Friend", status: "active" }]);
+      return responseJson([{ id: "usr_22222222-2222-4222-8222-222222222222", displayName: "Friend", status: "active", profilePicOverride: "https://api.vrchat.cloud/api/1/image/file_demo/1/256", currentAvatarImageUrl: "https://api.vrchat.cloud/api/1/image/file_avatar/1/256" }]);
     }
     if (value.includes("/groups")) {
-      return responseJson([{ groupId: "grp_33333333-3333-4333-8333-333333333333", name: "Example Group", memberCount: 12 }]);
+      return responseJson([{ groupId: "grp_33333333-3333-4333-8333-333333333333", name: "Example Group", memberCount: 12, iconUrl: "https://api.vrchat.cloud/api/1/image/file_group/1/256", bannerUrl: "https://api.vrchat.cloud/api/1/image/file_banner/1/512" }]);
     }
     throw new Error(`unexpected url ${url}`);
   };
@@ -186,7 +186,9 @@ test("fetchSocialSummary returns authenticated friends and public groups and cac
 
   assert.equal(result.user.displayName, "Rose337");
   assert.equal(result.friends[0].displayName, "Friend");
+  assert.equal(result.friends[0].profileImageUrl, "https://api.vrchat.cloud/api/1/image/file_demo/1/256");
   assert.equal(result.groups[0].name, "Example Group");
+  assert.equal(result.groups[0].iconUrl, "https://api.vrchat.cloud/api/1/image/file_group/1/256");
   assert.equal(result.completeFriends, true);
   assert.equal(calls.filter((url) => url.includes("/auth/user/friends")).length, 2);
   assert.ok(calls.some((url) => url.includes("offline=false")));
@@ -301,15 +303,18 @@ test("fetchGroup includes available group instances and tolerates an unavailable
   assert.deepEqual(fallback.instances, []);
 });
 
-test("fetchAvatar exposes per-platform performance ratings", async (t) => {
+test("fetchAvatar exposes per-platform performance ratings and package details", async (t) => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });
   const avatarId = "avtr_44444444-4444-4444-8444-444444444444";
-  global.fetch = async () => responseJson({ id: avatarId, name: "Public Demo", releaseStatus: "public", unityPackages: [{ platform: "standalonewindows", performanceRating: "Good" }, { platform: "android", performanceRating: "Poor" }] });
+  global.fetch = async () => responseJson({ id: avatarId, name: "Public Demo", releaseStatus: "public", tags: ["system_avatar_access"], unityPackages: [{ platform: "standalonewindows", performanceRating: "Good", unityVersion: "2022.3.22f1", assetVersion: 8, fileSizeInBytes: 1048576 }, { platform: "android", performanceRating: "Poor" }] });
   const resolver = new VrchatUserResolver();
   resolver.setAuthCookie("auth=authcookie_test");
   const avatar = await resolver.fetchAvatar(avatarId);
   assert.deepEqual(avatar.performance, { standalonewindows: "Good", android: "Poor" });
+  assert.equal(avatar.packages[0].unityVersion, "2022.3.22f1");
+  assert.equal(avatar.packages[0].fileSize, 1048576);
+  assert.deepEqual(avatar.tags, ["system_avatar_access"]);
 });
 
 test("searchAvatarCandidates returns multiple exact IDs without choosing one", async (t) => {
@@ -411,12 +416,36 @@ test("favoriteAvatar verifies a public avatar and adds it to the first VRChat av
   });
 });
 
+test("selectAvatar verifies access before changing the authenticated account avatar", async (t) => {
+  const originalFetch = global.fetch;
+  const avatarId = "avtr_55555555-5555-4555-8555-555555555555";
+  const calls = [];
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith(`/avatars/${avatarId}`)) {
+      return responseJson({ id: avatarId, name: "Wearable Demo", releaseStatus: "public" });
+    }
+    if (String(url).endsWith(`/avatars/${avatarId}/select`) && options.method === "PUT") {
+      return responseJson({ currentAvatar: avatarId });
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.selectAvatar(avatarId);
+
+  assert.deepEqual(result, { avatarId, avatarName: "Wearable Demo", selected: true });
+  assert.equal(calls.at(-1).options.method, "PUT");
+});
+
 test("fetchPersonalCollection normalizes only the current account collections", async (t) => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });
   global.fetch = async (url) => {
     const value = String(url);
-    if (value.includes("/worlds/favorites")) return responseJson([{ id: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Favorite World", occupants: 4 }]);
+    if (value.includes("/worlds/favorites")) return responseJson([{ id: "wrld_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Favorite World", occupants: 4, thumbnailImageUrl: "https://api.vrchat.cloud/api/1/image/file_world/1/256" }]);
     if (value.includes("/auth/user/notifications")) return responseJson([{ id: "not_demo", type: "invite", message: "Join", senderUserId: "usr_22222222-2222-4222-8222-222222222222" }]);
     throw new Error(`unexpected url ${url}`);
   };
@@ -425,6 +454,7 @@ test("fetchPersonalCollection normalizes only the current account collections", 
   const worlds = await resolver.fetchPersonalCollection("favorite-worlds");
   const notifications = await resolver.fetchPersonalCollection("notifications");
   assert.equal(worlds.rows[0].worldName, "Favorite World");
+  assert.equal(worlds.rows[0].imageUrl, "https://api.vrchat.cloud/api/1/image/file_world/1/256");
   assert.equal(notifications.rows[0].type, "invite");
   await assert.rejects(() => resolver.fetchPersonalCollection("someone-elses-favorites"), /invalid/u);
 });

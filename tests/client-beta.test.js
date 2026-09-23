@@ -749,12 +749,20 @@ test("beta preload exposes local companion search without exposing SQLite", () =
   assert.match(main, /ipcMain\.handle\("companion:details"/u);
   assert.match(preload, /saveLocalPlayerPreference/u);
   assert.match(preload, /exportLocalData/u);
+  assert.match(preload, /clearLocalDataCategory/u);
+  assert.match(preload, /saveTextFile/u);
+  assert.match(preload, /updateModerationAppeal/u);
+  assert.match(preload, /selectVrchatAvatar/u);
   assert.match(preload, /getVrchatSocialSummary/u);
   assert.match(preload, /getVrchatUserProfile/u);
   assert.match(preload, /getVrchatGroup/u);
   assert.match(preload, /getVrchatPersonalCollection/u);
   assert.match(preload, /listLocalSocialEvents/u);
   assert.match(main, /ipcMain\.handle\("companion:export"/u);
+  assert.match(main, /ipcMain\.handle\("companion:clear-category"/u);
+  assert.match(main, /ipcMain\.handle\("file:save-text"/u);
+  assert.match(main, /ipcMain\.handle\("moderation:update-appeal"/u);
+  assert.match(main, /ipcMain\.handle\("vrchat:avatar-select"/u);
   assert.match(main, /ipcMain\.handle\("vrchat:social-summary"/u);
   assert.match(main, /ipcMain\.handle\("vrchat:user-profile"/u);
   assert.match(main, /recordSocialSnapshot/u);
@@ -1002,6 +1010,11 @@ test("beta Social exposes internal profiles, locations, friend log, and on-deman
   assert.match(html, /data-social-tab="vrchat-favorites"/u);
   assert.match(html, /data-social-detail-dialog/u);
   assert.match(script, /function openSocialProfile/u);
+  assert.match(script, /function friendPortraitElement/u);
+  assert.match(script, /socialGroupBanner/u);
+  assert.match(script, /worldPortrait/u);
+  assert.match(script, /avatarPortrait/u);
+  assert.match(script, /profileImageUrl/u);
   assert.match(script, /function openSocialGroup/u);
   assert.match(script, /getVrchatPersonalCollection/u);
   assert.match(script, /socialProfileActionMenu/u);
@@ -1063,8 +1076,40 @@ test("beta Owner preserves Stable watchlist, incident copy, and moderation overv
   assert.match(renderer, /function ownerIncidentReport\(userId\)/u);
   assert.match(renderer, /dataset\.ownerWatch = player\.userId/u);
   assert.match(renderer, /dataset\.ownerCopyIncident = player\.userId/u);
+  assert.match(renderer, /Общая лента инцидентов/u);
+  assert.match(renderer, /Проверка правила до включения/u);
+  assert.match(renderer, /dataset\.appealSave/u);
   assert.match(styles, /\.ownerOverviewMetrics/u);
   assert.match(styles, /\.ownerWatchRow/u);
+  assert.match(styles, /\.ownerPolicyControls/u);
+});
+
+test("beta exposes private cleanup, anonymized reports, and richer avatar metadata", () => {
+  const markup = read("apps/client-beta/renderer/index.html");
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const styles = read("apps/client-beta/renderer/styles.css");
+
+  assert.match(markup, /data-local-clear="history"/u);
+  assert.match(markup, /data-local-clear="all"/u);
+  assert.match(renderer, /function historySessionReport\(/u);
+  assert.match(renderer, /dataset\.historyHideNames/u);
+  assert.match(renderer, /exportHistorySession/u);
+  assert.match(renderer, /profile\.packages/u);
+  assert.match(renderer, /vrchatCosmeticPreview/u);
+  assert.match(styles, /\.avatarPackageCard/u);
+  assert.match(styles, /\.vrchatCosmeticPreview/u);
+});
+
+test("beta player profile exposes confirmed avatar history without inventing missing ids", () => {
+  const renderer = read("apps/client-beta/renderer/app.js");
+  const styles = read("apps/client-beta/renderer/styles.css");
+
+  assert.match(renderer, /function socialAvatarHistory\(/u);
+  assert.match(renderer, /data\.socialAvatarToggle|dataset\.socialAvatarToggle/u);
+  assert.match(renderer, /VRChat передал только изображение — Avatar ID неизвестен/u);
+  assert.match(renderer, /dataset\.avatarSelect/u);
+  assert.match(renderer, /api\.selectVrchatAvatar/u);
+  assert.match(styles, /\.socialAvatarHistoryRow/u);
 });
 
 test("beta imports a private copy of the Stable session without changing Stable", async (context) => {

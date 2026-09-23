@@ -590,6 +590,9 @@ class VrchatUserResolver {
       version: normalizeNumber(data.version),
       platforms: normalizeAvatarPlatforms(data),
       performance: normalizeAvatarPerformance(data),
+      packages: normalizeAvatarPackages(data),
+      tags: (Array.isArray(data.tags) ? data.tags : []).map(String).filter(Boolean).slice(0, 50),
+      featured: Boolean(data.featured),
       canFavorite: String(data.releaseStatus || "").toLowerCase() === "public",
       profileUrl: `https://vrchat.com/home/avatar/${encodeURIComponent(data.id || id)}`,
       source: "api"
@@ -633,6 +636,32 @@ class VrchatUserResolver {
       favoriteId: data.id || "",
       favoriteGroup: group,
       alreadyFavorite: false
+    };
+  }
+
+  async selectAvatar(avatarId) {
+    const id = String(avatarId || "").trim();
+    if (!AVATAR_ID_RE.test(id)) throw new Error("VRChat avatar id is invalid");
+    if (!this.authCookie) throw new Error("VRChat auth cookie is not configured");
+
+    const avatar = await this.fetchAvatar(id);
+    const response = await fetchVrchat(`https://api.vrchat.cloud/api/1/avatars/${encodeURIComponent(id)}/select`, {
+      method: "PUT",
+      headers: {
+        "accept": "application/json",
+        "user-agent": this.userAgent,
+        "cookie": this.authCookie
+      }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = String(data?.error?.message || "").trim();
+      throw new Error(message || `VRChat API HTTP ${response.status}`);
+    }
+    return {
+      avatarId: id,
+      avatarName: avatar.avatarName,
+      selected: String(data?.currentAvatar || id) === id
     };
   }
 
@@ -843,6 +872,7 @@ function normalizeFriend(data, offlineHint = false) {
     bioLinks: (Array.isArray(data?.bioLinks) ? data.bioLinks : []).map(String).slice(0, 8),
     avatarId: String(data?.currentAvatar || data?.currentAvatarId || "").slice(0, 120),
     avatarImageUrl: String(data?.currentAvatarImageUrl || data?.currentAvatarThumbnailImageUrl || "").slice(0, 1000),
+    profileImageUrl: String(data?.profilePicOverride || data?.userIcon || data?.currentAvatarThumbnailImageUrl || data?.currentAvatarImageUrl || "").slice(0, 1000),
     allowAvatarCopying: Boolean(data?.allowAvatarCopying),
     profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`
   };
@@ -867,6 +897,9 @@ function normalizeUserProfile(data, fallbackUserId = "") {
     dateJoined: String(data?.date_joined || ""),
     isFriend: Boolean(data?.isFriend),
     allowAvatarCopying: Boolean(data?.allowAvatarCopying),
+    avatarId: String(data?.currentAvatar || data?.currentAvatarId || "").slice(0, 120),
+    avatarImageUrl: String(data?.currentAvatarImageUrl || data?.currentAvatarThumbnailImageUrl || "").slice(0, 1000),
+    profileImageUrl: String(data?.profilePicOverride || data?.userIcon || data?.currentAvatarThumbnailImageUrl || data?.currentAvatarImageUrl || "").slice(0, 1000),
     note: String(data?.note || "").slice(0, 2000),
     badges: (Array.isArray(data?.badges) ? data.badges : []).map((badge) => ({
       name: String(badge?.badgeName || ""),
@@ -885,6 +918,8 @@ function normalizeGroup(data, fallbackGroupId = "") {
     name: String(data?.name || data?.shortCode || groupId),
     shortCode: String(data?.shortCode || ""),
     description: String(data?.description || "").slice(0, 4000),
+    iconUrl: String(data?.iconUrl || data?.icon?.url || "").slice(0, 1000),
+    bannerUrl: String(data?.bannerUrl || data?.banner?.url || "").slice(0, 1000),
     memberCount: normalizeNumber(data?.memberCount),
     onlineMemberCount: normalizeNumber(data?.onlineMemberCount),
     ownerId: String(data?.ownerId || ""),
@@ -979,6 +1014,18 @@ function normalizeAvatarPerformance(data) {
   return byPlatform;
 }
 
+function normalizeAvatarPackages(data) {
+  const packages = Array.isArray(data?.unityPackages) ? data.unityPackages : [];
+  return packages.slice(0, 20).map((item) => ({
+    platform: String(item?.platform || "").slice(0, 80),
+    variant: String(item?.variant || "").slice(0, 80),
+    performanceRating: String(item?.performanceRating || "").slice(0, 80),
+    unityVersion: String(item?.unityVersion || "").slice(0, 80),
+    assetVersion: normalizeNumber(item?.assetVersion),
+    fileSize: normalizeNumber(item?.fileSizeInBytes ?? item?.fileSize)
+  })).filter((item) => item.platform || item.variant || item.performanceRating);
+}
+
 function normalizeFavoriteWorld(data) {
   const worldId = String(data?.id || "").trim();
   if (!/^wrld_[0-9a-f-]+$/iu.test(worldId)) return null;
@@ -990,6 +1037,7 @@ function normalizeFavoriteWorld(data) {
     occupants: normalizeNumber(data?.occupants),
     capacity: normalizeNumber(data?.capacity),
     favoriteGroup: String(data?.favoriteGroup || ""),
+    imageUrl: String(data?.thumbnailImageUrl || data?.imageUrl || "").slice(0, 1000),
     profileUrl: `https://vrchat.com/home/world/${encodeURIComponent(worldId)}`
   };
 }
@@ -1018,6 +1066,7 @@ function normalizeAvatarCandidate(data, source) {
     authorName: String(data.authorName || "").trim(),
     description: String(data.description || "").trim().slice(0, 500),
     releaseStatus: String(data.releaseStatus || "").trim(),
+    imageUrl: String(data.thumbnailImageUrl || data.imageUrl || "").trim().slice(0, 1000),
     canFavorite: String(data.releaseStatus || "").trim().toLowerCase() === "public",
     profileUrl: `https://vrchat.com/home/avatar/${encodeURIComponent(avatarId)}`,
     sources: [source]

@@ -100,6 +100,7 @@ async function writeStreamChunk(stream, chunk) {
 class LocalCompanionStore {
   constructor(filePath) {
     if (!path.isAbsolute(filePath)) throw new Error("Local companion database path must be absolute");
+    this.filePath = filePath;
     this.closed = false;
     this.backfillHandle = null;
     this.maintenanceHandle = null;
@@ -982,7 +983,8 @@ class LocalCompanionStore {
       online,
       bio: String(user.bio ?? previousSnapshot.bio ?? "").slice(0, 2_000),
       avatarId: String(user.currentAvatar ?? user.currentAvatarId ?? previousSnapshot.avatarId ?? "").slice(0, 120),
-      avatarImageUrl: String(user.currentAvatarImageUrl ?? user.currentAvatarThumbnailImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000)
+      avatarImageUrl: String(user.currentAvatarImageUrl ?? user.currentAvatarThumbnailImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000),
+      profileImageUrl: String(user.profilePicOverride ?? user.userIcon ?? user.currentAvatarThumbnailImageUrl ?? user.currentAvatarImageUrl ?? previousSnapshot.profileImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000)
     };
     const serialized = snapshotJson(safeSnapshot);
     const insertEvent = this.database.prepare(`
@@ -1205,6 +1207,13 @@ class LocalCompanionStore {
 
   storageStats() {
     const count = (table) => Number(this.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count) || 0;
+    const fileBytes = [this.filePath, `${this.filePath}-wal`, `${this.filePath}-shm`].reduce((total, filePath) => {
+      try {
+        return total + fs.statSync(filePath).size;
+      } catch {
+        return total;
+      }
+    }, 0);
     return {
       sessions: count("play_sessions"),
       players: count("local_players"),
@@ -1212,8 +1221,41 @@ class LocalCompanionStore {
       avatars: count("local_avatars"),
       socialFriends: count("local_social_friends"),
       socialEvents: count("local_social_events"),
+      playerPreferences: count("local_player_preferences"),
+      worldPreferences: count("local_world_preferences"),
+      fileBytes,
       retentionDays: this.getRetentionDays()
     };
+  }
+
+  clearCategory(category) {
+    const safeCategory = String(category || "").trim().toLowerCase();
+    if (!["history", "social", "preferences", "all"].includes(safeCategory)) throw new Error("invalid_cleanup_category");
+    const before = this.storageStats();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      if (safeCategory === "history" || safeCategory === "all") {
+        this.database.exec(`
+          DELETE FROM play_sessions;
+          DELETE FROM local_avatars;
+          DELETE FROM local_players
+          WHERE NOT EXISTS (SELECT 1 FROM local_player_preferences WHERE local_player_preferences.user_id = local_players.user_id);
+          DELETE FROM local_worlds
+          WHERE NOT EXISTS (SELECT 1 FROM local_world_preferences WHERE local_world_preferences.world_key = local_worlds.world_key);
+        `);
+      }
+      if (safeCategory === "social" || safeCategory === "all") {
+        this.database.exec("DELETE FROM local_social_events; DELETE FROM local_social_friends;");
+      }
+      if (safeCategory === "preferences" || safeCategory === "all") {
+        this.database.exec("DELETE FROM local_player_preferences; DELETE FROM local_world_preferences;");
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return { ok: true, category: safeCategory, before, after: this.storageStats() };
   }
 
   applyProtectionPolicy({ salt = "", userIdHashes = [], avatarIdHashes = [] } = {}) {

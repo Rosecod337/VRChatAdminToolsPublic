@@ -235,6 +235,32 @@ try {
     });
     if (!found.result.value) throw new Error(`После QA-действия не найден ожидаемый элемент: ${process.env.BETA_PREVIEW_EXPECT_SELECTOR}`);
   }
+  if (process.env.BETA_PREVIEW_GAMES_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(async () => {
+        const assert = (value, message) => { if (!value) throw new Error(message); };
+        selectView('games');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        assert(state.view === 'games', 'paid key could not open games');
+        assert(document.querySelectorAll('[data-game-answer]').length >= 2, 'world question did not render');
+        document.querySelector('[data-game-answer]').click();
+        assert(document.querySelector('[data-game-next]').hidden === false, 'answered question did not advance');
+        document.querySelector('[data-game-next]').click();
+        assert(gameState.round === 2, 'second round did not start');
+        state.settings = { ...state.settings, accessMode: 'free', license: null };
+        syncPaidAccess();
+        assert(document.querySelector('[data-view-button="games"]').hidden, 'games visible in free mode');
+        assert(state.view !== 'games', 'free mode kept games open');
+        selectView('games');
+        assert(state.view !== 'games', 'free mode reopened games');
+        return { paidPlay: 'ok', freeGate: 'ok' };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
   if (process.env.BETA_PERF_SCREENSHOT) {
     await cdp.send("Page.enable");
     const screenshot = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });

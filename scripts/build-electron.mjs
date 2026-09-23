@@ -78,6 +78,7 @@ if (appName === "client" || appName === "client-beta") {
     }
   }
   await copyWithDeps("electron-updater");
+  await copyWithDeps("ws");
 }
 
 await obfuscate(path.join(stageDir, "src"));

@@ -221,6 +221,37 @@ test("current instance analysis continues following new log lines", async () => 
   }
 });
 
+test("current instance analysis expands past a large active log tail to find the world", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-large-current-instance-"));
+  const logFile = path.join(directory, "output_log_2026-09-18_22-38-43.txt");
+  const tailer = new LogTailer();
+  const events = [];
+  tailer.on("event", (event) => events.push(event));
+
+  const worldId = "wrld_84b742b1-2c9f-451a-9e4f-65d3855aaa50";
+  await fs.writeFile(logFile, [
+    "2026.09.19 09:29:56 Debug      -  [Behaviour] Entering Room: everyone is asleep except you",
+    `2026.09.19 09:29:56 Debug      -  [Behaviour] Joining ${worldId}:55889~region(eu)`,
+    "2026.09.19 09:30:05 Debug      -  [Behaviour] OnPlayerJoined Rose337 (usr_3d586656-15eb-4702-9ab2-759a70b2f543)",
+    `unrelated ${"x".repeat(5 * 1024 * 1024)}`,
+    ""
+  ].join("\n"), "utf8");
+
+  try {
+    await tailer.analyzeCurrentInstance(logFile, {
+      mode: "current",
+      maxBytesPerFile: 4 * 1024 * 1024,
+      maxLines: 30000
+    });
+    assert.equal(events.some((event) => event.type === "world-entering" && event.worldName === "everyone is asleep except you"), true);
+    assert.equal(events.some((event) => event.type === "world-joining" && event.worldId === worldId), true);
+    assert.equal(events.some((event) => event.type === "player-joined" && event.playerName === "Rose337"), true);
+  } finally {
+    await tailer.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("truncated active log resets the parser and reads the replacement content", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-truncate-"));
   const logFile = path.join(directory, "output_log_2026-07-09_12-00-00.txt");

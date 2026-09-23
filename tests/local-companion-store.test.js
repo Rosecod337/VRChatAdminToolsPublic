@@ -69,6 +69,33 @@ test("streaming export preserves the backup format without building one giant pa
   assert.deepEqual(backup.uiSettings, { language: "ru" });
 });
 
+test("privacy cleanup removes only the selected local category", async (t) => {
+  const { store } = await temporaryStore(t);
+  store.createSession({ worldName: "Private World", startedAt: "2026-08-23T11:00:00.000Z" });
+  store.savePlayerPreference({ userId: "usr_cleanup_demo", alias: "Keep preference", status: "favorite" });
+  store.database.prepare(`INSERT INTO local_social_friends
+    (user_id,display_name,status,status_description,location,platform,online,first_seen_at,last_seen_at,snapshot)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run("usr_cleanup_demo", "Demo", "offline", "", "", "", 0,
+      "2026-08-23T11:00:00.000Z", "2026-08-23T11:00:00.000Z", "{}");
+
+  const before = store.storageStats();
+  assert.equal(before.sessions, 1);
+  assert.equal(before.playerPreferences, 1);
+  assert.equal(before.socialFriends, 1);
+  assert.ok(before.fileBytes > 0);
+
+  store.clearCategory("history");
+  const afterHistory = store.storageStats();
+  assert.equal(afterHistory.sessions, 0);
+  assert.equal(afterHistory.playerPreferences, 1);
+  assert.equal(afterHistory.socialFriends, 1);
+
+  store.clearCategory("all");
+  const afterAll = store.storageStats();
+  assert.equal(afterAll.playerPreferences, 0);
+  assert.equal(afterAll.socialFriends, 0);
+});
+
 test("quick search keeps an older local favorite when the result limit is reached", async (t) => {
   const { store } = await temporaryStore(t);
   const favorite = "usr_old_favorite";

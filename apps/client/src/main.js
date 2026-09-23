@@ -80,11 +80,13 @@ let localCompanionStore = null;
 const tailer = new LogTailer();
 const resolver = new VrchatUserResolver();
 const friendPipeline = new VrchatFriendPipeline({
+  userAgent: resolver.userAgent,
   onEvent: (event) => {
     if (!isBetaClient()) return;
     const result = companionStore().recordSocialPipelineEvent(event);
     if (result.events) send("companion:social-activity", { userId: result.userId, count: result.events });
-  }
+  },
+  onStatus: (status) => send("companion:friend-pipeline-status", status)
 });
 const SETTINGS_SECRET_FIELDS = ["sessionToken", "vrchatAuthCookie"];
 const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) => [field, ""]));
@@ -851,6 +853,13 @@ ipcMain.handle("vrchat:avatar-favorite", async (_event, avatarId) => {
   return resolver.favoriteAvatar(avatarId);
 });
 
+ipcMain.handle("vrchat:avatar-select", async (_event, avatarId) => {
+  if (isProtectedAvatarId(avatarId)) throw new Error("avatar_is_protected");
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.selectAvatar(avatarId);
+});
+
 ipcMain.handle("client:activate", async (_event, body) => {
   const oldSettings = await readSettings();
   const nextCookie = body.vrchatAuthCookie === undefined
@@ -1081,6 +1090,36 @@ ipcMain.handle("companion:social-events", async (_event, limit = 500) => {
   return companionStore().listSocialEvents(limit);
 });
 
+ipcMain.handle("companion:friend-pipeline-status", async () => friendPipeline.getStatus());
+
+ipcMain.handle("companion:refresh-friend-feed", async () => {
+  if (!isBetaClient()) return { events: [], pipeline: { status: "disconnected", reason: "unsupported" } };
+  const settings = await readSettings();
+  const authCookie = settings.vrchatAuthCookie;
+  if (!authCookie) {
+    friendPipeline.stop();
+    return {
+      events: companionStore().listSocialEvents(500),
+      pipeline: { ...friendPipeline.getStatus(), reason: "no-session" },
+      refreshError: "no-session"
+    };
+  }
+  resolver.setAuthCookie(authCookie);
+  let refreshError = "";
+  try {
+    const summary = await resolver.fetchSocialSummary({ force: true });
+    companionStore().recordSocialSnapshot(summary);
+  } catch {
+    refreshError = "request";
+  }
+  friendPipeline.restart(authCookie);
+  return {
+    events: companionStore().listSocialEvents(500),
+    pipeline: friendPipeline.getStatus(),
+    refreshError
+  };
+});
+
 ipcMain.handle("companion:save-world-preference", async (_event, preference) => {
   if (!isBetaClient()) throw new Error("companion_preferences_require_beta");
   return companionStore().saveWorldPreference(preference || {});
@@ -1089,6 +1128,11 @@ ipcMain.handle("companion:save-world-preference", async (_event, preference) => 
 ipcMain.handle("companion:storage-stats", async () => {
   if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
   return companionStore().storageStats();
+});
+
+ipcMain.handle("companion:clear-category", async (_event, category) => {
+  if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
+  return companionStore().clearCategory(category);
 });
 
 ipcMain.handle("companion:set-retention", async (_event, days) => {
@@ -1125,6 +1169,25 @@ ipcMain.handle("companion:import", async (event) => {
   if (info.size > 50 * 1024 * 1024) throw new Error("backup_file_too_large");
   const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
   return { ...companionStore().importData(payload), filePath };
+});
+
+ipcMain.handle("file:save-text", async (event, options = {}) => {
+  if (!isBetaClient()) throw new Error("text_export_requires_beta");
+  const text = String(options.text || "");
+  if (!text || Buffer.byteLength(text, "utf8") > 1024 * 1024) throw new Error("text_export_invalid");
+  const suggestedName = String(options.suggestedName || "VRChat-session.txt")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_")
+    .slice(0, 120) || "VRChat-session.txt";
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const saveOptions = {
+    title: "Экспорт отчёта",
+    defaultPath: path.join(app.getPath("documents"), suggestedName),
+    filters: [{ name: "Text", extensions: ["txt"] }]
+  };
+  const result = await (parent ? dialog.showSaveDialog(parent, saveOptions) : dialog.showSaveDialog(saveOptions));
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  await fs.writeFile(result.filePath, text, "utf8");
+  return { ok: true, filePath: result.filePath };
 });
 
 ipcMain.handle("player-notes:list", async () => {
@@ -1238,6 +1301,20 @@ ipcMain.handle("moderation:list-group-ban-requests", async () => {
     limit: 200
   });
   return payload.requests ?? [];
+});
+
+ipcMain.handle("moderation:update-appeal", async (_event, request) => {
+  const settings = await readSettings();
+  const hwid = await getHardwareId();
+  const requestId = String(request?.requestId || "").trim();
+  if (!/^[0-9a-f-]{36}$/iu.test(requestId)) throw new Error("invalid_moderation_request_id");
+  const payload = await apiPost(`/moderation/ban-requests/${encodeURIComponent(requestId)}/appeal`, {
+    sessionToken: settings.sessionToken,
+    hwid,
+    appealStatus: request?.appealStatus,
+    appealNote: request?.appealNote
+  });
+  return payload.request;
 });
 
 ipcMain.handle("moderation:retry-group-ban-request", async (_event, requestId) => {

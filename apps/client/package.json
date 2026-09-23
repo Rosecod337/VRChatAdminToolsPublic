@@ -11,7 +11,8 @@
   "copyright": "Copyright © 2026 MUTNIY.CORP",
   "dependencies": {
     "@vrchat-log-suite/parser": "0.1.0",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "ws": "^8.18.3"
   },
   "build": {
     "appId": "com.vrchatlogsuite.client",

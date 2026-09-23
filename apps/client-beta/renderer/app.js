@@ -11,6 +11,7 @@ const insightsModel = window.betaInsightsModel;
 const avatarModel = window.betaAvatarModel;
 const notificationModel = window.betaNotificationModel;
 const i18n = window.betaI18n;
+const miniGames = window.betaMiniGames;
 const api = window.clientApi || (previewMode ? createPreviewApi() : null);
 const activationView = document.querySelector("[data-activation-view]");
 const activationForm = document.querySelector("[data-activation-form]");
@@ -33,6 +34,7 @@ const eventCount = document.querySelector("[data-event-count]");
 const eventFeed = document.querySelector("[data-event-feed]");
 const friendActivityFeed = document.querySelector("[data-friend-activity-feed]");
 const friendActivityCount = document.querySelector("[data-friend-activity-count]");
+const friendPipelineStatus = document.querySelector("[data-friend-pipeline-status]");
 const playerList = document.querySelector("[data-player-list]");
 const playerCount = document.querySelector("[data-player-count]");
 const playerSearch = document.querySelector("[data-session-player-search]");
@@ -91,6 +93,8 @@ const builderPreset = document.querySelector("[data-builder-preset]");
 const builderOpacity = document.querySelector("[data-builder-opacity]");
 const builderDashboard = document.querySelector("[data-builder-dashboard]");
 const builderDashboardName = document.querySelector("[data-builder-dashboard-name]");
+const gamesPanel = document.querySelector("[data-games-card]");
+const gameState = { mode: "recent", rows: [], round: 0, roundLimit: 0, score: 0, question: null, answered: false, loading: false, error: false, usedKeys: [], requestId: 0 };
 const historyList = document.querySelector("[data-history-list]");
 const historyDetail = document.querySelector("[data-history-detail]");
 const historySearch = document.querySelector("[data-history-search]");
@@ -290,6 +294,9 @@ const state = {
   ownerSource: "logs",
   ownerVisiblePlayers: [],
   ownerSelectedUserId: "",
+  ownerPolicyThreshold: 3,
+  ownerPolicyDays: 30,
+  ownerPolicyExcluded: "",
   ownerPlayerMode: "online-first",
   ownerQuery: "",
   ownerRequests: [],
@@ -380,6 +387,7 @@ const state = {
   historyDate: "",
   historyStatus: "all",
   historySelectedKey: "",
+  historyHideNames: false,
   historyLoading: false,
   historyError: "",
   historyRequestId: 0,
@@ -460,6 +468,7 @@ const viewTitles = {
   session: "Живая сессия",
   insights: "Мой VRChat",
   library: "Библиотека",
+  games: "Мини-игры",
   social: "Друзья",
   admin: "Admin Tools",
   owner: "Owner",
@@ -472,6 +481,7 @@ const viewEyebrows = {
   session: "Текущая сессия",
   insights: "Личная статистика",
   library: "Локальные игроки, миры и аватары",
+  games: "По платному ключу",
   social: "Друзья и группы VRChat",
   admin: "Командная работа",
   owner: "Управление VRChat-группой",
@@ -735,7 +745,9 @@ async function refreshLocalStorageSettings() {
   if (!label || !api.getLocalStorageStats) return;
   try {
     const stats = await api.getLocalStorageStats();
-    label.textContent = `${stats.sessions} сессий · ${stats.players} игроков · ${stats.worlds} миров · ${stats.avatars} аватаров`;
+    const bytes = Number(stats.fileBytes) || 0;
+    const size = bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} МиБ` : `${Math.ceil(bytes / 1024)} КиБ`;
+    label.textContent = `${size} · ${stats.sessions} сессий · ${stats.players} игроков · ${stats.worlds} миров · ${stats.avatars} аватаров · ${stats.socialEvents || 0} событий друзей`;
     if (retention) retention.value = String(stats.retentionDays || 0);
   } catch {
     label.textContent = "Локальное хранилище недоступно.";
@@ -1069,6 +1081,8 @@ function hasPaidAccess() {
 
 function syncPaidAccess() {
   const paid = hasPaidAccess();
+  const gamesNavButton = document.querySelector('[data-view-button="games"]');
+  if (gamesNavButton) gamesNavButton.hidden = !paid || state.workspaceMode !== "personal";
   const adminNavButton = document.querySelector('[data-view-button="admin"]');
   if (adminNavButton) {
     adminNavButton.disabled = !paid;
@@ -1085,7 +1099,7 @@ function syncPaidAccess() {
       persistBuilderSettings();
     }
   }
-  if (!paid && state.view === "admin") selectView("session");
+  if (!paid && (state.view === "admin" || state.view === "games")) selectView("session");
   for (const selector of ["[data-avatar-online-search]", "[data-avatar-prismic]", "[data-avatar-refresh]"]) {
     document.querySelector(selector)?.toggleAttribute("hidden", !paid);
   }
@@ -1128,7 +1142,7 @@ function syncOwnerAccess() {
 
 function viewWorkspaceMode(view) {
   if (view === "admin" || view === "owner") return "team";
-  if (view === "library" || view === "social") return "personal";
+  if (view === "library" || view === "social" || view === "games") return "personal";
   return "shared";
 }
 
@@ -1142,7 +1156,7 @@ function syncWorkspaceNavigation() {
   });
   document.querySelectorAll("[data-nav-scope]").forEach((button) => {
     const scope = button.dataset.navScope;
-    button.hidden = scope !== "shared" && scope !== mode;
+    button.hidden = (scope !== "shared" && scope !== mode) || (button.dataset.viewButton === "games" && !hasPaidAccess());
   });
   document.querySelector(".topNavigation")?.setAttribute("data-workspace-navigation", mode);
   localStorage.setItem("betaWorkspaceMode", mode);
@@ -1441,7 +1455,9 @@ function createPreviewApi() {
         { user_id: "usr_demo_mira", display_name: "Mira", first_seen_at: "2026-08-05T21:10:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }
       ].filter((row) => `${row.display_name} ${row.user_id}`.toLocaleLowerCase("ru-RU").includes(normalized));
       const worlds = [
-        { world_key: "wrld_preview", world_id: "", world_name: "Group Public", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 }
+        { world_key: "wrld_preview", world_id: "", world_name: "Group Public", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2 },
+        { world_key: "wrld_preview_pug", world_id: "", world_name: "The Great Pug", first_seen_at: "2026-08-07T18:00:00.000Z", last_seen_at: "2026-08-07T19:15:00.000Z", session_count: 1 },
+        { world_key: "wrld_preview_rooftop", world_id: "", world_name: "Midnight Rooftop", first_seen_at: "2026-08-05T21:10:00.000Z", last_seen_at: "2026-08-05T22:00:00.000Z", session_count: 3 }
       ].filter((row) => `${row.world_name} ${row.world_id}`.toLocaleLowerCase("ru-RU").includes(normalized));
       const avatars = [
         { avatar_key: "name:preview avatar", avatar_id: "", avatar_name: "Preview Avatar", first_seen_at: "2026-08-08T20:30:00.000Z", last_seen_at: "2026-08-08T22:00:00.000Z", session_count: 2, observation_count: 3 }
@@ -1460,10 +1476,12 @@ function createPreviewApi() {
     saveLocalPlayerPreference: async (preference) => ({ kind: "player", entity: { user_id: preference.userId, display_name: "Nova", ...preference, first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: new Date().toISOString(), session_count: 2 }, sessions: [], names: [], events: [], worlds: [] }),
     listLocalWatchedPlayers: async () => [],
     saveLocalWorldPreference: async (preference) => ({ kind: "world", entity: { world_key: preference.worldKey, world_name: "Group Public", ...preference, first_seen_at: "2026-08-01T18:00:00.000Z", last_seen_at: new Date().toISOString(), session_count: 2 }, sessions: [] }),
-    getLocalStorageStats: async () => ({ sessions: 2, players: 2, worlds: 2, avatars: 1, retentionDays: 0 }),
+    getLocalStorageStats: async () => ({ sessions: 2, players: 2, worlds: 2, avatars: 1, socialEvents: 3, fileBytes: 245760, retentionDays: 0 }),
+    clearLocalDataCategory: async (category) => ({ ok: true, category }),
     setLocalRetention: async (retentionDays) => ({ ok: true, retentionDays, removed: 0 }),
     exportLocalData: async () => ({ ok: true, filePath: "C:\\VRChat-Admin-Tools-backup.json" }),
     importLocalData: async () => ({ ok: true, importedSessions: 2, uiSettings: {} }),
+    saveTextFile: async () => ({ ok: true, filePath: "C:\\VRChat-session.txt" }),
     listPlayerNotes: async () => previewNotes.map((row) => ({ ...row })),
     listGlobalPlayerNotes: async () => previewGlobalNotes.map((row) => ({ ...row })),
     saveGlobalPlayerNote: async (payload) => {
@@ -1508,6 +1526,7 @@ function createPreviewApi() {
       ]
     }),
     favoriteVrchatAvatar: async (avatarId) => ({ avatarId, favoriteGroup: "avatars1", alreadyFavorite: false }),
+    selectVrchatAvatar: async (avatarId) => ({ avatarId, avatarName: "Preview Avatar", selected: true }),
     readTodayPlayers: async () => ({
       fileCount: 3,
       players: [
@@ -1542,6 +1561,7 @@ function createPreviewApi() {
     requestGroupBan: async (request) => ({ id: `preview-ban-${Date.now()}`, action: "ban", status: "pending", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...request }),
     requestGroupUnban: async (request) => ({ id: `preview-unban-${Date.now()}`, action: "unban", status: "pending", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...request }),
     listGroupBanRequests: async () => [],
+    updateModerationAppeal: async (request) => ({ id: request.requestId, appealStatus: request.appealStatus, appealNote: request.appealNote }),
     retryGroupBanRequest: async (requestId) => ({ id: requestId, action: "ban", status: "pending", updatedAt: new Date().toISOString() }),
     requestGroupManagement: async (request) => {
       let result = { roles: previewGroupRoles };
@@ -1991,6 +2011,50 @@ const FRIEND_ACTIVITY_LABELS = Object.freeze({
   bio: "Изменил профиль"
 });
 
+const VRCHAT_IMAGE_HOSTS = new Set(["api.vrchat.cloud", "files.vrchat.cloud", "file-variants.vrchat.cloud"]);
+
+function safeVrchatImageUrl(...values) {
+  for (const value of values) {
+    try {
+      const url = new URL(String(value || ""));
+      if (url.protocol === "https:" && !url.username && !url.password && VRCHAT_IMAGE_HOSTS.has(url.hostname.toLowerCase())) return url.href;
+    } catch { /* Missing or malformed image URL falls back to an initial. */ }
+  }
+  return "";
+}
+
+function vrchatImageElement(value, className = "") {
+  const imageUrl = safeVrchatImageUrl(value);
+  if (!imageUrl) return null;
+  const image = document.createElement("img");
+  image.className = className;
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.referrerPolicy = "no-referrer";
+  image.src = imageUrl;
+  return image;
+}
+
+function friendPortraitElement(source = {}, extraClass = "") {
+  const displayName = String(source.displayName || source.display_name || source.userId || source.user_id || "?");
+  const portrait = adminElement("div", `friendPortrait${extraClass ? ` ${extraClass}` : ""}`);
+  portrait.setAttribute("aria-hidden", "true");
+  portrait.append(userTextElement("span", "friendPortraitFallback", Array.from(displayName.trim())[0]?.toUpperCase() || "?"));
+  const imageUrl = safeVrchatImageUrl(source.profileImageUrl, source.profilePicOverride, source.userIcon, source.iconUrl, source.imageUrl, source.thumbnailImageUrl, source.avatarImageUrl, source.bannerUrl);
+  if (!imageUrl) return portrait;
+  const image = document.createElement("img");
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.referrerPolicy = "no-referrer";
+  image.addEventListener("load", () => portrait.classList.add("hasImage"), { once: true });
+  image.addEventListener("error", () => image.remove(), { once: true });
+  image.src = imageUrl;
+  portrait.append(image);
+  return portrait;
+}
+
 function renderFriendActivityFeed() {
   if (!friendActivityFeed) return;
   const rows = state.socialEvents.slice(0, 500);
@@ -2009,6 +2073,8 @@ function renderFriendActivityFeed() {
     row.dataset.socialProfile = entry.user_id;
     const time = adminElement("time", "", eventTime({ timestamp: entry.occurred_at }));
     const dot = adminElement("i");
+    const friend = (state.social?.friends || []).find((item) => item.userId === entry.user_id);
+    const portrait = friendPortraitElement({ ...entry.snapshot, ...friend, displayName: entry.display_name, userId: entry.user_id });
     const identity = adminElement("div", "eventIdentity");
     identity.append(
       userTextElement("strong", "eventName", entry.display_name || entry.user_id),
@@ -2016,15 +2082,42 @@ function renderFriendActivityFeed() {
       adminElement("strong", "eventKind", FRIEND_ACTIVITY_LABELS[entry.event_type] || entry.event_type || "Событие")
     );
     const detail = userTextElement("span", "", entry.current_value || entry.previous_value || "—");
-    row.append(time, dot, identity, detail);
+    row.append(time, dot, portrait, identity, detail);
     fragment.append(row);
   }
   friendActivityFeed.replaceChildren(fragment);
 }
 
-async function refreshFriendActivity() {
+function renderFriendPipelineStatus(pipeline = {}) {
+  if (!friendPipelineStatus) return;
+  const status = String(pipeline.status || "disconnected");
+  const labels = {
+    connected: "Realtime работает",
+    connecting: "Подключение…",
+    reconnecting: pipeline.reason === "session" ? "Нужно переподключить аккаунт" : "Переподключение…",
+    error: pipeline.reason === "session" ? "Нужно переподключить аккаунт" : "Ошибка realtime",
+    disconnected: pipeline.reason === "no-session" ? "Аккаунт не подключён" : "Realtime отключён"
+  };
+  friendPipelineStatus.dataset.status = status;
+  friendPipelineStatus.textContent = labels[status] || labels.disconnected;
+}
+
+async function refreshFriendActivity(force = false) {
   if (!api.listLocalSocialEvents) return;
-  try { state.socialEvents = await api.listLocalSocialEvents(500) || []; }
+  try {
+    if (force && api.refreshFriendFeed) {
+      const result = await api.refreshFriendFeed();
+      state.socialEvents = result?.events || [];
+      renderFriendPipelineStatus(result?.pipeline);
+    } else {
+      const [events, pipeline] = await Promise.all([
+        api.listLocalSocialEvents(500),
+        api.getFriendPipelineStatus ? api.getFriendPipelineStatus() : null
+      ]);
+      state.socialEvents = events || [];
+      if (pipeline) renderFriendPipelineStatus(pipeline);
+    }
+  }
   catch { state.socialEvents = []; }
   if (state.sessionSection === "friends") renderFriendActivityFeed();
 }
@@ -3560,6 +3653,7 @@ function selectView(view) {
     view = "library";
   }
   if (!viewTitles[view]) return;
+  if (view === "games" && !hasPaidAccess()) return;
   if (view === "admin" && !hasPaidAccess()) return;
   if (view === "owner" && !hasOwnerAccess()) return;
   const mode = viewWorkspaceMode(view);
@@ -3591,6 +3685,7 @@ function selectView(view) {
     syncLibraryTabs();
     void refreshLocalDirectory(state.libraryTab);
   }
+  if (view === "games") void startMiniGame(gameState.mode);
   if (view === "history") void refreshHistory();
   if (view === "admin") void refreshAdmin();
   if (view === "owner") void refreshOwner({ silent: true });
@@ -3600,6 +3695,114 @@ function selectView(view) {
     void refreshBuilderSources();
   }
   if (view === "session") requestAnimationFrame(() => renderSession());
+}
+
+function renderMiniGame() {
+  if (!gamesPanel) return;
+  document.querySelectorAll("[data-game-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.gameMode === gameState.mode);
+    button.setAttribute("aria-pressed", String(button.dataset.gameMode === gameState.mode));
+  });
+  const questionLabel = gamesPanel.querySelector("[data-game-question]");
+  const status = gamesPanel.querySelector("[data-game-status]");
+  const options = gamesPanel.querySelector("[data-game-options]");
+  const next = gamesPanel.querySelector("[data-game-next]");
+  gamesPanel.querySelector("[data-game-progress]").textContent = `${gameState.round} / ${gameState.roundLimit}`;
+  gamesPanel.querySelector("[data-game-score]").textContent = `${gameState.score} ${t("очков")}`;
+  options.replaceChildren();
+  next.hidden = !gameState.answered;
+  if (gameState.loading) {
+    questionLabel.textContent = t("Загружаем историю миров…");
+    status.textContent = "";
+    return;
+  }
+  const question = gameState.question;
+  if (!question) {
+    questionLabel.textContent = t(gameState.error ? "Не удалось загрузить историю миров" : "Пока не хватает истории миров");
+    status.textContent = t(gameState.error ? "Попробуйте открыть игры ещё раз." : gameState.mode === "recent"
+      ? "Для этой игры нужны хотя бы два мира с разным временем посещения."
+      : "Для этой игры нужен мир с сохранёнными сессиями.");
+    return;
+  }
+  questionLabel.textContent = question.mode === "visits"
+    ? `${t("Сколько сохранённых сессий связано с миром")} «${gameState.rows.find((row) => row.world_key === question.sourceKey)?.world_name || ""}»?`
+    : t(question.prompt);
+  status.textContent = gameState.answered
+    ? (gameState.selectedAnswer === question.answer ? t("Верно!") : t("Не угадал."))
+    : t("Выбери один вариант.");
+  for (const option of question.options) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.gameAnswer = option.value;
+    button.textContent = option.label;
+    if (gameState.answered) {
+      button.disabled = true;
+      if (option.value === question.answer) button.dataset.result = "correct";
+      else if (option.value === gameState.selectedAnswer) button.dataset.result = "wrong";
+    }
+    options.append(button);
+  }
+  next.textContent = gameState.round >= gameState.roundLimit ? t("Сыграть ещё") : t("Следующий вопрос");
+}
+
+async function startMiniGame(mode) {
+  if (!hasPaidAccess() || !miniGames || !["recent", "visits"].includes(mode)) return;
+  const requestId = ++gameState.requestId;
+  gameState.mode = mode;
+  gameState.round = 0;
+  gameState.roundLimit = 0;
+  gameState.score = 0;
+  gameState.question = null;
+  gameState.answered = false;
+  gameState.loading = true;
+  gameState.error = false;
+  gameState.usedKeys = [];
+  renderMiniGame();
+  try {
+    const result = await api.searchCompanion("");
+    if (requestId !== gameState.requestId || !hasPaidAccess() || state.view !== "games" || gameState.mode !== mode) return;
+    gameState.rows = result?.worlds || [];
+    const worlds = miniGames.normalizeWorlds(gameState.rows);
+    gameState.roundLimit = Math.min(5, mode === "recent"
+      ? Math.max(0, new Set(worlds.map((world) => world.lastSeen)).size - 1)
+      : worlds.filter((world) => world.sessions > 0).length);
+    gameState.question = miniGames.createQuestion(gameState.rows, mode);
+    gameState.round = gameState.question ? 1 : 0;
+  } catch {
+    if (requestId === gameState.requestId) {
+      gameState.rows = [];
+      gameState.question = null;
+      gameState.error = true;
+    }
+  } finally {
+    if (requestId === gameState.requestId) {
+      gameState.loading = false;
+      renderMiniGame();
+    }
+  }
+}
+
+function answerMiniGame(value) {
+  if (!hasPaidAccess() || !gameState.question || gameState.answered) return;
+  if (!gameState.question.options.some((option) => option.value === value)) return;
+  gameState.selectedAnswer = value;
+  gameState.answered = true;
+  if (value === gameState.question.answer) gameState.score += 1;
+  renderMiniGame();
+}
+
+function nextMiniGame() {
+  if (!hasPaidAccess() || !gameState.answered) return;
+  if (gameState.round >= gameState.roundLimit) {
+    void startMiniGame(gameState.mode);
+    return;
+  }
+  gameState.usedKeys.push(gameState.question.sourceKey);
+  gameState.question = miniGames.createQuestion(gameState.rows, gameState.mode, Math.random, gameState.usedKeys);
+  if (!gameState.question) gameState.question = miniGames.createQuestion(gameState.rows, gameState.mode);
+  gameState.round += 1;
+  gameState.answered = false;
+  renderMiniGame();
 }
 
 function syncLibraryTabs() {
@@ -3947,6 +4150,25 @@ function renderLocalDirectory(kind) {
       vrchat.append(row);
     }
     if (profile.description) vrchat.append(userTextElement("p", "", profile.description));
+    if (profile.packages?.length) {
+      const packages = adminElement("div", "avatarPackageGrid");
+      for (const item of profile.packages) {
+        const size = Number(item.fileSize) > 0 ? ` · ${(Number(item.fileSize) / (1024 * 1024)).toFixed(1)} МиБ` : "";
+        const card = adminElement("article", "avatarPackageCard");
+        card.append(
+          userTextElement("strong", "", item.platform || "Неизвестная платформа"),
+          userTextElement("span", "", `${item.performanceRating || "Без оценки"}${item.variant ? ` · ${item.variant}` : ""}`),
+          userTextElement("small", "", `${item.unityVersion || "Unity не указан"}${item.assetVersion === null ? "" : ` · asset ${item.assetVersion}`}${size}`)
+        );
+        packages.append(card);
+      }
+      vrchat.append(packages);
+    }
+    if (profile.tags?.length) {
+      const tags = adminElement("div", "avatarTagList");
+      profile.tags.forEach((tag) => tags.append(userTextElement("span", "", tag)));
+      vrchat.append(tags);
+    }
     content.append(vrchat);
   }
   if (kind === "player") {
@@ -4159,9 +4381,11 @@ function renderSocial() {
       const row = adminElement("button", "socialRow socialEventRow");
       row.type = "button";
       row.dataset.socialProfile = entry.user_id;
+      const friend = friends.find((item) => item.userId === entry.user_id);
+      const portrait = friendPortraitElement({ ...entry.snapshot, ...friend, displayName: entry.display_name, userId: entry.user_id });
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", entry.display_name || entry.user_id), userTextElement("small", "", FRIEND_ACTIVITY_LABELS[entry.event_type] || entry.event_type));
-      row.append(copy, adminElement("em", "", adminDate(entry.occurred_at)));
+      row.append(portrait, copy, adminElement("em", "", adminDate(entry.occurred_at)));
       return row;
     }, "Лента начнёт заполняться после подключения аккаунта VRChat. Приложение должно быть запущено.");
     panel.append(list);
@@ -4219,7 +4443,7 @@ function renderSocial() {
       row.dataset.socialWorld = world.worldId;
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", world.worldName || world.worldId), userTextElement("small", "", world.authorName || world.worldId));
-      row.append(copy, adminElement("em", "", world.occupants === null ? "" : `${world.occupants} онлайн`));
+      row.append(friendPortraitElement({ displayName: world.worldName, imageUrl: world.imageUrl }, "worldPortrait"), copy, adminElement("em", "", world.occupants === null ? "" : `${world.occupants} онлайн`));
       return row;
     }, "Избранные миры не загружены или список пуст.");
     worldPanel.append(worldList);
@@ -4231,7 +4455,7 @@ function renderSocial() {
       row.dataset.avatarOpen = avatar.avatarId;
       const copy = adminElement("span");
       copy.append(userTextElement("strong", "", avatar.avatarName || avatar.avatarId), userTextElement("small", "", avatar.authorName || avatar.avatarId));
-      row.append(copy, adminElement("em", "", avatar.releaseStatus || ""));
+      row.append(friendPortraitElement({ displayName: avatar.avatarName, imageUrl: avatar.imageUrl }, "avatarPortrait"), copy, adminElement("em", "", avatar.releaseStatus || ""));
       return row;
     }, "Избранные аватары не загружены или список пуст.");
     avatarPanel.append(avatarList);
@@ -4315,10 +4539,11 @@ function socialFriendRow(friend, favoriteIds = new Set()) {
   const title = favoriteIds.has(friend.userId) ? `★ ${friend.displayName || friend.userId}` : (friend.displayName || friend.userId);
   const location = socialFriendOnline(friend) && friend.worldId ? friend.worldId : "";
   copy.append(userTextElement("strong", "", title), userTextElement("small", "", friend.statusDescription || location || friend.platform || friend.userId));
+  const portrait = friendPortraitElement(friend);
   const online = socialFriendOnline(friend);
   const badge = adminElement("em", "", online ? (friend.status || "онлайн") : "офлайн");
   badge.dataset.online = String(Boolean(online));
-  row.append(copy, badge);
+  row.append(portrait, copy, badge);
   return row;
 }
 
@@ -4372,7 +4597,7 @@ function socialGroupRow(group) {
   row.dataset.socialGroup = group.groupId;
   const copy = adminElement("span");
   copy.append(userTextElement("strong", "", group.name || group.groupId), userTextElement("small", "", group.shortCode || group.groupId));
-  row.append(copy, adminElement("em", "", group.isRepresenting ? "представляется" : (group.memberCount == null ? "" : `${group.memberCount} участников`)));
+  row.append(friendPortraitElement({ displayName: group.name, imageUrl: group.iconUrl || group.bannerUrl }, "groupPortrait"), copy, adminElement("em", "", group.isRepresenting ? "представляется" : (group.memberCount == null ? "" : `${group.memberCount} участников`)));
   return row;
 }
 
@@ -4432,6 +4657,30 @@ async function loadSocialCollection(tab, force = false) {
   renderSocial();
 }
 
+function socialAvatarHistory(userId, profile = null) {
+  const rows = [];
+  const seen = new Set();
+  const add = ({ avatarId = "", imageUrl = "", occurredAt = "", current = false } = {}) => {
+    const confirmedId = AVATAR_ID_RE.test(String(avatarId || "").trim()) ? String(avatarId).trim() : "";
+    const safeImageUrl = /^https:\/\/api\.vrchat\.cloud\//iu.test(String(imageUrl || "").trim()) ? String(imageUrl).trim() : "";
+    const key = confirmedId || safeImageUrl;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    rows.push({ avatarId: confirmedId, imageUrl: safeImageUrl, occurredAt, current });
+  };
+  add({ avatarId: profile?.avatarId, imageUrl: profile?.avatarImageUrl, occurredAt: profile?.lastActivity, current: true });
+  for (const event of state.socialEvents) {
+    if (event?.event_type !== "avatar" || event?.user_id !== userId) continue;
+    const value = String(event.current_value || "").trim();
+    add({
+      avatarId: AVATAR_ID_RE.test(value) ? value : "",
+      imageUrl: value,
+      occurredAt: event.occurred_at
+    });
+  }
+  return rows.slice(0, 20);
+}
+
 async function openSocialProfile(userId) {
   if (!socialDetailDialog || !api.getVrchatUserProfile) return;
   const generation = state.socialGeneration;
@@ -4452,11 +4701,24 @@ async function openSocialProfile(userId) {
   }
   socialDetailTitle.textContent = profile?.displayName || local?.entity?.display_name || friend?.displayName || userId;
   const content = adminElement("div", "socialProfileContent");
+  const identity = adminElement("section", "socialIdentityHero");
+  const identityCopy = adminElement("div");
+  identityCopy.append(
+    userTextElement("strong", "", profile?.displayName || friend?.displayName || local?.entity?.display_name || userId),
+    userTextElement("small", "", profile?.statusDescription || profile?.status || friend?.statusDescription || userId)
+  );
+  identity.append(friendPortraitElement({ ...friend, ...profile, displayName: profile?.displayName || friend?.displayName || userId }, "detailPortrait"), identityCopy);
+  content.append(identity);
   const actions = adminElement("div", "socialDetailActions");
+  const avatarHistory = socialAvatarHistory(userId, profile);
   const site = adminElement("button", "", "Профиль VRChat");
   site.type = "button";
   site.dataset.socialExternalProfile = userId;
   actions.append(site);
+  const avatarsButton = adminElement("button", "", `Аватары · ${avatarHistory.length}`);
+  avatarsButton.type = "button";
+  avatarsButton.dataset.socialAvatarToggle = userId;
+  actions.append(avatarsButton);
   if (profile?.worldId) {
     const launch = adminElement("button", "primaryButton", "Запустить текущий мир");
     launch.type = "button";
@@ -4504,6 +4766,42 @@ async function openSocialProfile(userId) {
   actionMenu.append(actionMenuToggle, actionMenuPanel);
   actions.append(actionMenu);
   content.append(actions);
+  const avatarHistorySection = adminElement("section", "socialDetailSection socialAvatarHistory");
+  avatarHistorySection.dataset.socialAvatarHistory = userId;
+  avatarHistorySection.hidden = true;
+  avatarHistorySection.append(adminElement("h3", "", "Аватары игрока"));
+  if (!avatarHistory.length) {
+    avatarHistorySection.append(emptyMessage("VRChat пока не передал сведения об аватарах этого игрока."));
+  } else {
+    for (const avatar of avatarHistory) {
+      const row = adminElement("article", "socialAvatarHistoryRow");
+      const preview = vrchatImageElement(avatar.imageUrl, "socialAvatarHistoryImage");
+      const copy = adminElement("div", "socialAvatarHistoryCopy");
+      copy.append(
+        adminElement("strong", "", avatar.current ? "Текущий аватар" : "Смена аватара"),
+        userOrUiElement("small", "", avatar.avatarId, "VRChat передал только изображение — Avatar ID неизвестен"),
+        adminElement("time", "", adminDate(avatar.occurredAt))
+      );
+      if (preview) row.append(preview);
+      row.append(copy);
+      if (avatar.avatarId) {
+        const rowActions = adminElement("div", "socialAvatarHistoryActions");
+        const page = adminElement("button", "", "Страница");
+        page.type = "button";
+        page.dataset.avatarOpen = avatar.avatarId;
+        rowActions.append(page);
+        if (api.selectVrchatAvatar) {
+          const select = adminElement("button", "primaryButton", "Надеть");
+          select.type = "button";
+          select.dataset.avatarSelect = avatar.avatarId;
+          rowActions.append(select);
+        }
+        row.append(rowActions);
+      }
+      avatarHistorySection.append(row);
+    }
+  }
+  content.append(avatarHistorySection);
   if (!profile && profileResult.status === "rejected") {
     const warning = adminElement("div", "socialInlineWarning");
     warning.append(
@@ -4533,9 +4831,27 @@ async function openSocialProfile(userId) {
   if (profile?.cosmetics && Object.values(profile.cosmetics).some(Boolean)) {
     const cosmetics = adminElement("section", "socialDetailSection");
     cosmetics.append(adminElement("h3", "", "Оформление профиля VRChat"));
+    const cosmeticPreview = adminElement("div", "vrchatCosmeticPreview");
+    cosmeticPreview.style.setProperty("--profile-button", profile.cosmetics.themeButtonColor || "#4dd4e8");
+    cosmeticPreview.style.setProperty("--profile-icon", profile.cosmetics.themeIconColor || "#ffffff");
+    cosmeticPreview.style.setProperty("--profile-subtext", profile.cosmetics.themeSubtextColor || "#9eb2c4");
+    cosmeticPreview.append(
+      adminElement("span", "vrchatCosmeticIcon", profile.cosmetics.iconFrame ? "◎" : "○"),
+      userTextElement("strong", "", profile.displayName || friend?.displayName || userId),
+      userTextElement("small", "", profile.cosmetics.pronouns || profile.statusDescription || "VRChat profile")
+    );
+    cosmetics.append(cosmeticPreview);
     const labels = { iconFrame: "Рамка", profileEffect: "Эффект профиля", nameplateEffect: "Эффект имени", backgroundType: "Фон", backgroundTextureId: "Текстура", bannerType: "Баннер", bannerColor: "Цвет баннера", themeId: "Тема", themeButtonColor: "Цвет кнопок", themeIconColor: "Цвет иконок", themeSubtextColor: "Вторичный текст", pronouns: "Местоимения" };
     for (const [key, value] of Object.entries(profile.cosmetics)) {
-      if (value) cosmetics.append(userTextElement("p", "", `${labels[key] || key}: ${value}`));
+      if (!value) continue;
+      const row = adminElement("div", "cosmeticFact");
+      row.append(adminElement("span", "", labels[key] || key), userTextElement("strong", "", value));
+      if (/Color$/u.test(key)) {
+        const swatch = adminElement("i", "cosmeticSwatch");
+        swatch.style.backgroundColor = value;
+        row.append(swatch);
+      }
+      cosmetics.append(row);
     }
     secondaryColumn.append(cosmetics);
   }
@@ -4628,6 +4944,13 @@ async function openSocialGroup(groupId) {
     if (generation !== state.socialGeneration || !socialDetailDialog.open) return;
     socialDetailTitle.textContent = group.name || groupId;
     const content = adminElement("div", "socialProfileContent");
+    const banner = vrchatImageElement(group.bannerUrl, "socialGroupBanner");
+    if (banner) content.append(banner);
+    const identity = adminElement("section", "socialIdentityHero socialGroupIdentity");
+    const identityCopy = adminElement("div");
+    identityCopy.append(userTextElement("strong", "", group.name || groupId), userTextElement("small", "", group.shortCode || group.groupId));
+    identity.append(friendPortraitElement({ displayName: group.name, imageUrl: group.iconUrl || group.bannerUrl }, "detailPortrait groupPortrait"), identityCopy);
+    content.append(identity);
     const actions = adminElement("div", "socialDetailActions");
     const site = adminElement("button", "primaryButton", "Открыть группу на сайте");
     site.type = "button";
@@ -4867,10 +5190,19 @@ function renderHistoryDetail() {
   const copyButton = adminElement("button", "", "Копировать");
   copyButton.type = "button";
   copyButton.dataset.historyCopy = insightSessionKey(session);
+  const exportButton = adminElement("button", "", "Экспорт .txt");
+  exportButton.type = "button";
+  exportButton.dataset.historyExport = insightSessionKey(session);
+  const hideNames = adminElement("label", "checkRow historyPrivacyToggle");
+  const hideNamesInput = adminElement("input");
+  hideNamesInput.type = "checkbox";
+  hideNamesInput.checked = state.historyHideNames;
+  hideNamesInput.dataset.historyHideNames = "true";
+  hideNames.append(hideNamesInput, adminElement("span", "", "Скрыть имена в отчёте"));
   const headerActions = adminElement("div", "worldActions historyHeaderActions");
   const worldActions = savedWorldActions(session.worldId);
   if (worldActions) headerActions.append(...Array.from(worldActions.children));
-  headerActions.append(copyButton);
+  headerActions.append(hideNames, copyButton, exportButton);
   header.append(title, headerActions);
   content.append(header);
   const source = session.source || {};
@@ -4947,21 +5279,35 @@ async function refreshHistory() {
   }
 }
 
-async function copyHistorySession(sessionKey) {
-  const session = state.historyVisibleSessions.find((row) => insightSessionKey(row) === sessionKey);
-  if (!session) throw new Error("Сессия не найдена.");
+function historySessionReport(session) {
   const english = i18n?.language?.() === "en";
   const world = session.worldName || (english ? "Unknown world" : "Неизвестный мир");
-  const lines = [
+  return [
     `${english ? "VRChat history" : "История VRChat"} · ${world}`,
     `${english ? "Started" : "Начало"}: ${adminDate(session.startedAt)}`,
     `${english ? "Duration" : "Длительность"}: ${formatDuration(session.endedAt - session.startedAt)}`,
     `${english ? "State" : "Состояние"}: ${session.complete ? (english ? "completed" : "завершена") : (english ? "in progress" : "в процессе")}`,
     `${english ? "Participants" : "Участники"}: ${session.players.length}`,
-    ...session.players.slice(0, 100).map((player) => `- ${player.displayName || player.userId} · ${player.userId}`)
-  ];
-  await api.writeClipboardText(lines.join("\n"));
+    ...session.players.slice(0, 100).map((player, index) => state.historyHideNames
+      ? `- ${english ? "Participant" : "Участник"} ${index + 1}`
+      : `- ${player.displayName || player.userId} · ${player.userId}`)
+  ].join("\n");
+}
+
+async function copyHistorySession(sessionKey) {
+  const session = state.historyVisibleSessions.find((row) => insightSessionKey(row) === sessionKey);
+  if (!session) throw new Error("Сессия не найдена.");
+  await api.writeClipboardText(historySessionReport(session));
   setStatus("Сессия из истории скопирована.");
+}
+
+async function exportHistorySession(sessionKey) {
+  const session = state.historyVisibleSessions.find((row) => insightSessionKey(row) === sessionKey);
+  if (!session) throw new Error("Сессия не найдена.");
+  const stamp = new Date(session.startedAt || Date.now()).toISOString().slice(0, 10);
+  const result = await api.saveTextFile({ suggestedName: `VRChat-session-${stamp}.txt`, text: historySessionReport(session) });
+  if (result?.ok) setStatus("Отчёт о сессии сохранён.");
+  return result;
 }
 
 function normalizedWorldId(value) {
@@ -5848,6 +6194,35 @@ function renderOwnerRequests(container, userId) {
         adminElement("time", "", adminDate(request.updatedAt || request.createdAt))
       );
       row.querySelector(".ownerRequestStatus").dataset.status = request.status || "";
+      const meta = adminElement("div", "ownerIncidentMeta");
+      if (request.keyLabel) meta.append(userTextElement("span", "", `Ответственный: ${request.keyLabel}`));
+      if (request.banExpiresAt) meta.append(adminElement("span", "", `Срок: ${adminDate(request.banExpiresAt)}`));
+      if (request.evidenceUrl) {
+        const evidence = adminElement("button", "", "Открыть доказательство");
+        evidence.type = "button";
+        evidence.dataset.ownerEvidence = request.evidenceUrl;
+        meta.append(evidence);
+      }
+      if (meta.childElementCount) row.append(meta);
+      const appeal = adminElement("div", "ownerAppealEditor");
+      const appealStatus = adminElement("select");
+      appealStatus.dataset.appealStatus = request.id;
+      for (const [value, label] of [["none", "Без апелляции"], ["open", "Апелляция открыта"], ["reviewing", "На рассмотрении"], ["accepted", "Принята"], ["rejected", "Отклонена"]]) {
+        const option = adminElement("option", "", label);
+        option.value = value;
+        option.selected = value === (request.appealStatus || "none");
+        appealStatus.append(option);
+      }
+      const appealNote = adminElement("input");
+      appealNote.maxLength = 2000;
+      appealNote.placeholder = "Комментарий к апелляции";
+      appealNote.value = request.appealNote || "";
+      appealNote.dataset.appealNote = request.id;
+      const appealSave = adminElement("button", "", "Сохранить апелляцию");
+      appealSave.type = "button";
+      appealSave.dataset.appealSave = request.id;
+      appeal.append(appealStatus, appealNote, appealSave);
+      row.append(appeal);
       if (request.status === "failed" && request.id) {
         const retry = adminElement("button", "", "Повторить");
         retry.type = "button";
@@ -5880,6 +6255,25 @@ function ownerActiveTemporaryBans() {
     && request.banExpiresAt
     && new Date(request.banExpiresAt).valueOf() > now
   ));
+}
+
+function ownerPolicyCandidates() {
+  const threshold = Math.min(Math.max(Number(state.ownerPolicyThreshold) || 1, 1), 10);
+  const days = Math.min(Math.max(Number(state.ownerPolicyDays) || 1, 1), 365);
+  const cutoff = Date.now() - days * 86_400_000;
+  const excluded = new Set(String(state.ownerPolicyExcluded || "").match(/usr_[0-9a-z-]+/giu) || []);
+  const grouped = new Map();
+  for (const request of state.ownerRequests) {
+    const occurredAt = new Date(request.completedAt || request.updatedAt || request.createdAt || 0).valueOf();
+    if (request.action !== "ban" || !["succeeded", "expired", "revoked"].includes(request.status) || occurredAt < cutoff) continue;
+    const userId = String(request.targetUserId || "");
+    if (!userId) continue;
+    const current = grouped.get(userId) || { userId, displayName: request.targetDisplayName || userId, count: 0, excluded: excluded.has(userId), reasons: [] };
+    current.count += 1;
+    if (request.reason && current.reasons.length < 3) current.reasons.push(request.reason);
+    grouped.set(userId, current);
+  }
+  return [...grouped.values()].filter((row) => row.count >= threshold).sort((left, right) => right.count - left.count || left.displayName.localeCompare(right.displayName, uiLocale()));
 }
 
 function renderOwnerOverview() {
@@ -5945,6 +6339,72 @@ function renderOwnerOverview() {
   if (!attention.length) requestList.append(emptyMessage("Активных или ошибочных операций нет."));
   requestSection.append(requestList);
   content.append(requestSection);
+
+  const timelineSection = adminElement("section", "ownerOverviewSection ownerIncidentTimeline");
+  timelineSection.append(adminElement("h3", "", "Общая лента инцидентов"));
+  const timeline = adminElement("div", "ownerOverviewRequests");
+  for (const request of state.ownerRequests.slice(0, 30)) {
+    const row = adminElement("article", "ownerRequestRow");
+    row.append(
+      userTextElement("strong", "", request.targetDisplayName || request.targetUserId || "Игрок"),
+      userTextElement("span", "", request.reason || "Причина не указана"),
+      adminElement("span", "ownerRequestStatus", `${moderationActionLabel(request)} · ${moderationStatusLabel(request.status)}`),
+      adminElement("time", "", adminDate(request.updatedAt || request.createdAt))
+    );
+    const details = [];
+    if (request.keyLabel) details.push(`Ответственный: ${request.keyLabel}`);
+    if (request.appealStatus && request.appealStatus !== "none") details.push(`Апелляция: ${request.appealStatus}`);
+    if (request.banExpiresAt) details.push(`До: ${adminDate(request.banExpiresAt)}`);
+    if (details.length) row.append(userTextElement("small", "", details.join(" · ")));
+    timeline.append(row);
+  }
+  if (!state.ownerRequests.length) timeline.append(emptyMessage("Инцидентов пока нет."));
+  timelineSection.append(timeline);
+  content.append(timelineSection);
+
+  const policySection = adminElement("section", "ownerOverviewSection ownerPolicySimulator");
+  policySection.append(
+    adminElement("h3", "", "Проверка правила до включения"),
+    adminElement("p", "", "Симуляция ничего не применяет. Она использует только завершённые бан-действия из общей истории команды.")
+  );
+  const policyControls = adminElement("div", "ownerPolicyControls");
+  const threshold = adminElement("input");
+  threshold.type = "number";
+  threshold.min = "1";
+  threshold.max = "10";
+  threshold.value = String(state.ownerPolicyThreshold);
+  threshold.dataset.ownerPolicyThreshold = "true";
+  const days = adminElement("input");
+  days.type = "number";
+  days.min = "1";
+  days.max = "365";
+  days.value = String(state.ownerPolicyDays);
+  days.dataset.ownerPolicyDays = "true";
+  const exclusions = adminElement("input");
+  exclusions.placeholder = "Исключения: usr_… через пробел";
+  exclusions.value = state.ownerPolicyExcluded;
+  exclusions.dataset.ownerPolicyExcluded = "true";
+  const thresholdLabel = adminElement("label");
+  thresholdLabel.append(adminElement("span", "", "Инцидентов"), threshold);
+  const daysLabel = adminElement("label");
+  daysLabel.append(adminElement("span", "", "За дней"), days);
+  policyControls.append(thresholdLabel, daysLabel, exclusions);
+  policySection.append(policyControls);
+  const candidates = adminElement("div", "ownerPolicyResults");
+  const rows = ownerPolicyCandidates();
+  for (const candidate of rows) {
+    const row = adminElement("article", `ownerRequestRow${candidate.excluded ? " excluded" : ""}`);
+    row.append(
+      userTextElement("strong", "", candidate.displayName),
+      userTextElement("span", "", candidate.userId),
+      adminElement("em", "", candidate.excluded ? "Исключён — действие не применяется" : `${candidate.count} подходящих инцидента`)
+    );
+    if (candidate.reasons.length) row.append(userTextElement("small", "", candidate.reasons.join(" · ")));
+    candidates.append(row);
+  }
+  if (!rows.length) candidates.append(emptyMessage("По выбранному правилу совпадений нет."));
+  policySection.append(candidates);
+  content.append(policySection);
 
   const temporarySection = adminElement("section", "ownerOverviewSection");
   temporarySection.append(adminElement("h3", "", "Активные временные баны"));
@@ -7007,6 +7467,31 @@ settingsForm?.querySelector("[data-local-import]")?.addEventListener("click", (e
   }, "Импортируем…").catch((error) => setStatus(error.message || "Не удалось импортировать данные.", true));
 });
 
+settingsForm?.querySelectorAll("[data-local-clear]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const category = button.dataset.localClear;
+    const labels = { history: "историю сессий", social: "ленту и список друзей", preferences: "локальные заметки и избранное", all: "все локальные данные" };
+    if (!window.confirm(t(`Удалить ${labels[category] || "выбранные данные"}? Перед очисткой можно сделать экспорт.`))) return;
+    runButtonOperation(button, async () => {
+      const result = await api.clearLocalDataCategory(category);
+      await refreshLocalStorageSettings();
+      if (category === "history" || category === "all") {
+        state.historySessions = [];
+        state.historySelectedKey = "";
+        renderHistory(true);
+        await refreshInsights();
+      }
+      if (category === "social" || category === "all") {
+        state.socialEvents = [];
+        renderFriendActivityFeed();
+      }
+      if (["history", "preferences", "all"].includes(category) && ["players", "worlds", "local-avatars"].includes(state.view)) await refreshLocalDirectory();
+      setStatus("Выбранные локальные данные удалены.");
+      return result;
+    }, "Очищаем…").catch((error) => setStatus(error.message || "Не удалось очистить данные.", true));
+  });
+});
+
 document.addEventListener("submit", (event) => {
   const localPlayerForm = event.target.closest("[data-local-player-preference]");
   if (localPlayerForm) {
@@ -7068,6 +7553,20 @@ ownerModerationForm?.addEventListener("change", syncOwnerModerationFields);
 
 document.addEventListener("click", (event) => {
   playRose337SelectionSound(event.target);
+  const gameModeButton = event.target.closest("[data-game-mode]");
+  if (gameModeButton) {
+    if (hasPaidAccess()) void startMiniGame(gameModeButton.dataset.gameMode);
+    return;
+  }
+  const gameAnswerButton = event.target.closest("[data-game-answer]");
+  if (gameAnswerButton) {
+    answerMiniGame(gameAnswerButton.dataset.gameAnswer);
+    return;
+  }
+  if (event.target.closest("[data-game-next]")) {
+    nextMiniGame();
+    return;
+  }
   const adminNoteSave = event.target.closest("[data-admin-note-save]");
   if (adminNoteSave) {
     const form = adminNoteSave.closest("[data-player-note-form]");
@@ -7177,7 +7676,7 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.closest("[data-friend-activity-refresh]")) {
-    void refreshFriendActivity();
+    void refreshFriendActivity(true);
     return;
   }
 
@@ -7249,6 +7748,29 @@ document.addEventListener("click", (event) => {
     const displayName = socialDetailTitle?.textContent || socialOwnerPlayer;
     socialDetailDialog?.close();
     openPlayerInOwner({ userId: socialOwnerPlayer, displayName });
+    return;
+  }
+
+  const socialAvatarToggle = event.target.closest("[data-social-avatar-toggle]");
+  if (socialAvatarToggle) {
+    const userId = socialAvatarToggle.dataset.socialAvatarToggle;
+    const section = socialDetailBody?.querySelector(`[data-social-avatar-history="${CSS.escape(userId)}"]`);
+    if (section) {
+      section.hidden = !section.hidden;
+      socialAvatarToggle.textContent = section.hidden ? `Аватары · ${section.querySelectorAll(".socialAvatarHistoryRow").length}` : "Скрыть аватары";
+      if (!section.hidden) section.scrollIntoView({ block: "nearest" });
+    }
+    return;
+  }
+
+  const avatarSelectButton = event.target.closest("[data-avatar-select]");
+  if (avatarSelectButton) {
+    const avatarId = avatarSelectButton.dataset.avatarSelect;
+    if (!window.confirm("Выбрать этот аватар для вашего VRChat-аккаунта? VRChat применит его как текущий аватар.")) return;
+    runButtonOperation(avatarSelectButton, async () => {
+      const result = await api.selectVrchatAvatar(avatarId);
+      setStatus(`Аватар выбран: ${result.avatarName || result.avatarId}.`);
+    }, "Надеваем…").catch((error) => setStatus(formatVrchatAuthError(error), true));
     return;
   }
 
@@ -7809,6 +8331,31 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const evidenceButton = event.target.closest("[data-owner-evidence]");
+  if (evidenceButton) {
+    api.openExternal(evidenceButton.dataset.ownerEvidence)
+      .catch((error) => setStatus(error.message || "Не удалось открыть доказательство.", true));
+    return;
+  }
+
+  const appealButton = event.target.closest("[data-appeal-save]");
+  const appealRequestId = appealButton?.dataset.appealSave;
+  if (appealRequestId) {
+    const editor = appealButton.closest(".ownerAppealEditor");
+    runButtonOperation(appealButton, async () => {
+      const request = await api.updateModerationAppeal({
+        requestId: appealRequestId,
+        appealStatus: editor.querySelector("[data-appeal-status]").value,
+        appealNote: editor.querySelector("[data-appeal-note]").value
+      });
+      state.ownerRequests = [request, ...state.ownerRequests.filter((row) => row.id !== request.id)];
+      renderOwnerCard();
+      setStatus("Апелляция сохранена.");
+      return request;
+    }, "Сохраняем…").catch((error) => setStatus(error.message || "Не удалось сохранить апелляцию.", true));
+    return;
+  }
+
   const ownerTodayButton = event.target.closest("[data-owner-today]");
   if (ownerTodayButton) {
     runButtonOperation(ownerTodayButton, readTodayOwnerPlayers, "Читаем логи…")
@@ -7957,6 +8504,14 @@ document.addEventListener("click", (event) => {
   if (historyCopy) {
     runButtonOperation(historyCopyButton, () => copyHistorySession(historyCopy), "Копируем…")
       .catch((error) => setStatus(error.message || "Не удалось скопировать сессию.", true));
+    return;
+  }
+
+  const historyExportButton = event.target.closest("[data-history-export]");
+  const historyExport = historyExportButton?.dataset.historyExport;
+  if (historyExport) {
+    runButtonOperation(historyExportButton, () => exportHistorySession(historyExport), "Экспортируем…")
+      .catch((error) => setStatus(error.message || "Не удалось экспортировать сессию.", true));
     return;
   }
 
@@ -8204,6 +8759,19 @@ historyState?.addEventListener("change", () => {
   state.historyStatus = ["active", "ended"].includes(historyState.value) ? historyState.value : "all";
   state.historySelectedKey = "";
   renderHistory(true);
+});
+
+historyDetail?.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-history-hide-names]")) return;
+  state.historyHideNames = Boolean(event.target.checked);
+});
+
+ownerCard?.addEventListener("change", (event) => {
+  if (event.target.matches("[data-owner-policy-threshold]")) state.ownerPolicyThreshold = Number(event.target.value) || 1;
+  else if (event.target.matches("[data-owner-policy-days]")) state.ownerPolicyDays = Number(event.target.value) || 1;
+  else if (event.target.matches("[data-owner-policy-excluded]")) state.ownerPolicyExcluded = event.target.value;
+  else return;
+  renderOwnerCard();
 });
 
 insightsPeriod?.addEventListener("change", () => {
@@ -8456,6 +9024,7 @@ api?.onSocialActivity?.(() => {
     if (state.view === "session" && state.sessionSection === "friends") renderFriendActivityFeed();
   }).catch(() => {});
 });
+api?.onFriendPipelineStatus?.((status) => renderFriendPipelineStatus(status));
 api?.onAnalysisStart?.(() => {
   resetAnalysisEvents();
   setStatus("Читаем выбранный лог заново…", false, { kind: "info" });
@@ -8530,7 +9099,7 @@ api?.onUpdaterStatus?.((info) => {
 api?.onRuntimeConfig?.(showRuntimeConfigNotice);
 
 async function initialize() {
-  if (!api || !noteTools || !sessionModel || !crashModel || !insightsModel || !avatarModel || !notificationModel || !i18n) {
+  if (!api || !noteTools || !sessionModel || !crashModel || !insightsModel || !avatarModel || !notificationModel || !i18n || !miniGames) {
     showActivation("Безопасный мост приложения недоступен.", true);
     return;
   }

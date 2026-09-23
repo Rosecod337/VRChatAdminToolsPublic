@@ -284,10 +284,12 @@ class LogTailer extends EventEmitter {
     let lines = [];
     const snapshots = new Map();
     for (const log of selectedLogs) {
-      const snapshot = await readLastLinesSnapshot(log.fullPath, Math.ceil(maxLines / selectedLogs.length), maxBytesPerFile);
+      const snapshot = mode === "current" && selectedLogs.length === 1
+        ? await readCurrentInstanceSnapshot(log.fullPath, maxLines, maxBytesPerFile, options.expectedLocation)
+        : await readLastLinesSnapshot(log.fullPath, Math.ceil(maxLines / selectedLogs.length), maxBytesPerFile);
       snapshots.set(path.resolve(log.fullPath).toLowerCase(), snapshot);
-      lines.push(...snapshot.lines);
-      if (lines.length > maxLines) lines = lines.slice(-maxLines);
+      lines = lines.concat(snapshot.lines);
+      if (mode !== "current" && lines.length > maxLines) lines = lines.slice(-maxLines);
     }
 
     const boundary = options.scope === "all"
@@ -357,6 +359,36 @@ async function readLastLinesSnapshot(filePath, limitLines, maxBytes = 4 * 1024 *
   const raw = await readRange(filePath, start, stat.size - 1);
   return {
     lines: raw.split(/\r?\n/u).slice(-limitLines),
+    endPosition: stat.size
+  };
+}
+
+async function readCurrentInstanceSnapshot(filePath, limitLines, maxBytes, expectedLocation = null) {
+  const stat = await fsp.stat(filePath);
+  if (stat.size === 0) return { lines: [], endPosition: 0 };
+
+  const maxScanBytes = Math.min(stat.size, 64 * 1024 * 1024);
+  let scanBytes = Math.min(stat.size, Math.max(maxBytes, 256 * 1024));
+  let lines = [];
+
+  while (true) {
+    const start = Math.max(0, stat.size - scanBytes);
+    const raw = await readRange(filePath, start, stat.size - 1);
+    lines = raw.split(/\r?\n/u);
+    if (start > 0) lines.shift();
+
+    const boundary = findCurrentInstanceStartIndex(lines, expectedLocation);
+    if (boundary.type) {
+      const scoped = lines.slice(boundary.startIndex);
+      return { lines: scoped, endPosition: stat.size };
+    }
+
+    if (start === 0 || scanBytes >= maxScanBytes) break;
+    scanBytes = Math.min(maxScanBytes, scanBytes * 2);
+  }
+
+  return {
+    lines: lines.slice(-limitLines),
     endPosition: stat.size
   };
 }

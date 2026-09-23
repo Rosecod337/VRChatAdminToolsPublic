@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://api.vrchat.cloud https://files.vrchat.cloud https://file-variants.vrchat.cloud; connect-src 'none'">
   <title>VRChat Admin Tools Beta</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ui-customizer.css" data-ui-custom-styles>
@@ -15,6 +15,7 @@
   <script src="notification-model.js" defer></script>
   <script src="i18n.js" defer></script>
   <script src="ui-customizer.js" defer></script>
+  <script src="mini-games.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -100,6 +101,7 @@
       <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-nav-scope="shared" data-view-button="insights">Мой VRChat</button>
       <button class="navItem" id="viewTabSocial" type="button" role="tab" aria-selected="false" aria-controls="viewPanelSocial" tabindex="-1" data-nav-scope="personal" data-view-button="social">Друзья</button>
       <button class="navItem" id="viewTabLibrary" type="button" role="tab" aria-selected="false" aria-controls="viewPanelLibrary" tabindex="-1" data-nav-scope="personal" data-view-button="library">Библиотека</button>
+      <button class="navItem" id="viewTabGames" type="button" role="tab" aria-selected="false" aria-controls="viewPanelGames" tabindex="-1" data-nav-scope="personal" data-view-button="games" hidden>Мини-игры</button>
       <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-nav-scope="shared" data-view-button="crash">Crash Analyzer</button>
       <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-nav-scope="shared" data-view-button="history">История</button>
       <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-nav-scope="shared" data-view-button="builder">Ещё · Рабочее место</button>
@@ -175,7 +177,7 @@
 
         <div class="sessionPane" id="sessionPaneFriends" role="tabpanel" aria-labelledby="sessionTabFriends" data-session-pane="friends" hidden>
           <article class="panel eventFeedPanel friendActivityPanel">
-            <header class="eventFeedHeader"><div><span class="eyebrow">VRChat</span><h2>Лента друзей</h2></div><div class="feedHeaderActions"><span data-friend-activity-count>0 записей</span><button type="button" data-friend-activity-refresh>Обновить</button></div></header>
+            <header class="eventFeedHeader"><div><span class="eyebrow">VRChat</span><h2>Лента друзей</h2></div><div class="feedHeaderActions"><span class="pipelineStatus" data-friend-pipeline-status>Проверка подключения…</span><span data-friend-activity-count>0 записей</span><button type="button" data-friend-activity-refresh>Обновить</button></div></header>
             <div class="eventFeed friendActivityFeed" data-friend-activity-feed tabindex="0" aria-label="Лента событий друзей"><p class="emptyState">Подключите аккаунт VRChat. Новые события появятся, пока приложение запущено.</p></div>
           </article>
         </div>
@@ -280,6 +282,21 @@
         <label class="playerSearch localDirectorySearch"><span class="visuallyHidden">Поиск локальных аватаров</span><input type="search" data-directory-search placeholder="Название или Avatar ID…" autocomplete="off"></label>
         <div class="localDirectoryLayout"><article class="panel listPanel"><header><div><span class="eyebrow">Обнаруженные</span><h2>Локальные аватары</h2></div><span data-directory-count>0 записей</span></header><div class="localDirectoryList" data-directory-list><p class="emptyState">Локальных наблюдений пока нет.</p></div></article><article class="panel localDirectoryDetail adminPreviewEmpty" data-directory-detail><span class="profileAvatar">A</span><h2>Выберите аватар</h2><p>Локальная история наблюдений появится здесь.</p></article></div>
       </section>
+      </section>
+
+      <section class="viewPanel gamesView" id="viewPanelGames" role="tabpanel" aria-labelledby="viewTabGames" data-view="games" hidden>
+        <div class="sectionIntro"><div><span class="eyebrow">По платному ключу</span><h2>Мини-игры</h2><p>Проверь, насколько хорошо помнишь собственные миры VRChat. Данные остаются на этом устройстве.</p></div></div>
+        <div class="gamesModes" aria-label="Выбор игры">
+          <button type="button" data-game-mode="recent">Какой мир был позже?</button>
+          <button type="button" data-game-mode="visits">Сколько сессий?</button>
+        </div>
+        <article class="panel gamesCard" data-games-card>
+          <div class="gamesScore"><span data-game-progress>0 / 0</span><strong data-game-score>0 очков</strong></div>
+          <h3 data-game-question>Выбери игру</h3>
+          <p data-game-status aria-live="polite">Для игры нужны сохранённые посещения миров.</p>
+          <div class="gamesOptions" data-game-options></div>
+          <button type="button" data-game-next hidden>Следующий вопрос</button>
+        </article>
       </section>
 
       <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
@@ -491,6 +508,12 @@
             <label class="adminField"><span>Хранить историю</span><select data-local-retention><option value="0">Без ограничения</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="180">180 дней</option><option value="365">1 год</option></select></label>
             <p data-local-storage-stats>Считаем локальные записи…</p>
             <div class="settingsDataActions"><button type="button" data-local-export>Экспорт</button><button type="button" data-local-import>Импорт</button></div>
+            <div class="settingsDataActions localCleanupActions" aria-label="Очистка локальных данных">
+              <button type="button" data-local-clear="history">Очистить историю</button>
+              <button type="button" data-local-clear="social">Очистить друзей</button>
+              <button type="button" data-local-clear="preferences">Очистить заметки</button>
+              <button type="button" class="dangerButton" data-local-clear="all">Очистить всё</button>
+            </div>
             <p>В резервную копию входят локальные сессии, карточки, избранные миры и настройки интерфейса. Ключ и сессия VRChat не экспортируются.</p>
             <label class="checkRow"><input name="clearOnLogout" type="checkbox"><span>Очищать поиски и выбор при выходе</span></label>
           </section>
