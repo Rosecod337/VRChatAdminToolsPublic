@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://api.vrchat.cloud https://files.vrchat.cloud https://file-variants.vrchat.cloud; connect-src 'none'">
-  <title>VRChat Admin Tools Beta</title>
+  <title>VRChat Admin Tools</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ui-customizer.css" data-ui-custom-styles>
   <script src="admin-notes.js" defer></script>
@@ -22,10 +22,10 @@
   <section class="activationView" data-activation-view>
     <form class="activationCard" data-activation-form>
       <div class="betaLogo" aria-hidden="true"><img src="app-logo.png" alt=""></div>
-      <div><span class="eyebrow">Отдельное приложение · Beta</span><h1>VRChat Admin Tools</h1><p>Новый интерфейс поверх проверенного ядра Stable. Beta использует отдельную копию настроек и не изменяет Stable.</p></div>
+      <div><span class="eyebrow">Стабильная версия 2.0</span><h1>VRChat Admin Tools</h1><p>Локальные функции доступны бесплатно. Версия 2.0 сохраняет настройки и историю установленной Beta и не меняет прежнее приложение 1.1.8.</p></div>
       <label class="activationLanguage"><span>Язык интерфейса</span><select name="activationLanguage" data-language-select="instant"><option value="ru">Русский</option><option value="en">English</option></select></label>
       <label>
-        <span>Ключ доступа <small>тот же, что в Stable</small></span>
+        <span>Ключ доступа <small>ваш существующий ключ</small></span>
         <input name="licenseKey" type="password" autocomplete="off" required placeholder="VRC-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXXXX">
         <small>Введите обычный ключ VRChat Admin Tools, который вы получили при покупке или от администратора.</small>
       </label>
@@ -51,13 +51,13 @@
       </fieldset>
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
       <div class="activationActions">
-        <button class="primaryButton" type="submit" data-activate-submit>Войти в Beta</button>
+        <button class="primaryButton" type="submit" data-activate-submit>Войти</button>
       </div>
       <div class="freeAccess">
         <div><strong>Бесплатный режим</strong><small>Локальные логи, сессии, история, Crash Analyzer, «Мой VRChat» и Builder. Admin Tools и Owner требуют ключ.</small></div>
         <button type="button" data-continue-free>Продолжить бесплатно</button>
       </div>
-      <button type="button" data-import-stable>Использовать вход из Stable</button>
+      <button type="button" data-import-stable>Перенести вход из версии 1.1.8</button>
       <p class="formStatus" data-activation-status aria-live="polite">Проверяем сохранённую лицензию…</p>
     </form>
   </section>
@@ -67,7 +67,7 @@
     <header class="appTitlebar">
       <div class="brand">
         <span class="brandMark" aria-hidden="true"><img src="app-logo.png" alt=""></span>
-        <div><strong>VRChat Admin Tools</strong><em data-app-version>Beta</em></div>
+        <div><strong>VRChat Admin Tools</strong><em data-app-version>2.0</em></div>
         <span class="workspaceModeSwitch" role="group" aria-label="Режим приложения">
           <button class="active" type="button" data-workspace-mode="personal" aria-pressed="true">Личное</button>
           <button type="button" data-workspace-mode="team" aria-pressed="false">Команда</button>
@@ -96,7 +96,7 @@
       </div>
     </div>
 
-    <nav class="topNavigation" role="tablist" aria-label="Разделы Beta" data-workspace-navigation="personal">
+    <nav class="topNavigation" role="tablist" aria-label="Разделы приложения" data-workspace-navigation="personal">
       <button class="navItem active" id="viewTabSession" type="button" role="tab" aria-selected="true" aria-controls="viewPanelSession" data-nav-scope="shared" data-view-button="session">Сессия</button>
       <button class="navItem" id="viewTabInsights" type="button" role="tab" aria-selected="false" aria-controls="viewPanelInsights" tabindex="-1" data-nav-scope="shared" data-view-button="insights">Мой VRChat</button>
       <button class="navItem" id="viewTabSocial" type="button" role="tab" aria-selected="false" aria-controls="viewPanelSocial" tabindex="-1" data-nav-scope="personal" data-view-button="social">Друзья</button>
@@ -482,7 +482,7 @@
 
     <dialog class="settingsDialog" data-settings-dialog>
       <form data-settings-form>
-        <header><div><span class="eyebrow">Только для Beta</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
+        <header><div><span class="eyebrow">Настройки 2.0</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
         <div class="settingsGrid">
           <section class="settingsSection settingsInterfaceSection"><h3>Интерфейс</h3>
             <label class="adminField"><span>Язык интерфейса</span><select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>

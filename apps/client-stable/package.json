@@ -1,0 +1,41 @@
+{
+  "name": "vrchat-admin-tools",
+  "productName": "VRChat Admin Tools",
+  "version": "2.0.0",
+  "main": "src/main.js",
+  "private": true,
+  "description": "VRChat Admin Tools for Windows.",
+  "author": {
+    "name": "MUTNIY.CORP"
+  },
+  "copyright": "Copyright © 2026 MUTNIY.CORP",
+  "dependencies": {
+    "@vrchat-log-suite/parser": "0.1.0",
+    "electron-updater": "^6.3.9",
+    "ws": "^8.18.3"
+  },
+  "build": {
+    "appId": "com.vrchatadmintools.beta",
+    "productName": "VRChat Admin Tools",
+    "electronVersion": "42.9.3",
+    "asar": true,
+    "icon": "../../logo.ico",
+    "asarUnpack": ["node_modules/@vrchat-log-suite/parser/**/*"],
+    "artifactName": "VRChat-Admin-Tools-Setup-${version}.${ext}",
+    "directories": { "output": "../../release/client-stable" },
+    "files": ["src/**/*", "renderer/**/*", "package.json", "node_modules/**/*"],
+    "win": { "icon": "../../logo.ico", "target": ["nsis"] },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Rosecod337",
+      "repo": "VRChatAdminTools",
+      "releaseType": "release"
+    }
+  }
+}

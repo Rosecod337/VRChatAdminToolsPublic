@@ -473,7 +473,7 @@ const viewTitles = {
   admin: "Admin Tools",
   owner: "Owner",
   crash: "Crash Analyzer",
-  builder: "Builder Beta",
+  builder: "Builder",
   history: "История сессий"
 };
 
@@ -1182,8 +1182,7 @@ async function showApp() {
   appView.hidden = false;
   if (appVersionLabel) {
     const version = String(state.settings?.appVersion || "").trim();
-    const publicVersion = version.match(/^(\d+)\.(\d+)\.0-beta(?:\.\d+)?$/iu);
-    appVersionLabel.textContent = publicVersion ? `Beta · ${publicVersion[1]}.${publicVersion[2]}` : (version ? `Beta · ${version}` : "Beta");
+    appVersionLabel.textContent = version ? `Stable · ${version}` : "Stable · 2.0";
   }
   const latest = await api.latestFile().catch(() => ({ filePath: "" }));
   if (latest.filePath) setFilePath(latest.filePath);
@@ -7036,7 +7035,7 @@ function buildSessionSnapshot() {
   const onlinePlayers = stats.players.filter((player) => player.online).slice(0, 25);
   const english = i18n?.language?.() === "en";
   return [
-    "**VRChat Admin Snapshot · Beta**",
+    "**VRChat Admin Snapshot · 2.0**",
     `${english ? "World" : "Мир"}: ${stats.world}`,
     `${english ? "Online" : "Онлайн"}: ${stats.online}`,
     `${english ? "Peak" : "Пик"}: ${stats.peak}`,
@@ -7399,7 +7398,7 @@ settingsForm?.addEventListener("submit", (event) => {
   }
   renderSession();
   closeSettings();
-  setStatus("Настройки Beta сохранены.");
+  setStatus("Настройки сохранены.");
   void syncNotificationMonitoring({ refreshNow: true, announceError: true });
 });
 

@@ -10,12 +10,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const appName = process.argv[2];
 
-if (!["client", "client-beta"].includes(appName)) {
-  console.error("Usage: node scripts/build-electron.mjs <client|client-beta>");
+if (!["client", "client-beta", "client-stable"].includes(appName)) {
+  console.error("Usage: node scripts/build-electron.mjs <client|client-beta|client-stable>");
   process.exit(1);
 }
 
-const appDir = path.join(root, "apps", appName === "client-beta" ? "client" : appName);
+const modernClient = appName === "client-beta" || appName === "client-stable";
+const appDir = path.join(root, "apps", modernClient ? "client" : appName);
 const stageDir = path.join(root, ".build", appName);
 const packagedClientDependencies = new Set();
 
@@ -23,10 +24,10 @@ assertCodeSigningConfiguration();
 await fs.rm(stageDir, { recursive: true, force: true });
 await copyDir(appDir, stageDir, (name) => name !== "node_modules");
 
-if (appName === "client-beta") {
+if (modernClient) {
   await fs.rm(path.join(stageDir, "renderer"), { recursive: true, force: true });
   await copyDir(path.join(root, "apps", "client-beta", "renderer"), path.join(stageDir, "renderer"));
-  await fs.copyFile(path.join(root, "apps", "client-beta", "package.json"), path.join(stageDir, "package.json"));
+  await fs.copyFile(path.join(root, "apps", appName, "package.json"), path.join(stageDir, "package.json"));
 }
 
 const packagePath = path.join(stageDir, "package.json");
@@ -38,7 +39,7 @@ if (process.env.BUILD_OUTPUT_DIR) {
 }
 await fs.writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
 
-if (appName === "client" || appName === "client-beta") {
+if (appName === "client" || modernClient) {
   const parserSource = path.join(root, "packages", "parser");
   const parserTarget = path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser");
   await copyDir(parserSource, parserTarget);
@@ -82,17 +83,17 @@ if (appName === "client" || appName === "client-beta") {
 }
 
 await obfuscate(path.join(stageDir, "src"));
-if (appName === "client" || appName === "client-beta") {
+if (appName === "client" || modernClient) {
   await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
 }
 
 run(process.execPath, [path.join(root, "node_modules", "electron-builder", "cli.js"), "--projectDir", stageDir]);
 
-if (appName === "client" || appName === "client-beta") {
+if (appName === "client" || modernClient) {
   await verifyPackagedClientDependencies(packageJson, packagedClientDependencies);
 }
 
-if (appName === "client") {
+if (appName === "client" || appName === "client-stable") {
   await verifyLatestYml(packageJson);
 }
 

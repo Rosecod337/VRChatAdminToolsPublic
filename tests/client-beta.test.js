@@ -43,10 +43,10 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   const coreMain = read("apps/client/src/main.js");
   const preload = read("apps/client/src/preload.js");
 
-  assert.match(html, /Отдельное приложение · Beta/u);
+  assert.match(html, /Стабильная версия 2\.0/u);
   assert.match(html, /src="app-logo\.png"/u);
   assert.ok(fs.existsSync(path.join(root, "apps/client-beta/renderer/app-logo.png")));
-  assert.match(html, /тот же, что в Stable/u);
+  assert.match(html, /ваш существующий ключ/u);
   assert.match(html, /data-author-alias-field hidden/u);
   assert.doesNotMatch(html, /name="authorAlias"[^>]*required/u);
   assert.match(html, /data-import-stable/u);

@@ -72,12 +72,12 @@
     const baseRuleCount = 0;
     const button = make("button", "uiCustomLauncher", "Оформление");
     button.type = "button";
-    button.title = "Оформление всего интерфейса Beta";
+    button.title = "Оформление всего интерфейса";
     const panel = make("aside", "uiCustomPanel");
     panel.hidden = true;
     panel.setAttribute("aria-label", "Редактор оформления");
     const heading = make("header", "uiCustomHeading");
-    heading.append(make("strong", "", "Оформление Beta"));
+    heading.append(make("strong", "", "Оформление"));
     const close = make("button", "", "Закрыть");
     close.type = "button";
     heading.append(close);
@@ -286,7 +286,7 @@
           const data = JSON.parse(await file.text()); if (data.schema !== 1 || !data.profile) throw new Error("schema");
           if (profiles.length >= 8) throw new Error("count");
           profiles.push(normalizeProfile(data.profile)); active = profiles.length - 1; saveAndApply(); syncControls();
-        } catch { status.textContent = "Нужен профиль Beta до 256 КБ; максимум 8 профилей."; }
+        } catch { status.textContent = "Нужен профиль до 256 КБ; максимум 8 профилей."; }
       }); input.click();
     }
   }
