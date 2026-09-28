@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { createQuestion, normalizeWorlds } = require("../apps/client-beta/renderer/mini-games");
+const { availableRounds, createQuestion, normalizeWorlds } = require("../apps/client-beta/renderer/mini-games");
 
 const worlds = [
   { world_key: "one", world_name: "Ocean", last_seen_at: "2026-09-20T10:00:00Z", session_count: 1 },
@@ -19,17 +19,30 @@ test("world games use only valid local history and produce unambiguous answers",
   }]);
   assert.equal(normalized.length, 4);
 
-  const recent = createQuestion(worlds, "recent", () => 0);
+  const recent = createQuestion(worlds, "recent", () => 0.999);
   assert.equal(recent.answer, "four");
-  assert.equal(recent.options.length, 4);
-  assert.equal(new Set(recent.options.map((option) => option.value)).size, 4);
+  assert.ok(recent.options.length >= 2);
+  assert.equal(new Set(recent.options.map((option) => option.value)).size, recent.options.length);
+  assert.ok(recent.options.every((option) => option.detail));
 
-  const visits = createQuestion([worlds[0]], "visits", () => 0);
-  assert.equal(visits.answer, "1");
-  assert.equal(visits.options.length, 4);
-  assert.equal(new Set(visits.options.map((option) => option.value)).size, 4);
+  const visits = createQuestion(worlds, "visits", () => 0.999);
+  assert.equal(visits.answer, "three");
+  assert.ok(visits.options.every((option) => /^\d+$/u.test(option.detail)));
+  assert.equal(availableRounds(worlds, "visits"), 3);
+  assert.equal(createQuestion(worlds, "visits", () => 0, ["three", "two", "four"]), null);
   assert.equal(createQuestion([], "recent"), null);
   assert.equal(createQuestion([], "visits"), null);
+  assert.equal(createQuestion([worlds[0]], "visits"), null);
+});
+
+test("route reveal distinguishes visits made on the same day", () => {
+  const sameDay = [
+    { world_key: "early", world_name: "Early", last_seen_at: "2026-09-23T10:00:00Z", session_count: 1 },
+    { world_key: "late", world_name: "Late", last_seen_at: "2026-09-23T18:00:00Z", session_count: 1 }
+  ];
+  const question = createQuestion(sameDay, "recent", () => 0.999);
+  assert.equal(question.answer, "late");
+  assert.notEqual(question.options[0].detail, question.options[1].detail);
 });
 
 test("Beta keeps mini-games behind the paid-key navigation guard", () => {

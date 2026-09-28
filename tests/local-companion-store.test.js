@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { LocalCompanionStore } = require("../apps/client/src/local-companion-store");
+const { createEncryptedBackup, readEncryptedBackup } = require("../apps/client/src/encrypted-local-backup");
 
 async function temporaryStore(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-companion-test-"));
@@ -67,6 +68,23 @@ test("streaming export preserves the backup format without building one giant pa
   assert.equal(backup.sessions.length, 1);
   assert.equal(backup.sessions[0].id, sessionId);
   assert.deepEqual(backup.uiSettings, { language: "ru" });
+});
+
+test("encrypted automatic backup restores saved sessions in a fresh store", async (t) => {
+  const { directory, store } = await temporaryStore(t);
+  const sessionId = store.createSession({ worldName: "Remembered World", startedAt: "2026-08-23T11:00:00.000Z" });
+  store.updateSession(sessionId, { eventCount: 0, snapshot: { players: [], playerEvents: [], worldVisits: [], avatars: [] } });
+  const saved = await createEncryptedBackup(store, directory, "remember this recovery phrase", { language: "ru" });
+  const restored = new LocalCompanionStore(path.join(directory, "restored.sqlite"));
+  try {
+    const payload = await readEncryptedBackup(saved.filePath, "remember this recovery phrase");
+    const result = restored.importData(payload);
+    assert.equal(result.importedSessions, 1);
+    assert.equal(restored.listSessions(10)[0].id, sessionId);
+    assert.deepEqual(result.uiSettings, { language: "ru" });
+  } finally {
+    restored.close();
+  }
 });
 
 test("privacy cleanup removes only the selected local category", async (t) => {

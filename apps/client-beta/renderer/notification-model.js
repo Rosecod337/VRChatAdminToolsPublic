@@ -47,8 +47,9 @@
     }
     if (!avatarName) return null;
     return crashNotes.find((row) => {
-      const noteName = clean(row?.avatar_name ?? row?.avatarName).toLocaleLowerCase("ru-RU");
       const noteKey = clean(row?.avatar_key ?? row?.avatarKey, 400).toLocaleLowerCase("ru-RU");
+      if (avatarId && (clean(row?.avatar_id ?? row?.avatarId, 120) || noteKey.startsWith("id:"))) return false;
+      const noteName = clean(row?.avatar_name ?? row?.avatarName).toLocaleLowerCase("ru-RU");
       return noteName === avatarName || noteKey === `name:${avatarName}`;
     }) || null;
   }

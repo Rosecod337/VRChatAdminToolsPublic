@@ -28,64 +28,51 @@
     return result;
   }
 
-  function recentQuestion(worlds, random = Math.random, usedKeys = []) {
-    const sorted = worlds
-      .filter((world) => Number.isFinite(world.lastSeen))
-      .sort((left, right) => right.lastSeen - left.lastSeen);
-    if (sorted.length < 2) return null;
-    const unused = sorted.filter((world) => !usedKeys.includes(world.key));
-    const candidates = unused.length >= 2 ? unused : sorted;
-    const sampled = [];
+  function distinctWorlds(rows) {
     const names = new Set();
-    const times = new Set();
-    for (const world of shuffled(candidates, random)) {
-      const nameKey = world.name.toLocaleLowerCase();
-      if (names.has(nameKey) || times.has(world.lastSeen)) continue;
-      sampled.push(world);
-      names.add(nameKey);
-      times.add(world.lastSeen);
-      if (sampled.length === 4) break;
-    }
-    sampled.sort((left, right) => right.lastSeen - left.lastSeen);
-    if (sampled.length < 2) return null;
-    const latest = sampled[0];
-    return {
-      mode: "recent",
-      sourceKey: latest.key,
-      prompt: "Какой из этих миров ты посещал позже остальных?",
-      options: shuffled(sampled.map((world) => ({ value: world.key, label: world.name })), random),
-      answer: latest.key,
-      explanation: `Последнее посещение: ${new Date(latest.lastSeen).toLocaleDateString("ru-RU")}`
-    };
+    return rows.filter((world) => {
+      const name = world.name.toLocaleLowerCase();
+      if (names.has(name)) return false;
+      names.add(name);
+      return true;
+    });
   }
 
-  function visitsQuestion(worlds, random = Math.random, usedKeys = []) {
-    const eligible = worlds.filter((world) => Number.isSafeInteger(world.sessions) && world.sessions > 0);
-    if (!eligible.length) return null;
-    const unused = eligible.filter((world) => !usedKeys.includes(world.key));
-    const pool = unused.length ? unused : eligible;
-    const world = shuffled(pool, random)[0];
-    const counts = new Set([world.sessions]);
-    for (let offset = 1; counts.size < 4; offset += 1) {
-      if (world.sessions - offset > 0) counts.add(world.sessions - offset);
-      if (counts.size < 4) counts.add(world.sessions + offset);
-    }
-    return {
-      mode: "visits",
-      sourceKey: world.key,
-      prompt: `Сколько сохранённых сессий связано с миром «${world.name}»?`,
-      options: shuffled([...counts].map((count) => ({ value: String(count), label: String(count) })), random),
-      answer: String(world.sessions),
-      explanation: `В локальной истории: ${world.sessions}`
-    };
+  function eligibleTargets(worlds, mode) {
+    const ranked = distinctWorlds(worlds)
+      .filter((world) => mode !== "visits" || world.sessions > 0)
+      .sort((left, right) => mode === "recent" ? right.lastSeen - left.lastSeen : right.sessions - left.sessions);
+    const score = (world) => mode === "recent" ? world.lastSeen : world.sessions;
+    return ranked.filter((world) => ranked.some((other) => score(other) < score(world)));
+  }
+
+  function availableRounds(rows, mode) {
+    if (!["recent", "visits"].includes(mode)) return 0;
+    return eligibleTargets(normalizeWorlds(rows), mode).length;
   }
 
   function createQuestion(rows, mode, random = Math.random, usedKeys = []) {
-    const worlds = normalizeWorlds(rows);
-    if (mode === "recent") return recentQuestion(worlds, random, usedKeys);
-    if (mode === "visits") return visitsQuestion(worlds, random, usedKeys);
-    return null;
+    if (!["recent", "visits"].includes(mode)) return null;
+    const worlds = distinctWorlds(normalizeWorlds(rows));
+    const score = (world) => mode === "recent" ? world.lastSeen : world.sessions;
+    const targets = eligibleTargets(worlds, mode).filter((world) => !usedKeys.includes(world.key));
+    if (!targets.length) return null;
+    const target = shuffled(targets, random)[0];
+    const distractors = shuffled(worlds.filter((world) =>
+      score(world) < score(target) && (mode !== "visits" || world.sessions > 0)), random).slice(0, 3);
+    const options = shuffled([target, ...distractors], random).map((world) => ({
+      value: world.key,
+      label: world.name,
+      detail: mode === "recent" ? new Date(world.lastSeen).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : String(world.sessions)
+    }));
+    return {
+      mode,
+      sourceKey: target.key,
+      prompt: mode === "recent" ? "В какой мир ты заходил позже?" : "В какой мир ты возвращался чаще?",
+      options,
+      answer: target.key
+    };
   }
 
-  return { createQuestion, normalizeWorlds };
+  return { availableRounds, createQuestion, normalizeWorlds };
 });

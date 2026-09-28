@@ -49,6 +49,7 @@ const avatarPageStatus = document.querySelector("[data-avatar-page-status]");
 const avatarPagePrev = document.querySelector("[data-avatar-page-prev]");
 const avatarPageNext = document.querySelector("[data-avatar-page-next]");
 const avatarOnlineResults = document.querySelector("[data-avatar-online-results]");
+const companionAvatarOnlineResults = document.querySelector("[data-companion-avatar-online-results]");
 const dashboardBars = document.querySelector("[data-dashboard-bars]");
 const dashboardRecent = document.querySelector("[data-dashboard-recent]");
 const dashboardDuration = document.querySelector("[data-dashboard-duration]");
@@ -72,6 +73,10 @@ const ownerModerationForm = document.querySelector("[data-owner-moderation-form]
 const crashList = document.querySelector("[data-crash-list]");
 const crashDetail = document.querySelector("[data-crash-detail]");
 const insightsPeriod = document.querySelector("[data-insights-period]");
+const paidProfilePanel = document.querySelector("[data-paid-profile]");
+const paidProfileCard = document.querySelector("[data-paid-profile-card]");
+const paidProfileEditors = document.querySelector("[data-paid-profile-editors]");
+const paidProfileStatus = document.querySelector("[data-paid-profile-status]");
 const insightSessionList = document.querySelector("[data-session-list]");
 const insightSessionDetail = document.querySelector("[data-insight-session-detail]");
 const companionSearch = document.querySelector("[data-companion-search]");
@@ -79,6 +84,7 @@ const companionSearchLayout = document.querySelector("[data-companion-search-lay
 const companionSearchResults = document.querySelector("[data-companion-search-results]");
 const companionSearchCount = document.querySelector("[data-companion-search-count]");
 const companionSearchDetail = document.querySelector("[data-companion-search-detail]");
+const directoryOnlineResults = document.querySelector("[data-directory-online-results]");
 const directoryPanels = [...document.querySelectorAll("[data-directory-kind]")];
 const socialSummary = document.querySelector("[data-social-summary]");
 const socialStatus = document.querySelector("[data-social-status]");
@@ -94,7 +100,7 @@ const builderOpacity = document.querySelector("[data-builder-opacity]");
 const builderDashboard = document.querySelector("[data-builder-dashboard]");
 const builderDashboardName = document.querySelector("[data-builder-dashboard-name]");
 const gamesPanel = document.querySelector("[data-games-card]");
-const gameState = { mode: "recent", rows: [], round: 0, roundLimit: 0, score: 0, question: null, answered: false, loading: false, error: false, usedKeys: [], requestId: 0 };
+const gameState = { mode: "recent", rows: [], round: 0, roundLimit: 0, score: 0, streak: 0, question: null, answered: false, loading: false, error: false, usedKeys: [], requestId: 0 };
 const historyList = document.querySelector("[data-history-list]");
 const historyDetail = document.querySelector("[data-history-detail]");
 const historySearch = document.querySelector("[data-history-search]");
@@ -166,8 +172,8 @@ function loadLocalJson(key, fallback) {
 
 const DEFAULT_UI_SETTINGS = Object.freeze({
   language: "ru",
-  uiPlacement: "top",
-  uiSidebarWidth: 272,
+  uiPlacement: "left",
+  uiSidebarWidth: UI_SIDEBAR_COLLAPSED_WIDTH,
   startView: "session",
   density: "comfortable",
   scale: 100,
@@ -193,12 +199,12 @@ function normalizedUiSettings(value = {}) {
   delete next.autoStart;
   delete next.autoAnalyzeToday;
   if (!["ru", "en"].includes(next.language)) next.language = "ru";
-  if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = "top";
-  next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || 272));
+  if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = DEFAULT_UI_SETTINGS.uiPlacement;
+  next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || DEFAULT_UI_SETTINGS.uiSidebarWidth));
   if (["players", "worlds", "local-avatars"].includes(next.startView)) next.startView = "library";
   if (!["session", "insights", "library", "social", "admin", "owner", "crash", "history", "builder"].includes(next.startView)) next.startView = "session";
   if (!["comfortable", "compact", "vr"].includes(next.density)) next.density = "comfortable";
-  next.scale = [100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
+  next.scale = [90, 100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
   if (!["online-first", "online-only", "all"].includes(next.sessionPlayerMode)) next.sessionPlayerMode = "online-first";
   for (const key of ["animations", "showHeader", "showToolbar", "autoAnalyzeCurrentLog", "protectMonitoring", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
@@ -327,6 +333,9 @@ const state = {
   insightsLoading: false,
   insightsError: "",
   insightsRequestId: 0,
+  ownProfile: null,
+  ownProfileLoading: false,
+  ownProfileError: "",
   insightsPeriod: localStorage.getItem("betaInsightsPeriod") || "30",
   selectedInsightSessionKey: "",
   companionQuery: "",
@@ -339,6 +348,11 @@ const state = {
   companionError: "",
   companionRequestId: 0,
   companionSearchTimer: 0,
+  directoryOnlineQuery: "",
+  directoryOnlineRows: { users: [], worlds: [], unavailable: [] },
+  directoryOnlineLoading: false,
+  directoryOnlineError: "",
+  directoryOnlineRequestId: 0,
   directoryQueries: { player: "", world: "", avatar: "" },
   directoryResults: { player: [], world: [], avatar: [] },
   directorySelected: { player: "", world: "", avatar: "" },
@@ -397,6 +411,11 @@ const state = {
   notificationRefreshTimer: 0,
   notificationRequestId: 0,
   notificationWarning: "",
+  crashLiveWarning: null,
+  crashLiveWarningTimer: 0,
+  autoBackupStatus: null,
+  autoBackupTimer: 0,
+  autoBackupLastError: "",
   uiSettings: normalizedUiSettings(loadLocalJson("betaUiSettings", DEFAULT_UI_SETTINGS))
 };
 
@@ -510,7 +529,7 @@ function friendlyStatusMessage(message, error = false) {
   if (/HTTP 5\d\d/iu.test(value)) {
     return "Сервер временно не отвечает. Повторите действие немного позже.";
   }
-  return value.length > 180 ? `${value.slice(0, 177)}…` : value || "Операцию выполнить не удалось.";
+  return value || "Операцию выполнить не удалось.";
 }
 
 function inferStatusKind(message, error = false) {
@@ -628,6 +647,9 @@ function applyUiSettings({ persist = false } = {}) {
   const collapsedSideNavigation = sideNavigation && state.uiSettings.uiSidebarWidth < UI_SIDEBAR_SNAP_WIDTH;
   appView.classList.toggle("uiChromeLeft", sideNavigation);
   appView.classList.toggle("uiChromeCollapsed", collapsedSideNavigation);
+  document.querySelectorAll(".topNavigation [data-view-button]").forEach((button) => {
+    if (!button.title) button.title = button.textContent.trim();
+  });
   if (!collapsedSideNavigation) appView.classList.remove("railActionsOpen");
   railActionsToggle?.setAttribute("aria-expanded", String(collapsedSideNavigation && appView.classList.contains("railActionsOpen")));
   appView.style.setProperty("--ui-chrome-width", `${state.uiSettings.uiSidebarWidth}px`);
@@ -641,7 +663,7 @@ function applyUiSettings({ persist = false } = {}) {
   appView.style.zoom = String(scale);
   appView.style.setProperty("--ui-viewport-width", `${unscaledViewport}vw`);
   appView.style.setProperty("--ui-viewport-height", `${unscaledViewport}vh`);
-  appView.style.width = "";
+  appView.style.width = `${unscaledViewport}vw`;
   appView.style.height = `${unscaledViewport}vh`;
 }
 
@@ -737,6 +759,51 @@ function openSettings() {
   settingsDialog.showModal();
   settingsForm.elements.startView.focus();
   void refreshLocalStorageSettings();
+  void refreshAutoBackupSettings();
+}
+
+function backupErrorMessage(error) {
+  const message = String(error?.message || error || "");
+  if (message.includes("backup_passphrase_length")) return "Введите пароль резервной копии длиной от 12 до 256 символов.";
+  if (message.includes("backup_wrong_passphrase_or_damaged")) return "Пароль неверен или резервная копия повреждена.";
+  if (message.includes("backup_invalid_format")) return "Это не зашифрованная резервная копия приложения.";
+  if (message.includes("backup_file_too_large")) return "Резервная копия превышает допустимый размер.";
+  if (message.includes("backup_paid_required")) return "Автокопии доступны только при активном платном ключе.";
+  if (message.includes("backup_os_encryption_unavailable")) return "Защита пароля Windows сейчас недоступна.";
+  return message || "Не удалось выполнить операцию с резервной копией.";
+}
+
+async function refreshAutoBackupSettings() {
+  const label = settingsForm?.querySelector("[data-auto-backup-status]");
+  const toggle = settingsForm?.querySelector("[data-auto-backup-toggle]");
+  if (!label || !api.getAutoBackupStatus) return;
+  try {
+    state.autoBackupStatus = await api.getAutoBackupStatus();
+    const status = state.autoBackupStatus;
+    label.textContent = status.enabled
+      ? `Папка: ${status.directory} · последняя копия: ${status.lastAt ? adminDate(status.lastAt) : "ещё не создана"}${status.canEnable ? "" : " · ключ неактивен, создание приостановлено"}`
+      : "Выключены. Выберите папку и задайте пароль для включения.";
+    toggle.textContent = status.enabled ? "Выключить автокопии" : "Включить и выбрать папку";
+    toggle.disabled = !status.enabled && !status.canEnable;
+  } catch (error) {
+    label.textContent = backupErrorMessage(error);
+  }
+}
+
+async function runAutoBackupQuietly() {
+  if (!hasPaidAccess() || !api.runAutoBackup) return;
+  try {
+    const status = state.autoBackupStatus || await api.getAutoBackupStatus();
+    if (!status?.enabled) return;
+    const result = await api.runAutoBackup(exportableUiSettings());
+    state.autoBackupStatus = result;
+    state.autoBackupLastError = "";
+    if (settingsDialog?.open) await refreshAutoBackupSettings();
+  } catch (error) {
+    const message = backupErrorMessage(error);
+    if (state.autoBackupLastError !== message) setStatus(`Автокопия: ${message}`, true);
+    state.autoBackupLastError = message;
+  }
 }
 
 async function refreshLocalStorageSettings() {
@@ -754,12 +821,29 @@ async function refreshLocalStorageSettings() {
   }
 }
 
+const BACKUP_LOCAL_STORAGE_KEYS = [
+  "betaInterfaceProfilesV1", "betaBuilderOrder", "betaBuilderVisible", "betaBuilderLayout",
+  "betaBuilderGeometry", "betaBuilderQueries", "betaBuilderBlockSettings", "betaBuilderSnap",
+  "betaBuilderAlwaysOnTop", "betaBuilderOpacity", "betaBuilderCompact", "betaBuilderDashboards",
+  "betaBuilderDashboardId", "betaCrashIncidents", "betaCrashEnabled"
+];
+
 function exportableUiSettings() {
+  const savedLayout = {};
+  let remaining = 2 * 1024 * 1024;
+  for (const key of BACKUP_LOCAL_STORAGE_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value && value.length <= Math.min(1024 * 1024, remaining)) {
+      savedLayout[key] = value;
+      remaining -= value.length;
+    }
+  }
   return {
     uiSettings: state.uiSettings,
     workspaceMode: state.workspaceMode,
     workspaceLastView: state.workspaceLastView,
-    sessionEventFilters: state.sessionEventFilters
+    sessionEventFilters: state.sessionEventFilters,
+    savedLayout
   };
 }
 
@@ -772,13 +856,29 @@ function applyImportedUiSettings(value = {}) {
   localStorage.setItem("betaWorkspaceMode", state.workspaceMode);
   localStorage.setItem("betaWorkspaceLastView", JSON.stringify(state.workspaceLastView));
   localStorage.setItem("betaSessionEventFilters", JSON.stringify(state.sessionEventFilters));
+  let restoredLayout = false;
+  if (value.savedLayout && typeof value.savedLayout === "object" && !Array.isArray(value.savedLayout)) {
+    let remaining = 2 * 1024 * 1024;
+    for (const key of BACKUP_LOCAL_STORAGE_KEYS) {
+      const saved = value.savedLayout[key];
+      if (typeof saved !== "string" || saved.length > Math.min(1024 * 1024, remaining)) continue;
+      remaining -= saved.length;
+      try {
+        localStorage.setItem(key, saved);
+        restoredLayout = true;
+      } catch { /* Session history still restores if interface storage is full. */ }
+    }
+  }
   applyUiSettings({ persist: true });
   syncWorkspaceNavigation();
+  if (restoredLayout) window.setTimeout(() => window.location.reload(), 500);
 }
 
 function closeSettings() {
   const returnFocus = settingsReturnFocus;
   settingsReturnFocus = null;
+  const backupPassphrase = settingsForm?.querySelector("[data-auto-backup-passphrase]");
+  if (backupPassphrase) backupPassphrase.value = "";
   if (settingsDialog?.open) settingsDialog.close();
   restoreFocus(returnFocus);
 }
@@ -918,6 +1018,19 @@ function notifyForEvent(event) {
   if (state.uiSettings.notifyCrashAvatars) {
     const note = notificationModel.crashAvatar(event, state.notificationAvatarNotes);
     if (note) {
+      const avatarName = event.avatarName || note.avatarName || event.avatarId || "Неизвестный аватар";
+      state.crashLiveWarning = {
+        title: "Аватар с отметкой риска",
+        detail: `${avatarName} · ${eventName(event)}. Это сохранённая отметка, а не подтверждённая попытка краша. При проблемах ограничьте показ аватаров в настройках безопасности VRChat.`,
+        expiresAt: Date.now() + 10 * 60 * 1000
+      };
+      window.clearTimeout(state.crashLiveWarningTimer);
+      state.crashLiveWarningTimer = window.setTimeout(() => {
+        state.crashLiveWarning = null;
+        if (state.view === "crash") renderCrash();
+      }, 10 * 60 * 1000);
+      setStatus(`Внимание: ${avatarName} ранее отмечен как риск. Проверьте Crash Analyzer.`, false, { kind: "warning", sticky: true });
+      if (state.view === "crash") renderCrash();
       deliverSystemNotification({
         key: `avatar:${note.avatarKey || event.avatarId || event.avatarName}`,
         title: "Обнаружен отмеченный аватар",
@@ -1005,6 +1118,8 @@ function setStoredCookieState(hasStoredCookie) {
     if (hasStoredCookie && !status?.dataset.busy) hideVrchatTwoFactor(panel);
     if (status && !status.dataset.busy) status.textContent = hasStoredCookie ? "Аккаунт VRChat подключён." : "";
   });
+  const activationSummary = document.querySelector("[data-activation-vrchat-summary]");
+  if (activationSummary) activationSummary.textContent = hasStoredCookie ? "VRChat-аккаунт подключён" : "Подключить VRChat-аккаунт · необязательно";
   document.querySelectorAll("[data-vrchat-account-open]").forEach((button) => {
     button.dataset.connected = hasStoredCookie ? "true" : "false";
     button.title = hasStoredCookie ? "Аккаунт VRChat подключён" : "Войти в VRChat";
@@ -1100,17 +1215,13 @@ function syncPaidAccess() {
     }
   }
   if (!paid && (state.view === "admin" || state.view === "games")) selectView("session");
-  for (const selector of ["[data-avatar-online-search]", "[data-avatar-prismic]", "[data-avatar-refresh]"]) {
-    document.querySelector(selector)?.toggleAttribute("hidden", !paid);
+  document.querySelector("[data-avatar-refresh]")?.toggleAttribute("hidden", !paid);
+  if (paidProfilePanel) paidProfilePanel.hidden = !paid;
+  if (!paid && state.ownProfile) {
+    state.ownProfile = null;
+    renderOwnProfile();
   }
-  if (!paid && avatarOnlineResults) {
-    state.avatarOnlineRows = [];
-    state.avatarOnlineQuery = "";
-    state.avatarOnlineError = "";
-    state.avatarOnlineLoading = false;
-    avatarOnlineResults.hidden = true;
-    avatarOnlineResults.replaceChildren();
-  }
+  if (state.avatarOnlineQuery) renderAvatarOnlineResults();
   const teamModeButton = document.querySelector('[data-workspace-mode="team"]');
   if (teamModeButton) {
     teamModeButton.dataset.locked = paid ? "false" : "true";
@@ -1215,6 +1326,10 @@ async function showApp() {
   setStatus(previewMode ? "Безопасный Chrome preview · вымышленные данные" : (hasPaidAccess() ? "Платный доступ активен" : "Бесплатный локальный режим"), false, { record: false });
   showRuntimeConfigNotice(state.runtimeConfig);
   await syncNotificationMonitoring({ refreshNow: true, announceError: true });
+  if (!state.autoBackupTimer && api.getAutoBackupStatus) {
+    state.autoBackupTimer = window.setInterval(() => { void runAutoBackupQuietly(); }, 60 * 60 * 1000);
+  }
+  if (!previewMode) void runAutoBackupQuietly();
   requestAnimationFrame(() => renderSession());
   if (state.uiSettings.autoAnalyzeCurrentLog && !previewMode && !state.running) {
     analyzeCurrentLogAutomatically().catch((error) => setStatus(error.message || "Автоматический анализ текущего лога не выполнен.", true));
@@ -1222,7 +1337,7 @@ async function showApp() {
   if (previewMode) {
     const previewParams = new URLSearchParams(window.location.search);
     const previewScale = Number(previewParams.get("scale"));
-    if ([100, 125, 150, 175, 200].includes(previewScale)) state.uiSettings.scale = previewScale;
+    if ([90, 100, 125, 150, 175, 200].includes(previewScale)) state.uiSettings.scale = previewScale;
     if (["top", "left"].includes(previewParams.get("ui"))) state.uiSettings.uiPlacement = previewParams.get("ui");
     if (previewParams.get("rail") === "collapsed") state.uiSettings.uiSidebarWidth = UI_SIDEBAR_COLLAPSED_WIDTH;
     if (previewParams.get("rail") === "expanded") state.uiSettings.uiSidebarWidth = 272;
@@ -1480,6 +1595,10 @@ function createPreviewApi() {
     setLocalRetention: async (retentionDays) => ({ ok: true, retentionDays, removed: 0 }),
     exportLocalData: async () => ({ ok: true, filePath: "C:\\VRChat-Admin-Tools-backup.json" }),
     importLocalData: async () => ({ ok: true, importedSessions: 2, uiSettings: {} }),
+    getAutoBackupStatus: async () => ({ enabled: false, directory: "", lastAt: "", canEnable: true }),
+    configureAutoBackup: async (options) => ({ enabled: Boolean(options.enabled), directory: options.enabled ? "C:\\Backups" : "", lastAt: "", canEnable: true }),
+    runAutoBackup: async () => ({ enabled: true, directory: "C:\\Backups", lastAt: new Date().toISOString(), canEnable: true }),
+    restoreAutoBackup: async () => ({ ok: true, importedSessions: 2, uiSettings: {} }),
     saveTextFile: async () => ({ ok: true, filePath: "C:\\VRChat-session.txt" }),
     listPlayerNotes: async () => previewNotes.map((row) => ({ ...row })),
     listGlobalPlayerNotes: async () => previewGlobalNotes.map((row) => ({ ...row })),
@@ -2242,72 +2361,86 @@ function renderAvatarSession({ force = false } = {}) {
 }
 
 function avatarSourceLabel(sources = []) {
-  const labels = { favorite: "избранное", own: "ваши", licensed: "лицензированные" };
+  const labels = { favorite: "избранное", own: "ваши", licensed: "лицензированные", featured: "подборка VRChat", direct: "по Avatar ID" };
   return [...new Set(sources)].map((source) => labels[source] || source).join(" · ") || "VRChat";
 }
 
 function renderAvatarOnlineResults() {
-  if (!avatarOnlineResults) return;
+  for (const target of [avatarOnlineResults, companionAvatarOnlineResults]) {
+    if (target) renderAvatarOnlineResultsInto(target);
+  }
+}
+
+function renderAvatarOnlineResultsInto(target) {
   const visible = state.avatarOnlineLoading || state.avatarOnlineError || state.avatarOnlineQuery;
-  avatarOnlineResults.hidden = !visible;
-  avatarOnlineResults.replaceChildren();
+  target.hidden = !visible;
+  target.replaceChildren();
   if (!visible) return;
 
   const header = adminElement("header");
   const heading = adminElement("div");
   heading.append(
-    adminElement("span", "eyebrow", "Расширенный поиск VRChat"),
+    adminElement("span", "eyebrow", "Поиск доступных аватаров VRChat"),
     adminElement("h3", "", state.avatarOnlineQuery ? `Результаты для «${state.avatarOnlineQuery}»` : "Результаты")
   );
-  header.append(heading, adminElement("span", "", state.avatarOnlineLoading ? "поиск…" : `${state.avatarOnlineRows.length} найдено`));
-  avatarOnlineResults.append(header);
+  const unverifiedId = state.avatarOnlineRows.length === 1 && state.avatarOnlineRows[0].verified === false;
+  header.append(heading, adminElement("span", "", state.avatarOnlineLoading ? "поиск…" : unverifiedId ? "ID не подтверждён" : `${state.avatarOnlineRows.length} найдено`));
+  target.append(header);
 
   if (state.avatarOnlineLoading) {
-    avatarOnlineResults.append(emptyMessage("Ищем среди ваших, избранных и лицензированных аватаров…"));
+    target.append(emptyMessage("Ищем среди ваших, избранных, лицензированных аватаров и подборки VRChat…"));
     return;
   }
   if (state.avatarOnlineError) {
-    avatarOnlineResults.append(adminElement("p", "adminError", state.avatarOnlineError));
+    target.append(adminElement("p", "adminError", state.avatarOnlineError));
     return;
   }
   if (!state.avatarOnlineRows.length) {
-    avatarOnlineResults.append(emptyMessage("Совпадений в доступных источниках VRChat не найдено."));
+    target.append(emptyMessage("Совпадений в доступных источниках нет. Полный поиск чужих аватаров VRChat не предоставляет."));
     return;
   }
 
   const list = adminElement("div", "avatarOnlineList");
   for (const row of state.avatarOnlineRows) {
     const item = adminElement("article", "avatarOnlineRow");
+    const identity = adminElement("div", "avatarOnlineIdentity");
     const copy = adminElement("div");
     copy.append(
       userTextElement("strong", "", row.avatarName || row.avatarId),
       userTextElement("span", "", row.authorName || "Автор не указан"),
       adminElement("em", "", avatarSourceLabel(row.sources))
     );
-    const copyability = adminElement("span", `avatarCopyability ${row.canFavorite ? "available" : "unknown"}`, row.canFavorite ? "публичный" : "доступ не подтверждён");
+    const copyability = adminElement("span", `avatarCopyability ${row.canFavorite ? "available" : "unknown"}`, row.verified === false ? "VRChat не отдал карточку; выбор можно попробовать" : row.canFavorite ? "публичный" : "доступ не подтверждён");
+    identity.append(friendPortraitElement({ displayName: row.avatarName, imageUrl: row.imageUrl }, "avatarSearchPortrait"), copy);
     const actions = adminElement("div", "avatarOnlineActions");
     const add = adminElement("button", "", "В каталог");
     add.type = "button";
     add.dataset.avatarOnlineAdd = row.avatarId;
-    const open = adminElement("button", "", "Страница");
+    const open = adminElement("button", "", "Открыть на сайте");
     open.type = "button";
     open.dataset.avatarOpen = row.avatarId;
-    actions.append(add);
-    if (row.canFavorite && api.favoriteVrchatAvatar) {
+    actions.append(open);
+    if (hasPaidAccess() && row.verified !== false) actions.append(add);
+    if (api.selectVrchatAvatar) {
+      const select = adminElement("button", "primaryButton", "Надеть");
+      select.type = "button";
+      select.dataset.avatarSelect = row.avatarId;
+      actions.append(select);
+    }
+    if (hasPaidAccess() && row.canFavorite && api.favoriteVrchatAvatar) {
       const favorite = adminElement("button", "primaryButton", "В избранное");
       favorite.type = "button";
       favorite.dataset.avatarOnlineFavorite = row.avatarId;
       actions.append(favorite);
     }
-    actions.append(open);
-    item.append(copy, copyability, actions);
+    item.append(identity, copyability, actions);
     list.append(item);
   }
-  avatarOnlineResults.append(list);
+  target.append(list);
 }
 
-async function searchOnlineAvatars() {
-  const query = String(avatarSearch?.value || "").trim();
+async function searchOnlineAvatars(input = avatarSearch?.value) {
+  const query = String(input || "").trim();
   if (query.length < 2) throw new Error("Для расширенного поиска введите хотя бы 2 символа.");
   if (!api.searchVrchatAvatars) throw new Error("Расширенный поиск недоступен в этой сборке.");
   state.avatarOnlineQuery = query;
@@ -2318,7 +2451,8 @@ async function searchOnlineAvatars() {
   try {
     const result = await api.searchVrchatAvatars(query);
     state.avatarOnlineRows = Array.isArray(result?.candidates) ? result.candidates : [];
-    setStatus(`Расширенный поиск завершён: ${state.avatarOnlineRows.length} результатов.`, false, { kind: "success" });
+    const unverifiedId = state.avatarOnlineRows.length === 1 && state.avatarOnlineRows[0].verified === false;
+    setStatus(unverifiedId ? "VRChat не подтвердил этот Avatar ID. Можно попробовать надеть его — доступ проверит сам VRChat." : `Поиск завершён: ${state.avatarOnlineRows.length} результатов.`, false, { kind: unverifiedId ? "info" : "success" });
   } catch (error) {
     state.avatarOnlineError = friendlyStatusMessage(error?.message, true);
     throw new Error(state.avatarOnlineError || "Расширенный поиск аватаров недоступен.");
@@ -3706,8 +3840,10 @@ function renderMiniGame() {
   const status = gamesPanel.querySelector("[data-game-status]");
   const options = gamesPanel.querySelector("[data-game-options]");
   const next = gamesPanel.querySelector("[data-game-next]");
-  gamesPanel.querySelector("[data-game-progress]").textContent = `${gameState.round} / ${gameState.roundLimit}`;
+  gamesPanel.querySelector("[data-game-progress]").textContent = `${t("Раунд")} ${gameState.round} / ${gameState.roundLimit}`;
   gamesPanel.querySelector("[data-game-score]").textContent = `${gameState.score} ${t("очков")}`;
+  gamesPanel.querySelector("[data-game-streak]").textContent = `${t("Серия")} ${gameState.streak}`;
+  gamesPanel.querySelector("[data-game-progress-fill]").style.width = `${gameState.roundLimit ? (gameState.round - Number(!gameState.answered)) / gameState.roundLimit * 100 : 0}%`;
   options.replaceChildren();
   next.hidden = !gameState.answered;
   if (gameState.loading) {
@@ -3719,25 +3855,33 @@ function renderMiniGame() {
   if (!question) {
     questionLabel.textContent = t(gameState.error ? "Не удалось загрузить историю миров" : "Пока не хватает истории миров");
     status.textContent = t(gameState.error ? "Попробуйте открыть игры ещё раз." : gameState.mode === "recent"
-      ? "Для этой игры нужны хотя бы два мира с разным временем посещения."
-      : "Для этой игры нужен мир с сохранёнными сессиями.");
+      ? "Нужны хотя бы два разных мира с разным временем посещения."
+      : "Нужны хотя бы два мира с разным числом сессий.");
     return;
   }
-  questionLabel.textContent = question.mode === "visits"
-    ? `${t("Сколько сохранённых сессий связано с миром")} «${gameState.rows.find((row) => row.world_key === question.sourceKey)?.world_name || ""}»?`
-    : t(question.prompt);
+  questionLabel.textContent = t(question.prompt);
+  const correctOption = question.options.find((option) => option.value === question.answer);
+  const correctDetail = correctOption ? `${correctOption.label} — ${correctOption.detail}${question.mode === "visits" ? ` ${t("сесс.")}` : ""}` : "";
   status.textContent = gameState.answered
-    ? (gameState.selectedAnswer === question.answer ? t("Верно!") : t("Не угадал."))
-    : t("Выбери один вариант.");
-  for (const option of question.options) {
+    ? `${gameState.selectedAnswer === question.answer ? t("Верно!") : t("Не угадал.")} ${correctDetail}${gameState.round >= gameState.roundLimit ? ` · ${t("Итог")}: ${gameState.score}/${gameState.roundLimit}` : ""}`
+    : t("Выберите мир. После ответа покажем даты или число сессий.");
+  for (const [index, option] of question.options.entries()) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.gameAnswer = option.value;
-    button.textContent = option.label;
+    const number = document.createElement("span");
+    number.className = "gamesOptionNumber";
+    number.textContent = String(index + 1).padStart(2, "0");
+    const label = document.createElement("strong");
+    label.textContent = option.label;
+    button.append(number, label);
     if (gameState.answered) {
       button.disabled = true;
       if (option.value === question.answer) button.dataset.result = "correct";
       else if (option.value === gameState.selectedAnswer) button.dataset.result = "wrong";
+      const detail = document.createElement("small");
+      detail.textContent = `${option.detail}${question.mode === "visits" ? ` ${t("сесс.")}` : ""}`;
+      button.append(detail);
     }
     options.append(button);
   }
@@ -3751,6 +3895,7 @@ async function startMiniGame(mode) {
   gameState.round = 0;
   gameState.roundLimit = 0;
   gameState.score = 0;
+  gameState.streak = 0;
   gameState.question = null;
   gameState.answered = false;
   gameState.loading = true;
@@ -3761,10 +3906,7 @@ async function startMiniGame(mode) {
     const result = await api.searchCompanion("");
     if (requestId !== gameState.requestId || !hasPaidAccess() || state.view !== "games" || gameState.mode !== mode) return;
     gameState.rows = result?.worlds || [];
-    const worlds = miniGames.normalizeWorlds(gameState.rows);
-    gameState.roundLimit = Math.min(5, mode === "recent"
-      ? Math.max(0, new Set(worlds.map((world) => world.lastSeen)).size - 1)
-      : worlds.filter((world) => world.sessions > 0).length);
+    gameState.roundLimit = Math.min(5, miniGames.availableRounds(gameState.rows, mode));
     gameState.question = miniGames.createQuestion(gameState.rows, mode);
     gameState.round = gameState.question ? 1 : 0;
   } catch {
@@ -3786,7 +3928,10 @@ function answerMiniGame(value) {
   if (!gameState.question.options.some((option) => option.value === value)) return;
   gameState.selectedAnswer = value;
   gameState.answered = true;
-  if (value === gameState.question.answer) gameState.score += 1;
+  if (value === gameState.question.answer) {
+    gameState.score += 1;
+    gameState.streak += 1;
+  } else gameState.streak = 0;
   renderMiniGame();
 }
 
@@ -3798,7 +3943,7 @@ function nextMiniGame() {
   }
   gameState.usedKeys.push(gameState.question.sourceKey);
   gameState.question = miniGames.createQuestion(gameState.rows, gameState.mode, Math.random, gameState.usedKeys);
-  if (!gameState.question) gameState.question = miniGames.createQuestion(gameState.rows, gameState.mode);
+  if (!gameState.question) { void startMiniGame(gameState.mode); return; }
   gameState.round += 1;
   gameState.answered = false;
   renderMiniGame();
@@ -3985,6 +4130,74 @@ function renderCompanionSearch() {
   }
   if (!rows.length && !state.companionLoading) companionSearchResults.append(emptyMessage(state.companionError || "В локальной истории ничего не найдено."));
   renderCompanionDetails();
+}
+
+function renderDirectoryOnlineResults() {
+  if (!directoryOnlineResults) return;
+  const visible = Boolean(state.directoryOnlineQuery || state.directoryOnlineLoading || state.directoryOnlineError);
+  directoryOnlineResults.hidden = !visible;
+  directoryOnlineResults.replaceChildren();
+  if (!visible) return;
+  const { users, worlds, unavailable } = state.directoryOnlineRows;
+  const header = adminElement("header");
+  const heading = adminElement("div");
+  heading.append(adminElement("span", "eyebrow", "VRChat"), adminElement("h3", "", "Игроки и миры"));
+  header.append(heading, adminElement("span", "", state.directoryOnlineLoading ? "поиск…" : `${users.length + worlds.length} найдено`));
+  directoryOnlineResults.append(header);
+  if (state.directoryOnlineLoading) {
+    directoryOnlineResults.append(emptyMessage("Ищем игроков и публичные миры в VRChat…"));
+    return;
+  }
+  if (state.directoryOnlineError) {
+    directoryOnlineResults.append(adminElement("p", "adminError", state.directoryOnlineError));
+    return;
+  }
+  if (unavailable.length) directoryOnlineResults.append(adminElement("p", "socialWarning", `Часть результатов недоступна: ${unavailable.map((kind) => kind === "user" ? "игроки" : "миры").join(", ")}.`));
+  const list = adminElement("div", "avatarOnlineList");
+  const rows = [
+    ...users.map((user) => ({ ...user, kind: "user", title: user.displayName, subtitle: user.userId })),
+    ...worlds.map((world) => ({ ...world, kind: "world", title: world.worldName, subtitle: world.authorName || world.worldId }))
+  ];
+  for (const row of rows) {
+    const item = adminElement("article", "avatarOnlineRow");
+    const identity = adminElement("div", "avatarOnlineIdentity");
+    const copy = adminElement("div");
+    copy.append(userTextElement("strong", "", row.title), userTextElement("span", "", row.subtitle), adminElement("em", "", row.kind === "user" ? "Игрок" : "Мир VRChat"));
+    identity.append(friendPortraitElement({ displayName: row.title, imageUrl: row.imageUrl }, "avatarSearchPortrait"), copy);
+    const open = adminElement("button", "", "Страница VRChat");
+    open.type = "button";
+    open.dataset.directoryOnlineOpen = row.profileUrl;
+    item.append(identity, open);
+    list.append(item);
+  }
+  directoryOnlineResults.append(list);
+  if (!users.length && !worlds.length) directoryOnlineResults.append(emptyMessage("По этому запросу VRChat не вернул игроков или миры."));
+}
+
+async function searchOnlineDirectory() {
+  const query = String(companionSearch?.value || "").trim();
+  if (query.length < 2) throw new Error("Введите хотя бы 2 символа для поиска в VRChat.");
+  if (!api.searchVrchatDirectory) throw new Error("Поиск VRChat недоступен в этой сборке.");
+  const requestId = ++state.directoryOnlineRequestId;
+  state.directoryOnlineQuery = query;
+  state.directoryOnlineRows = { users: [], worlds: [], unavailable: [] };
+  state.directoryOnlineError = "";
+  state.directoryOnlineLoading = true;
+  renderDirectoryOnlineResults();
+  try {
+    const result = await api.searchVrchatDirectory(query);
+    if (requestId !== state.directoryOnlineRequestId) return;
+    state.directoryOnlineRows = { users: result?.users || [], worlds: result?.worlds || [], unavailable: result?.unavailable || [] };
+  } catch (error) {
+    if (requestId !== state.directoryOnlineRequestId) return;
+    state.directoryOnlineError = friendlyStatusMessage(error?.message, true);
+    throw new Error(state.directoryOnlineError || "Поиск VRChat недоступен.");
+  } finally {
+    if (requestId === state.directoryOnlineRequestId) {
+      state.directoryOnlineLoading = false;
+      renderDirectoryOnlineResults();
+    }
+  }
 }
 
 async function runCompanionSearch() {
@@ -5052,6 +5265,143 @@ function renderInsightSessionDetail(insights) {
   if (!selected.players.length) players.append(emptyMessage("Игроки в снимке этой сессии не сохранены."));
   content.append(players);
   insightSessionDetail.append(content);
+}
+
+function renderOwnProfile() {
+  if (!paidProfileCard || !paidProfileEditors) return;
+  paidProfileCard.replaceChildren();
+  paidProfileEditors.hidden = !state.ownProfile;
+  if (paidProfileStatus) paidProfileStatus.textContent = state.ownProfileError || (state.ownProfileLoading ? "Загружаем профиль VRChat…" : "");
+  const profile = state.ownProfile;
+  if (!profile) {
+    paidProfileCard.append(emptyMessage(state.ownProfileLoading ? "Загружаем данные аккаунта…" : "Подключите VRChat-аккаунт в приложении и нажмите «Загрузить профиль»."));
+    return;
+  }
+
+  const layout = adminElement("div", "paidProfileLayout");
+  const hero = adminElement("article", "paidProfileHero");
+  if (profile.cosmetics?.bannerColor) hero.style.setProperty("--profile-banner", profile.cosmetics.bannerColor);
+  hero.append(adminElement("div", "paidProfileBanner"));
+  const identity = adminElement("div", "paidProfileIdentity");
+  const identityCopy = adminElement("div", "paidProfileIdentityCopy");
+  identityCopy.append(
+    userTextElement("strong", "", profile.displayName || profile.userId),
+    userTextElement("span", "paidProfileStatus", profile.statusDescription || profile.status || "Статус не указан"),
+    userTextElement("span", "", profile.pronouns || profile.cosmetics?.pronouns || "")
+  );
+  identity.append(friendPortraitElement(profile, "paidProfilePortrait"), identityCopy);
+  hero.append(identity);
+  const details = adminElement("div", "paidProfileDetails");
+  const about = adminElement("section");
+  about.append(adminElement("h3", "", "О себе"), userTextElement("p", "", profile.bio || "Биография пока пуста."));
+  details.append(about);
+  const meta = adminElement("div", "paidProfileMeta");
+  for (const language of profile.languages || []) meta.append(userTextElement("span", "", language));
+  for (const badge of (profile.badges || []).slice(0, 3)) meta.append(userTextElement("span", "", badge.name));
+  if (meta.childElementCount) details.append(meta);
+  if (profile.bioLinks?.length) {
+    const links = adminElement("section");
+    links.append(adminElement("h3", "", "Ссылки"));
+    for (const url of profile.bioLinks) links.append(userTextElement("p", "", url));
+    details.append(links);
+  }
+  hero.append(details);
+  layout.append(hero);
+
+  const side = adminElement("div", "paidProfileSide");
+  if (profile.worldName || profile.worldId) {
+    const world = adminElement("article", "paidProfileSideCard");
+    world.append(adminElement("span", "eyebrow", "Текущий мир"), userTextElement("strong", "", profile.worldName || profile.worldId));
+    if (profile.worldId?.startsWith("wrld_")) {
+      const open = adminElement("button", "", "Открыть мир");
+      open.type = "button";
+      open.dataset.socialWorld = profile.worldId;
+      world.append(open);
+    }
+    side.append(world);
+  }
+  if (profile.avatarId) {
+    const avatar = adminElement("article", "paidProfileSideCard");
+    avatar.append(adminElement("span", "eyebrow", "Мой аватар"), userTextElement("strong", "", profile.avatarId));
+    const open = adminElement("button", "", "Открыть аватар");
+    open.type = "button";
+    open.dataset.avatarOpen = profile.avatarId;
+    avatar.append(open);
+    side.append(avatar);
+  }
+  if (profile.groups?.length) {
+    const groups = adminElement("article", "paidProfileSideCard");
+    groups.append(adminElement("span", "eyebrow", "Группы"));
+    for (const group of profile.groups.slice(0, 3)) groups.append(userTextElement("span", "", group.name || group.groupId));
+    side.append(groups);
+  }
+  if (side.childElementCount) layout.append(side);
+  paidProfileCard.append(layout);
+
+  const publicForm = document.querySelector("[data-paid-profile-public-form]");
+  const identityForm = document.querySelector("[data-paid-profile-identity-form]");
+  if (publicForm) {
+    publicForm.elements.namedItem("bio").value = profile.bio || "";
+    publicForm.elements.namedItem("bioLinks").value = (profile.bioLinks || []).join("\n");
+    publicForm.elements.namedItem("languages").value = (profile.languages || []).join(", ");
+  }
+  if (identityForm) {
+    identityForm.elements.namedItem("statusDescription").value = profile.statusDescription || "";
+    identityForm.elements.namedItem("pronouns").value = profile.pronouns || profile.cosmetics?.pronouns || "";
+  }
+}
+
+async function loadOwnProfile() {
+  if (!hasPaidAccess()) throw new Error("Для редактора профиля нужен платный ключ.");
+  state.ownProfile = null;
+  state.ownProfileLoading = true;
+  state.ownProfileError = "";
+  renderOwnProfile();
+  try {
+    const current = await api.getVrchatCurrentUser();
+    const profile = await api.getVrchatUserProfile(current.userId);
+    if (!profile || profile.userId !== current.userId) throw new Error("VRChat не подтвердил профиль вашего аккаунта.");
+    state.ownProfile = profile;
+    state.currentVrchatUser = current;
+  } catch (error) {
+    state.ownProfileError = formatVrchatAuthError(error);
+    throw error;
+  } finally {
+    state.ownProfileLoading = false;
+    renderOwnProfile();
+  }
+}
+
+async function saveOwnProfile(section, form) {
+  if (!hasPaidAccess() || !state.ownProfile) throw new Error("Сначала загрузите профиль с платным ключом.");
+  const profile = state.ownProfile;
+  const changes = {};
+  if (section === "public") {
+    const bio = form.elements.namedItem("bio").value;
+    const bioLinks = form.elements.namedItem("bioLinks").value.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean);
+    const languages = form.elements.namedItem("languages").value.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (bio !== (profile.bio || "")) changes.bio = bio;
+    if (JSON.stringify(bioLinks) !== JSON.stringify(profile.bioLinks || [])) changes.bioLinks = bioLinks;
+    if (JSON.stringify(languages) !== JSON.stringify(profile.languages || [])) changes.languages = languages;
+  } else if (section === "identity") {
+    const statusDescription = form.elements.namedItem("statusDescription").value;
+    const pronouns = form.elements.namedItem("pronouns").value;
+    if (statusDescription !== (profile.statusDescription || "")) changes.statusDescription = statusDescription;
+    if (pronouns !== (profile.pronouns || profile.cosmetics?.pronouns || "")) changes.pronouns = pronouns;
+  } else throw new Error("Неверный раздел профиля.");
+  if (!Object.keys(changes).length) {
+    setStatus("В профиле нет изменений.");
+    return;
+  }
+  const result = await api.updateVrchatOwnProfile(section, changes);
+  if (!result?.accepted) throw new Error("VRChat не подтвердил изменение профиля.");
+  if (result.profile) state.ownProfile = result.profile;
+  else {
+    state.ownProfileError = "VRChat принял изменения, но профиль пока не удалось перечитать. Проверьте его на сайте.";
+  }
+  if (result.profile) state.ownProfileError = "";
+  renderOwnProfile();
+  setStatus("VRChat принял изменения профиля.", false, { kind: "success" });
 }
 
 function renderInsights() {
@@ -6830,6 +7180,13 @@ function renderCrashDetail() {
 }
 
 function renderCrash() {
+  const liveWarning = document.querySelector("[data-crash-live-warning]");
+  if (liveWarning) {
+    const warning = state.crashLiveWarning?.expiresAt > Date.now() ? state.crashLiveWarning : null;
+    liveWarning.hidden = !warning;
+    liveWarning.replaceChildren();
+    if (warning) liveWarning.append(adminElement("strong", "", warning.title), adminElement("p", "", warning.detail));
+  }
   const status = state.crashLastStatus;
   document.querySelector('[data-crash="enabled"]').textContent = state.crashEnabled ? "включено" : "выключено";
   document.querySelector('[data-crash="process"]').textContent = status ? (status.processRunning ? "запущен" : "не найден") : "—";
@@ -6862,6 +7219,13 @@ function addCrashIncident(reason, status, options = {}) {
     false,
     { kind: options.manual ? "success" : "warning" }
   );
+  if (!options.manual && state.uiSettings.notifyCrashAvatars) {
+    deliverSystemNotification({
+      key: `possible-crash:${incident.id}`,
+      title: "VRChat неожиданно закрылся",
+      body: "Сохранён контекст последних событий. Причина сбоя и виновный не определены."
+    });
+  }
   return incident;
 }
 
@@ -7204,6 +7568,8 @@ async function finishVrchatAccountLogin(panel, result) {
   state.settings = await api.getSettings();
   state.currentVrchatUser = result?.user || state.currentVrchatUser;
   state.currentVrchatInstance = null;
+  state.ownProfile = null;
+  renderOwnProfile();
   resetSocialAccount();
   setStoredCookieState(Boolean(state.settings?.hasVrchatAuthCookie));
   hideVrchatTwoFactor(panel);
@@ -7275,6 +7641,8 @@ function bindVrchatAccountPanel(panel) {
       if (state.settings) state.settings.hasVrchatAuthCookie = false;
       state.currentVrchatUser = null;
       state.currentVrchatInstance = null;
+      state.ownProfile = null;
+      renderOwnProfile();
       resetSocialAccount();
       setStoredCookieState(false);
       hideVrchatTwoFactor(panel);
@@ -7466,6 +7834,36 @@ settingsForm?.querySelector("[data-local-import]")?.addEventListener("click", (e
   }, "Импортируем…").catch((error) => setStatus(error.message || "Не удалось импортировать данные.", true));
 });
 
+settingsForm?.querySelector("[data-auto-backup-toggle]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, async () => {
+    const enabled = Boolean(state.autoBackupStatus?.enabled);
+    const passphrase = settingsForm.querySelector("[data-auto-backup-passphrase]").value;
+    const result = await api.configureAutoBackup({ enabled: !enabled, passphrase });
+    if (result?.canceled) return result;
+    state.autoBackupStatus = result;
+    settingsForm.querySelector("[data-auto-backup-passphrase]").value = "";
+    await refreshAutoBackupSettings();
+    if (result.enabled) await runAutoBackupQuietly();
+    setStatus(result.enabled ? "Зашифрованные автокопии включены." : "Автокопии выключены.");
+    return result;
+  }, "Сохраняем…").catch((error) => setStatus(backupErrorMessage(error), true));
+});
+
+settingsForm?.querySelector("[data-auto-backup-restore]")?.addEventListener("click", (event) => {
+  runButtonOperation(event.currentTarget, async () => {
+    const passwordField = settingsForm.querySelector("[data-auto-backup-passphrase]");
+    const result = await api.restoreAutoBackup(passwordField.value);
+    if (!result?.ok) return result;
+    passwordField.value = "";
+    applyImportedUiSettings(result.uiSettings);
+    await refreshLocalStorageSettings();
+    await refreshInsights();
+    if (["players", "worlds", "local-avatars"].includes(state.view)) await refreshLocalDirectory();
+    setStatus(`Зашифрованная копия восстановлена: ${result.importedSessions} сессий.`);
+    return result;
+  }, "Восстанавливаем…").catch((error) => setStatus(backupErrorMessage(error), true));
+});
+
 settingsForm?.querySelectorAll("[data-local-clear]").forEach((button) => {
   button.addEventListener("click", () => {
     const category = button.dataset.localClear;
@@ -7492,6 +7890,20 @@ settingsForm?.querySelectorAll("[data-local-clear]").forEach((button) => {
 });
 
 document.addEventListener("submit", (event) => {
+  const ownPublicForm = event.target.closest("[data-paid-profile-public-form]");
+  const ownIdentityForm = event.target.closest("[data-paid-profile-identity-form]");
+  if (ownPublicForm || ownIdentityForm) {
+    event.preventDefault();
+    const form = ownPublicForm || ownIdentityForm;
+    const submit = form.querySelector('button[type="submit"]');
+    runButtonOperation(submit, () => saveOwnProfile(ownPublicForm ? "public" : "identity", form), "Сохраняем…")
+      .catch((error) => {
+        state.ownProfileError = formatVrchatAuthError(error);
+        if (paidProfileStatus) paidProfileStatus.textContent = state.ownProfileError;
+        setStatus(state.ownProfileError, true);
+      });
+    return;
+  }
   const localPlayerForm = event.target.closest("[data-local-player-preference]");
   if (localPlayerForm) {
     event.preventDefault();
@@ -7768,7 +8180,9 @@ document.addEventListener("click", (event) => {
     if (!window.confirm("Выбрать этот аватар для вашего VRChat-аккаунта? VRChat применит его как текущий аватар.")) return;
     runButtonOperation(avatarSelectButton, async () => {
       const result = await api.selectVrchatAvatar(avatarId);
-      setStatus(`Аватар выбран: ${result.avatarName || result.avatarId}.`);
+      if (!result?.selected) throw new Error("VRChat не подтвердил выбор аватара.");
+      const known = state.avatarOnlineRows.find((row) => row.avatarId === avatarId);
+      setStatus(`Аватар выбран: ${known?.verified !== false && known?.avatarName || result.avatarName || result.avatarId}.`);
     }, "Надеваем…").catch((error) => setStatus(formatVrchatAuthError(error), true));
     return;
   }
@@ -7886,7 +8300,7 @@ document.addEventListener("click", (event) => {
 
   const avatarOnlineSearchButton = event.target.closest("[data-avatar-online-search]");
   if (avatarOnlineSearchButton) {
-    runButtonOperation(avatarOnlineSearchButton, searchOnlineAvatars, "Ищем…")
+    runButtonOperation(avatarOnlineSearchButton, () => searchOnlineAvatars(avatarSearch?.value), "Ищем…")
       .catch((error) => setStatus(error.message || "Расширенный поиск аватаров недоступен.", true));
     return;
   }
@@ -8456,6 +8870,23 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const ownProfileRefresh = event.target.closest("[data-paid-profile-refresh]");
+  if (ownProfileRefresh) {
+    runButtonOperation(ownProfileRefresh, loadOwnProfile, "Загружаем…")
+      .catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
+  const ownProfileSite = event.target.closest("[data-paid-profile-site]");
+  if (ownProfileSite) {
+    runButtonOperation(ownProfileSite, async () => {
+      const userId = state.ownProfile?.userId || (await api.getVrchatCurrentUser())?.userId;
+      if (!/^usr_[0-9a-f-]{36}$/iu.test(String(userId || ""))) throw new Error("Не удалось определить профиль VRChat.");
+      await api.openExternal(`https://vrchat.com/home/user/${encodeURIComponent(userId)}`);
+    }, "Открываем…").catch((error) => setStatus(formatVrchatAuthError(error), true));
+    return;
+  }
+
   const companionResult = event.target.closest("[data-companion-result-key]");
   if (companionResult) {
     void selectCompanionResult(companionResult.dataset.companionResultKind, companionResult.dataset.companionResultKey);
@@ -8726,12 +9157,35 @@ document.querySelector("[data-companion-favorites-only]")?.addEventListener("cha
 });
 
 companionSearch?.addEventListener("input", () => {
+  state.directoryOnlineRequestId += 1;
+  state.directoryOnlineQuery = "";
+  state.directoryOnlineRows = { users: [], worlds: [], unavailable: [] };
+  state.directoryOnlineLoading = false;
+  state.directoryOnlineError = "";
+  renderDirectoryOnlineResults();
   clearTimeout(state.companionSearchTimer);
   state.companionQuery = companionSearch.value;
   state.companionSearchTimer = setTimeout(() => {
     state.companionSearchTimer = 0;
     void runCompanionSearch();
   }, 180);
+});
+
+const directoryOnlineButton = document.querySelector("[data-directory-online-search]");
+if (directoryOnlineButton && !api.searchVrchatDirectory) directoryOnlineButton.hidden = true;
+directoryOnlineButton?.addEventListener("click", () => {
+  runButtonOperation(directoryOnlineButton, searchOnlineDirectory, "Ищем…")
+    .catch((error) => setStatus(error.message || "Поиск VRChat недоступен.", true));
+});
+const companionAvatarOnlineButton = document.querySelector("[data-companion-avatar-online-search]");
+if (companionAvatarOnlineButton && !api.searchVrchatAvatars) companionAvatarOnlineButton.hidden = true;
+companionAvatarOnlineButton?.addEventListener("click", () => {
+  runButtonOperation(companionAvatarOnlineButton, () => searchOnlineAvatars(companionSearch?.value), "Ищем…")
+    .catch((error) => setStatus(error.message || "Поиск аватаров VRChat недоступен.", true));
+});
+directoryOnlineResults?.addEventListener("click", (event) => {
+  const url = event.target.closest("[data-directory-online-open]")?.dataset.directoryOnlineOpen;
+  if (url) api.openExternal(url).catch((error) => setStatus(error.message || "Не удалось открыть страницу VRChat.", true));
 });
 
 for (const panel of directoryPanels) {

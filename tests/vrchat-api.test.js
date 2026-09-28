@@ -240,6 +240,53 @@ test("fetchUserProfile exposes only authenticated API fields and public groups",
   assert.equal(result.groups[0].name, "Group");
 });
 
+test("updateOwnProfile edits only the authenticated user's public profile", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_11111111-1111-4111-8111-111111111111";
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith("/auth/user")) return responseJson({ id: userId, displayName: "Mine" });
+    if (String(url).endsWith(`/profile/${userId}`) && options.method === "PUT") {
+      assert.equal(options.headers.cookie, "auth=authcookie_test");
+      assert.deepEqual(JSON.parse(options.body), { bio: "New bio", bioLinks: ["https://example.com/"], languages: ["rus", "eng"] });
+      return responseJson({ id: userId });
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  resolver.fetchUserProfile = async (id) => ({ userId: id, bio: "New bio" });
+  const result = await resolver.updateOwnProfile("public", { bio: "New bio", bioLinks: ["https://example.com"], languages: ["rus", "eng"] });
+  assert.equal(result.accepted, true);
+  assert.equal(result.profile.userId, userId);
+  assert.equal(calls.length, 2);
+});
+
+test("updateOwnProfile rejects account settings and uses the user endpoint for status text", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_11111111-1111-4111-8111-111111111111";
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/auth/user")) return responseJson({ id: userId });
+    assert.equal(String(url), `https://api.vrchat.cloud/api/1/users/${userId}`);
+    assert.equal(options.method, "PUT");
+    assert.deepEqual(JSON.parse(options.body), { statusDescription: "Hello", pronouns: "they/them" });
+    return responseJson({ id: userId });
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  resolver.fetchUserProfile = async (id) => ({ userId: id });
+  await assert.rejects(() => resolver.updateOwnProfile("identity", { email: "changed@example.com" }), /fields are invalid/u);
+  await assert.rejects(() => resolver.updateOwnProfile("public", { bioLinks: ["javascript:alert(1)"] }), /link is invalid/u);
+  assert.equal(calls.length, 0);
+  await resolver.updateOwnProfile("identity", { statusDescription: "Hello", pronouns: "they/them" });
+  assert.equal(calls.length, 2);
+});
+
 test("fetchUser distinguishes a private profile from an expired account session", async (t) => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });
@@ -363,6 +410,9 @@ test("searchAvatars supports partial names and authors across authenticated coll
     if (value.includes("/avatars/licensed")) {
       return responseJson([{ id: "avtr_33333333-3333-4333-8333-333333333333", name: "Studio Model", authorName: "Night Works", releaseStatus: "private" }]);
     }
+    if (value.includes("featured=true")) {
+      return responseJson([{ id: "avtr_55555555-5555-4555-8555-555555555555", name: "Night Owl", authorName: "Featured Artist", releaseStatus: "public" }]);
+    }
     if (value.includes("/avatars?")) return responseJson([]);
     throw new Error(`unexpected url ${url}`);
   };
@@ -373,14 +423,88 @@ test("searchAvatars supports partial names and authors across authenticated coll
 
   assert.deepEqual(result.candidates.map((row) => row.avatarId), [
     "avtr_11111111-1111-4111-8111-111111111111",
+    "avtr_55555555-5555-4555-8555-555555555555",
     "avtr_33333333-3333-4333-8333-333333333333"
   ]);
   assert.equal(result.candidates[0].canFavorite, true);
-  assert.equal(result.candidates[1].canFavorite, false);
-  assert.deepEqual(result.scope, ["favorite", "own", "licensed"]);
+  assert.equal(result.candidates[2].canFavorite, false);
+  assert.deepEqual(result.scope, ["favorite", "own", "licensed", "featured"]);
   const callCount = calls.length;
   await resolver.searchAvatars("night");
   assert.equal(calls.length, callCount);
+});
+
+test("searchAvatars opens an exact public Avatar ID without pretending to search all avatars", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const avatarId = "avtr_55555555-5555-4555-8555-555555555555";
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    return responseJson({ id: avatarId, name: "Public Avatar", releaseStatus: "public", thumbnailImageUrl: "https://api.vrchat.cloud/api/1/image/file_123/256" });
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.searchAvatars(avatarId);
+  assert.equal(result.candidates[0].avatarId, avatarId);
+  assert.equal(result.candidates[0].canFavorite, true);
+  assert.deepEqual(result.scope, ["direct"]);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].endsWith(`/avatars/${avatarId}`));
+});
+
+test("searchAvatars accepts a VRChat avatar URL and marks an inaccessible ID as unverified", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const avatarId = "avtr_55555555-5555-4555-8555-555555555555";
+  global.fetch = async (url) => {
+    assert.ok(String(url).endsWith(`/avatars/${avatarId}`));
+    return responseJson({ error: { message: "Not Found" } }, false, 404);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.searchAvatars(`https://vrchat.com/home/avatar/${avatarId}/info`);
+  assert.equal(result.candidates[0].avatarId, avatarId);
+  assert.equal(result.candidates[0].verified, false);
+  assert.equal(result.candidates[0].canFavorite, false);
+});
+
+test("searchDirectory searches VRChat users and public worlds without returning malformed IDs", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const userId = "usr_11111111-1111-4111-8111-111111111111";
+  const worldId = "wrld_22222222-2222-4222-8222-222222222222";
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("/users?")) return responseJson([{ id: userId, displayName: "Alice" }, { id: "bad", displayName: "Bad" }]);
+    if (String(url).includes("/worlds?")) return responseJson([{ id: worldId, name: "Alice's World", releaseStatus: "public" }, { id: "wrld_bad", name: "Invalid" }]);
+    throw new Error(`unexpected url ${url}`);
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.searchDirectory("Alice");
+  assert.deepEqual(result.users.map((row) => row.userId), [userId]);
+  assert.deepEqual(result.worlds.map((row) => row.worldId), [worldId]);
+  assert.ok(calls.every((url) => url.includes("search=Alice") && url.includes("n=20")));
+});
+
+test("searchDirectory opens a direct world URL without searching unrelated users", async (t) => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  const worldId = "wrld_22222222-2222-4222-8222-222222222222";
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    return responseJson({ id: worldId, name: "Private World", releaseStatus: "private" });
+  };
+  const resolver = new VrchatUserResolver();
+  resolver.setAuthCookie("auth=authcookie_test");
+  const result = await resolver.searchDirectory(`https://vrchat.com/home/world/${worldId}/info`);
+  assert.deepEqual(result.users, []);
+  assert.deepEqual(result.worlds.map((row) => row.worldId), [worldId]);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].endsWith(`/worlds/${worldId}`));
 });
 
 test("favoriteAvatar verifies a public avatar and adds it to the first VRChat avatar list", async (t) => {
@@ -416,16 +540,13 @@ test("favoriteAvatar verifies a public avatar and adds it to the first VRChat av
   });
 });
 
-test("selectAvatar verifies access before changing the authenticated account avatar", async (t) => {
+test("selectAvatar lets VRChat decide access without requiring a readable avatar card", async (t) => {
   const originalFetch = global.fetch;
   const avatarId = "avtr_55555555-5555-4555-8555-555555555555";
   const calls = [];
   t.after(() => { global.fetch = originalFetch; });
   global.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
-    if (String(url).endsWith(`/avatars/${avatarId}`)) {
-      return responseJson({ id: avatarId, name: "Wearable Demo", releaseStatus: "public" });
-    }
     if (String(url).endsWith(`/avatars/${avatarId}/select`) && options.method === "PUT") {
       return responseJson({ currentAvatar: avatarId });
     }
@@ -436,7 +557,8 @@ test("selectAvatar verifies access before changing the authenticated account ava
   resolver.setAuthCookie("auth=authcookie_test");
   const result = await resolver.selectAvatar(avatarId);
 
-  assert.deepEqual(result, { avatarId, avatarName: "Wearable Demo", selected: true });
+  assert.deepEqual(result, { avatarId, avatarName: avatarId, selected: true });
+  assert.equal(calls.length, 1);
   assert.equal(calls.at(-1).options.method, "PUT");
 });
 

@@ -34,6 +34,8 @@
         <input name="authorAlias" minlength="3" maxlength="24" autocomplete="nickname" placeholder="Например: Rose337">
         <small>Публичная подпись рядом с вашими командными заметками и отметками. Она запрашивается один раз.</small>
       </label>
+      <details class="activationOptionalAccount">
+        <summary data-activation-vrchat-summary>Подключить VRChat-аккаунт · необязательно</summary>
       <fieldset class="vrchatAccountConnect" data-vrchat-account-connect>
         <legend>Аккаунт VRChat <small>необязательно</small></legend>
         <div class="vrchatAccountFields">
@@ -49,6 +51,7 @@
         <small>Пароль не сохраняется. После входа приложение хранит только зашифрованную сессию VRChat.</small>
         <p class="formStatus" data-vrchat-account-status aria-live="polite"></p>
       </fieldset>
+      </details>
       <label class="checkRow"><input name="rememberMe" type="checkbox" checked><span>Запомнить вход на этом устройстве</span></label>
       <div class="activationActions">
         <button class="primaryButton" type="submit" data-activate-submit>Войти</button>
@@ -190,12 +193,13 @@
             <article><span>Игроков</span><strong data-avatar-metric="players">0</strong><em>меняли аватар</em></article>
           </div>
           <div class="avatarToolbar">
-            <label class="playerSearch"><span class="visuallyHidden">Поиск аватара</span><input type="search" data-avatar-search placeholder="Название, Avatar ID или игрок…" autocomplete="off"></label>
+            <label class="playerSearch"><span class="visuallyHidden">Поиск аватара</span><input type="search" data-avatar-search placeholder="Аватар, Avatar ID/ссылка или игрок…" autocomplete="off"></label>
             <label><span class="visuallyHidden">Фильтр аватаров</span><select data-avatar-filter><option value="all">Все аватары</option><option value="crash">С меткой crash</option><option value="unresolved">Без Avatar ID</option></select></label>
-            <button type="button" data-avatar-online-search>Расширенный поиск</button>
+            <button type="button" data-avatar-online-search>Поиск доступных аватаров</button>
             <button type="button" data-avatar-prismic>Prismic’s</button>
             <button type="button" data-avatar-refresh>Обновить каталог</button>
           </div>
+          <p class="avatarSearchScope">Поиск пока неполный: свои, избранные и доступные подборки. По точному Avatar ID можно проверить и другие публичные аватары.</p>
           <section class="avatarOnlineResults" data-avatar-online-results hidden></section>
           <div class="avatarManagerLayout">
             <article class="panel sessionFeaturePanel avatarCatalogPanel"><header><div><span class="eyebrow">Сессия и каталог</span><h2>Обнаруженные аватары</h2></div><div class="avatarCatalogHeaderMeta"><span class="avatarCatalogScope" data-avatar-catalog-scope>Личный каталог</span><span data-avatar-count>0 записей</span><label class="avatarPageSize"><span>На странице</span><select data-avatar-page-size aria-label="Максимум аватаров на странице"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></label><div class="avatarPager"><button type="button" data-avatar-page-prev aria-label="Предыдущая страница" title="Предыдущая страница">‹</button><span data-avatar-page-status>1 / 1</span><button type="button" data-avatar-page-next aria-label="Следующая страница" title="Следующая страница">›</button></div></div></header><div class="avatarSessionList" data-avatar-session-list tabindex="0" aria-label="Каталог аватаров"><p class="emptyState">Событий аватаров пока нет.</p></div></article>
@@ -232,14 +236,45 @@
           <article><span>Текущий пользователь</span><strong data-insight-current-user>Не проверен</strong></article>
           <article><span>Текущий инстанс</span><strong data-insight-current-instance>Не проверен</strong></article>
         </div>
+        <section class="panel paidProfile" data-paid-profile hidden>
+          <header class="paidProfileHeader"><div><span class="eyebrow">По платному ключу</span><h2>Мой профиль VRChat</h2><p>Изменения появятся в VRChat после сохранения.</p></div><div class="panelHeaderActions"><button type="button" data-paid-profile-refresh>Загрузить профиль</button><button type="button" data-paid-profile-site>Открыть на сайте</button></div></header>
+          <div class="paidProfileCard" data-paid-profile-card><p class="emptyState">Подключите VRChat-аккаунт в приложении и загрузите профиль.</p></div>
+          <details class="paidProfileEditors" data-paid-profile-editors hidden>
+            <summary>Редактировать профиль</summary>
+            <div class="paidProfileEditorGrid">
+            <form class="paidProfileEditor" data-paid-profile-public-form>
+              <h3>О себе</h3>
+              <label><span>Биография</span><textarea name="bio" maxlength="512" rows="5"></textarea></label>
+              <label><span>Ссылки — по одной в строке, до 4</span><textarea name="bioLinks" rows="3" placeholder="https://example.com"></textarea></label>
+              <label><span>Языки — коды через запятую, до 3</span><input name="languages" type="text" maxlength="20" placeholder="rus, eng"></label>
+              <button class="primaryButton" type="submit">Сохранить информацию</button>
+            </form>
+            <form class="paidProfileEditor" data-paid-profile-identity-form>
+              <h3>Статус</h3>
+              <label><span>Текст статуса</span><input name="statusDescription" type="text" maxlength="128"></label>
+              <label><span>Местоимения</span><input name="pronouns" type="text" maxlength="32"></label>
+              <button class="primaryButton" type="submit">Сохранить статус</button>
+            </form>
+            </div>
+          </details>
+          <p class="formStatus" data-paid-profile-status aria-live="polite"></p>
+        </section>
+        <details class="companionDiscovery">
+          <summary>Найти игрока, мир или аватар <small>Локальная история и доступный поиск VRChat</small></summary>
         <section class="companionSearch" aria-label="Поиск в локальной истории">
-          <label class="playerSearch"><span class="visuallyHidden">Поиск игроков и миров</span><input type="search" data-companion-search placeholder="Найти игрока, User ID, мир или World ID…" autocomplete="off"></label>
+          <label class="playerSearch"><span class="visuallyHidden">Поиск игроков, миров и аватаров</span><input type="search" data-companion-search placeholder="Игрок, мир, аватар или ID/ссылка VRChat…" autocomplete="off"></label>
           <label><input type="checkbox" data-companion-favorites-only> Только избранное</label>
+          <button type="button" data-directory-online-search>Найти игроков и миры в VRChat</button>
+          <button type="button" data-companion-avatar-online-search>Поиск доступных аватаров</button>
+          <p class="avatarSearchScope">Поиск аватаров неполный: доступны свои, избранные и подборки VRChat, а также проверка точного Avatar ID.</p>
+          <section class="avatarOnlineResults" data-directory-online-results hidden></section>
+          <section class="avatarOnlineResults" data-companion-avatar-online-results hidden></section>
           <div class="companionSearchLayout" data-companion-search-layout hidden>
             <article class="panel companionSearchResults"><header><div><span class="eyebrow">Локальная база</span><h2>Результаты поиска</h2></div><span data-companion-search-count>0 найдено</span></header><div data-companion-search-results><p class="emptyState">Введите минимум два символа.</p></div></article>
             <article class="panel companionSearchDetail adminPreviewEmpty" data-companion-search-detail><span class="profileAvatar">⌕</span><h2>Выберите результат</h2><p>Здесь появятся встречи, посещения и быстрые действия.</p></article>
           </div>
         </section>
+        </details>
         <div class="metricGrid compact insightsMetrics">
           <article><span>Сессий</span><strong data-insight="sessions">—</strong></article>
           <article><span>Времени</span><strong data-insight="duration">—</strong></article>
@@ -285,17 +320,18 @@
       </section>
 
       <section class="viewPanel gamesView" id="viewPanelGames" role="tabpanel" aria-labelledby="viewTabGames" data-view="games" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">По платному ключу</span><h2>Мини-игры</h2><p>Проверь, насколько хорошо помнишь собственные миры VRChat. Данные остаются на этом устройстве.</p></div></div>
+        <div class="sectionIntro"><div><span class="eyebrow">По платному ключу · Только ваши данные</span><h2>Мини-игры</h2><p>Вспомните, где бывали и куда возвращались чаще. Никакой общей таблицы или отправки истории.</p></div></div>
         <div class="gamesModes" aria-label="Выбор игры">
-          <button type="button" data-game-mode="recent">Какой мир был позже?</button>
-          <button type="button" data-game-mode="visits">Сколько сессий?</button>
+          <button type="button" data-game-mode="recent"><span class="gamesModeIcon" aria-hidden="true">◷</span><strong>Маршрут</strong><small>Какой мир был позже?</small></button>
+          <button type="button" data-game-mode="visits"><span class="gamesModeIcon" aria-hidden="true">◆</span><strong>Любимые миры</strong><small>Где вы были чаще?</small></button>
         </div>
         <article class="panel gamesCard" data-games-card>
-          <div class="gamesScore"><span data-game-progress>0 / 0</span><strong data-game-score>0 очков</strong></div>
+          <div class="gamesScore"><span data-game-progress>Раунд 0 / 0</span><strong data-game-score>0 очков</strong><span data-game-streak>Серия 0</span></div>
+          <div class="gamesProgressTrack" aria-hidden="true"><span data-game-progress-fill></span></div>
           <h3 data-game-question>Выбери игру</h3>
           <p data-game-status aria-live="polite">Для игры нужны сохранённые посещения миров.</p>
           <div class="gamesOptions" data-game-options></div>
-          <button type="button" data-game-next hidden>Следующий вопрос</button>
+          <button class="primaryButton" type="button" data-game-next hidden>Следующий раунд</button>
         </article>
       </section>
 
@@ -396,6 +432,7 @@
           </div>
         </div>
         <div class="crashNotice"><strong>Это не доказательство.</strong><p>Совпадение игрока или аватара по времени помогает проверить контекст, но не доказывает причину сбоя и не назначает виновного.</p></div>
+        <div class="crashLiveWarning" data-crash-live-warning role="status" hidden></div>
         <div class="metricGrid compact crashMetrics">
           <article><span>Отслеживание</span><strong data-crash="enabled">выключено</strong></article>
           <article><span>VRChat</span><strong data-crash="process">—</strong></article>
@@ -489,7 +526,7 @@
             <label class="adminField"><span>Расположение управления</span><select name="uiPlacement"><option value="top">Сверху</option><option value="left">Слева</option></select></label>
             <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="social">Друзья</option><option value="library">Библиотека</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Builder</option></select></label>
             <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option><option value="vr">VR-крупная</option></select></label>
-            <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>
+            <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="90">90%</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>
             <label class="checkRow"><input name="animations" type="checkbox"><span>Использовать анимации</span></label>
             <label class="checkRow"><input name="showHeader" type="checkbox"><span>Показывать верхнюю шапку</span></label>
             <label class="checkRow"><input name="showToolbar" type="checkbox"><span>Показывать панель быстрых действий</span></label>
@@ -508,6 +545,13 @@
             <label class="adminField"><span>Хранить историю</span><select data-local-retention><option value="0">Без ограничения</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="180">180 дней</option><option value="365">1 год</option></select></label>
             <p data-local-storage-stats>Считаем локальные записи…</p>
             <div class="settingsDataActions"><button type="button" data-local-export>Экспорт</button><button type="button" data-local-import>Импорт</button></div>
+            <div class="autoBackupSettings" aria-label="Зашифрованные автокопии">
+              <strong>Автокопии по ключу</strong>
+              <p data-auto-backup-status>Проверяем состояние…</p>
+              <label class="adminField"><span>Пароль копии или восстановления</span><input data-auto-backup-passphrase type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="Не менее 12 символов"></label>
+              <div class="settingsDataActions"><button type="button" data-auto-backup-toggle>Включить и выбрать папку</button><button type="button" data-auto-backup-restore>Восстановить копию</button></div>
+              <p>Сохраните пароль отдельно: без него копию нельзя открыть на другом устройстве. Автокопия создаётся раз в сутки, пока приложение запущено. Ручной экспорт и восстановление доступны бесплатно.</p>
+            </div>
             <div class="settingsDataActions localCleanupActions" aria-label="Очистка локальных данных">
               <button type="button" data-local-clear="history">Очистить историю</button>
               <button type="button" data-local-clear="social">Очистить друзей</button>

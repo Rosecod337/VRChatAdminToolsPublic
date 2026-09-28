@@ -5,7 +5,14 @@
   const COLOR = /^#[0-9a-f]{6}$/iu;
   const SELECTOR = /^body(?: > [a-z][a-z0-9-]*:nth-of-type\([1-9][0-9]{0,3}\)){1,20}$/u;
   const FONTS = { system: '"Segoe UI Variable", "Segoe UI", sans-serif', sans: "Arial, sans-serif", mono: "Consolas, monospace" };
-  const COLORS = { background: "--bg", surface: "--panel", secondary: "--panel-2", text: "--text", muted: "--muted", accent: "--cyan", border: "--line" };
+  const COLORS = { background: "--bg", surface: "--panel", secondary: "--panel-2", text: "--text", muted: "--muted", accent: "--cyan", positive: "--green", warning: "--amber", danger: "--red", border: "--line", softBorder: "--line-soft" };
+  const PRESETS = Object.freeze({
+    midnight: { name: "Ночной", theme: { background: "#06090d", surface: "#0c131b", secondary: "#111c27", text: "#f4f7f9", muted: "#8fa2b2", accent: "#58d6e7", positive: "#58d58d", warning: "#f2bd68", danger: "#ef7c73", border: "#223241", softBorder: "#182632" } },
+    violet: { name: "Фиолетовый", theme: { background: "#0e0b18", surface: "#181329", secondary: "#241a3a", text: "#f6f0ff", muted: "#b5a7cb", accent: "#b78cff", positive: "#71d9ae", warning: "#f1bd77", danger: "#f28e9b", border: "#45365e", softBorder: "#302643" } },
+    vrchat: { name: "В стиле VRChat", theme: { background: "#141821", surface: "#1c222c", secondary: "#292f3a", text: "#f5f6f8", muted: "#aeb7c3", accent: "#42cadd", positive: "#43d276", warning: "#efc46c", danger: "#f17878", border: "#384450", softBorder: "#2c3540", radius: 15 } },
+    forest: { name: "Лесной", theme: { background: "#07110f", surface: "#0d1e19", secondary: "#153027", text: "#eafaf1", muted: "#9db8aa", accent: "#69dca4", positive: "#79dc80", warning: "#edc67f", danger: "#ef8980", border: "#2c5143", softBorder: "#1c382f" } },
+    ember: { name: "Тёплый", theme: { background: "#150d0b", surface: "#251713", secondary: "#35231c", text: "#fff1e8", muted: "#cbb2a3", accent: "#f5a86c", positive: "#a9d987", warning: "#ffd080", danger: "#f18a80", border: "#604333", softBorder: "#402c24" } }
+  });
   const bounded = (value, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : min;
 
   function normalizeProfile(input) {
@@ -24,6 +31,10 @@
       for (const [key, min, max] of [["fontSize", 8, 64], ["radius", 0, 64], ["padding", 0, 48], ["opacity", 40, 100]]) {
         if (item[key] !== undefined) setting[key] = bounded(item[key], min, max);
       }
+      for (const [key, min, max] of [["fontWeight", 100, 900], ["letterSpacing", -2, 8], ["minHeight", 0, 800], ["maxWidth", 80, 1600]]) {
+        if (item[key] !== undefined) setting[key] = bounded(item[key], min, max);
+      }
+      if (["inherit", "left", "center", "right"].includes(item.textAlign)) setting.textAlign = item.textAlign;
       if (typeof item.text === "string") setting.text = item.text.slice(0, 200);
       profile.elements[selector] = setting;
     }
@@ -96,14 +107,30 @@
       profileActions.append(control);
     }
     panel.append(profileActions);
+    const presetRow = make("div", "uiCustomPreset");
+    const presetSelect = document.createElement("select");
+    presetSelect.setAttribute("aria-label", "Готовая тема");
+    for (const [key, preset] of Object.entries(PRESETS)) {
+      const option = make("option", "", preset.name); option.value = key; presetSelect.append(option);
+    }
+    const presetButton = make("button", "", "Создать из темы");
+    presetButton.type = "button";
+    presetButton.addEventListener("click", () => {
+      if (profiles.length >= 8) { status.textContent = "Максимум 8 профилей"; return; }
+      const preset = PRESETS[presetSelect.value];
+      if (!preset) return;
+      profiles.push(normalizeProfile(preset)); active = profiles.length - 1; saveAndApply(); syncControls();
+    });
+    presetRow.append(presetSelect, presetButton);
+    panel.append(make("h3", "", "Готовые темы"), presetRow);
     const profileName = field(panel, "Имя профиля", "text");
     profileName.maxLength = 60;
     profileName.addEventListener("change", () => {
       current().name = profileName.value.trim().slice(0, 60) || "Мой интерфейс"; saveAndApply(); syncControls();
     });
     const themeFields = make("div", "uiCustomFields");
-    const paletteTitles = { background: "Фон", surface: "Панели", secondary: "Второй фон", text: "Текст", muted: "Вторичный текст", accent: "Акцент", border: "Границы" };
-    const defaults = { background: "#06090d", surface: "#0c131b", secondary: "#111c27", text: "#f4f7f9", muted: "#8fa2b2", accent: "#58d6e7", border: "#223241" };
+    const paletteTitles = { background: "Фон", surface: "Панели", secondary: "Второй фон", text: "Текст", muted: "Вторичный текст", accent: "Акцент", positive: "Успех", warning: "Предупреждение", danger: "Ошибка", border: "Границы", softBorder: "Тонкие линии" };
+    const defaults = PRESETS.midnight.theme;
     const themeInputs = {};
     for (const key of Object.keys(COLORS)) {
       const input = field(themeFields, paletteTitles[key], "color");
@@ -128,8 +155,10 @@
     const inputs = {};
     for (const [key, title, type, min, max] of [
       ["background", "Фон элемента", "color"], ["color", "Цвет текста", "color"], ["borderColor", "Цвет границы", "color"],
-      ["fontSize", "Размер шрифта", "number", 8, 64], ["radius", "Скругление", "number", 0, 64],
-      ["padding", "Внутренний отступ", "number", 0, 48], ["opacity", "Прозрачность, %", "number", 40, 100], ["text", "Подпись", "text"]
+      ["fontSize", "Размер шрифта", "number", 8, 64], ["fontWeight", "Насыщенность", "number", 100, 900],
+      ["letterSpacing", "Межбуквенный отступ", "number", -2, 8], ["radius", "Скругление", "number", 0, 64],
+      ["padding", "Внутренний отступ", "number", 0, 48], ["minHeight", "Мин. высота", "number", 0, 800],
+      ["maxWidth", "Макс. ширина", "number", 80, 1600], ["opacity", "Прозрачность, %", "number", 40, 100], ["text", "Подпись", "text"]
     ]) {
       const input = field(elementFields, title, type, min, max); input.disabled = true;
       if (key === "text") input.maxLength = 200;
@@ -148,6 +177,18 @@
         saveAndApply();
       });
     }
+    const alignLabel = make("label", "", "Выравнивание текста");
+    const align = document.createElement("select"); align.disabled = true;
+    for (const [value, title] of [["inherit", "По умолчанию"], ["left", "Слева"], ["center", "По центру"], ["right", "Справа"]]) {
+      const option = make("option", "", title); option.value = value; align.append(option);
+    }
+    align.addEventListener("change", () => {
+      if (!selected) return;
+      const selector = selectorFor(selected);
+      current().elements[selector] = { ...current().elements[selector], textAlign: align.value };
+      saveAndApply();
+    });
+    alignLabel.append(align); elementFields.append(alignLabel); inputs.textAlign = align;
     panel.append(elementFields, make("small", "", "Подпись доступна только для безопасных статических элементов. Названия разделов, вкладок, динамические данные и идентификаторы не заменяются."));
     const resetElement = make("button", "", "Сбросить выбранный элемент"); resetElement.type = "button";
     resetElement.dataset.uiAction = "reset-element";
@@ -207,6 +248,7 @@
     function apply() {
       while (sheet.cssRules.length > baseRuleCount) sheet.deleteRule(baseRuleCount);
       const theme = current().theme;
+      document.body.classList.toggle("uiThemeVrchat", theme.background === PRESETS.vrchat.theme.background && theme.accent === PRESETS.vrchat.theme.accent);
       const variables = Object.entries(COLORS).filter(([key]) => theme[key]).map(([key, variable]) => `${variable}:${theme[key]}`);
       if (theme.font) variables.push(`font-family:${FONTS[theme.font]}`);
       if (variables.length) sheet.insertRule(`:root {${variables.join(";")}}`, sheet.cssRules.length);
@@ -217,7 +259,9 @@
       for (const [selector, setting] of Object.entries(current().elements)) {
         const styles = [];
         for (const [key, property, suffix] of [["background", "background", ""], ["color", "color", ""], ["borderColor", "border-color", ""],
-          ["fontSize", "font-size", "px"], ["radius", "border-radius", "px"], ["padding", "padding", "px"]]) {
+          ["fontSize", "font-size", "px"], ["fontWeight", "font-weight", ""], ["letterSpacing", "letter-spacing", "px"],
+          ["radius", "border-radius", "px"], ["padding", "padding", "px"], ["minHeight", "min-height", "px"],
+          ["maxWidth", "max-width", "px"], ["textAlign", "text-align", ""]]) {
           if (setting[key] !== undefined) styles.push(`${property}:${setting[key]}${suffix} !important`);
         }
         if (setting.opacity !== undefined) styles.push(`opacity:${setting.opacity / 100} !important`);
@@ -262,7 +306,7 @@
       const setting = current().elements[selectorFor(selected)] || {};
       for (const [key, input] of Object.entries(inputs)) {
         input.disabled = key === "text" && !staticLabels.has(selected);
-        input.value = setting[key] ?? (input.type === "color" ? "#111c27" : key === "opacity" ? 100 : key === "text" ? selected.textContent : "");
+        input.value = setting[key] ?? (input.type === "color" ? "#111c27" : key === "opacity" ? 100 : key === "textAlign" ? "inherit" : key === "text" ? selected.textContent : "");
       }
     }
     function newProfile() {
@@ -291,7 +335,7 @@
     }
   }
 
-  const exported = { normalizeProfile, STORAGE_KEY };
+  const exported = { normalizeProfile, PRESETS, STORAGE_KEY };
   if (typeof module === "object" && module.exports) module.exports = exported;
   if (root.document) { root.betaUiCustomizer = exported; install(); }
 })(typeof window === "object" ? window : globalThis);

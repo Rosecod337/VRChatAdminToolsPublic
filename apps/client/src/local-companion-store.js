@@ -1083,6 +1083,16 @@ class LocalCompanionStore {
   async exportToFile(filePath, uiSettings = {}) {
     if (!path.isAbsolute(filePath)) throw new Error("Local companion export path must be absolute");
     const output = fs.createWriteStream(filePath, { encoding: "utf8", flags: "w" });
+    try {
+      await this.exportToWritable(output, uiSettings);
+      return { ok: true, filePath };
+    } catch (error) {
+      output.destroy();
+      throw error;
+    }
+  }
+
+  async exportToWritable(output, uiSettings = {}) {
     const completion = new Promise((resolve, reject) => {
       output.once("finish", resolve);
       output.once("error", reject);
@@ -1121,7 +1131,6 @@ class LocalCompanionStore {
       await writeStreamChunk(output, `,${JSON.stringify("retentionDays")}:${this.getRetentionDays()},${JSON.stringify("uiSettings")}:${JSON.stringify(safeUiSettings)}}\n`);
       output.end();
       await completion;
-      return { ok: true, filePath };
     } catch (error) {
       output.destroy();
       throw error;

@@ -36,6 +36,22 @@ test("beta client is a separate product that reuses the trusted core", () => {
   assert.match(coreMain, /preserveStableSession = isBetaClient\(\) && settings\.importedStableSession === true/u);
 });
 
+test("paid own-profile editor stays in the modern client and requires a checked license", () => {
+  const html = read("apps/client-beta/renderer/index.html");
+  const script = read("apps/client-beta/renderer/app.js");
+  const main = read("apps/client/src/main.js");
+  const preload = read("apps/client/src/preload.js");
+  assert.match(html, /data-paid-profile hidden/u);
+  assert.match(html, /data-paid-profile-public-form/u);
+  assert.match(html, /data-paid-profile-identity-form/u);
+  assert.match(script, /saveOwnProfile\(ownPublicForm \? "public" : "identity", form\)/u);
+  assert.match(script, /api\.updateVrchatOwnProfile\(section, changes\)/u);
+  assert.match(main, /ipcMain\.handle\("vrchat:own-profile-update"/u);
+  assert.match(main, /!isBetaClient\(\) \|\| isFreeMode\(settings\)/u);
+  assert.match(main, /const access = await validateCurrentSession\(\)/u);
+  assert.match(preload, /updateVrchatOwnProfile:/u);
+});
+
 test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   const html = read("apps/client-beta/renderer/index.html");
   const css = read("apps/client-beta/renderer/styles.css");
@@ -447,6 +463,7 @@ test("beta notifications use current marked data and ignore replayed log history
     { avatar_key: "id:avtr_exact", avatar_name: "Another Name", status: "crash" }
   ]);
   assert.equal(exact.avatar_key, "id:avtr_exact");
+  assert.equal(betaNotificationModel.crashAvatar(avatarEvent, [{ avatar_key: "id:avtr_other", avatar_name: "Night Shift", status: "crash" }]), null);
   assert.equal(betaNotificationModel.crashAvatar({ ...avatarEvent, avatarId: "" }, [{ avatar_key: "name:night shift", status: "crash" }]).avatar_key, "name:night shift");
   assert.equal(betaNotificationModel.crashAvatar(avatarEvent, [{ avatar_key: "id:avtr_exact", status: "ok" }]), null);
 });
@@ -654,7 +671,9 @@ test("beta free mode keeps local companion access separate from paid administrat
   assert.match(renderer, /function hasPaidAccess\(\)/u);
   assert.match(renderer, /Admin Tools доступны по платному ключу/u);
   assert.match(renderer, /if \(view === "admin" && !hasPaidAccess\(\)\) return/u);
-  assert.match(renderer, /\[data-avatar-online-search\][\s\S]*?toggleAttribute\("hidden", !paid\)/u);
+  assert.match(renderer, /\[data-avatar-refresh\]"\)\?\.toggleAttribute\("hidden", !paid\)/u);
+  assert.match(markup, /data-companion-avatar-online-search/u);
+  assert.match(markup, /data-companion-avatar-online-results/u);
   assert.match(renderer, /scope\.textContent = "Локальный журнал"/u);
   assert.match(renderer, /if \(!state\.settings\.hasSession && !state\.settings\.freeMode\)/u);
 });
@@ -1166,7 +1185,7 @@ test("beta has a real renderer performance smoke check", () => {
   assert.match(performanceCheck, /playerRows > 40/u);
   assert.match(performanceCheck, /avatarCatalogTotal < 900/u);
   assert.match(performanceCheck, /avatarRows > 40/u);
-  assert.match(performanceCheck, /totalDomNodes > 1200/u);
+  assert.match(performanceCheck, /totalDomNodes > 1300/u);
   assert.match(performanceCheck, /BETA_PREVIEW_CLICK_SELECTOR/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_TEXT/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_SELECTOR/u);

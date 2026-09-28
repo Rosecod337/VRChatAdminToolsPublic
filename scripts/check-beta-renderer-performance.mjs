@@ -261,6 +261,26 @@ try {
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     console.log(JSON.stringify(result.result.value));
   }
+  if (process.env.BETA_PREVIEW_NOTICES_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const message = 'Длинное уведомление о состоянии приложения: ' + 'Подробности проверки подключения и действия пользователя. '.repeat(24) + 'https://example.org/' + 'very-long-segment'.repeat(12);
+        setStatus(message, true, { sticky: true });
+        setStatusCenter(true);
+        const row = document.querySelector('.statusNotice');
+        const copy = row?.querySelector('span');
+        const panel = document.querySelector('.statusCenter');
+        const list = document.querySelector('.statusCenterList');
+        if (!row || !copy || !panel || !list || copy.textContent !== message || getComputedStyle(copy).whiteSpace === 'nowrap' || row.scrollHeight <= 66 || panel.scrollWidth > panel.clientWidth || list.scrollHeight <= list.clientHeight) {
+          throw new Error('Long notification is clipped: ' + JSON.stringify({ rowHeight: row?.scrollHeight, textLength: copy?.textContent.length, whiteSpace: copy && getComputedStyle(copy).whiteSpace, overflow: panel?.scrollWidth - panel?.clientWidth }));
+        }
+        return { fullText: true, rowHeight: row.scrollHeight, textLength: copy.textContent.length, scrollable: true };
+      })()`,
+      returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
   if (process.env.BETA_PERF_SCREENSHOT) {
     await cdp.send("Page.enable");
     const screenshot = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
@@ -313,7 +333,8 @@ try {
   if (!avatarSection && metrics.playerRows > 40) failures.push(`создано слишком много строк игроков: ${metrics.playerRows}`);
   if (!avatarSection && metrics.eventRows > 40) failures.push(`создано слишком много строк событий: ${metrics.eventRows}`);
   if (avatarSection && metrics.avatarRows > 40) failures.push(`создано слишком много строк аватаров: ${metrics.avatarRows}`);
-  if (metrics.totalDomNodes > 1200) failures.push(`DOM разросся до ${metrics.totalDomNodes} узлов`);
+  // The expanded appearance editor and game choice cards add bounded controls.
+  if (metrics.totalDomNodes > 1300) failures.push(`DOM разросся до ${metrics.totalDomNodes} узлов`);
   if (failures.length) throw new Error(failures.join("; "));
   console.log(JSON.stringify({
     ...metrics,

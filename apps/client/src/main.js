@@ -17,6 +17,7 @@ const {
 const { RuntimeConfigManager } = require("./runtime-config");
 const { importStableSettings } = require("./stable-settings-import");
 const { LocalCompanionStore } = require("./local-companion-store");
+const { createEncryptedBackup, readEncryptedBackup, requirePassphrase } = require("./encrypted-local-backup");
 const { VrchatUserResolver } = require("./vrchat-api");
 const { VrchatFriendPipeline } = require("./vrchat-friend-pipeline");
 const { isModernClientVersion, isPrereleaseVersion, modernUserDataPath } = require("./release-channel");
@@ -70,7 +71,11 @@ const DEFAULT_SETTINGS = {
   license: null,
   vrchatAuthCookie: "",
   rememberMe: false,
-  freeMode: false
+  freeMode: false,
+  autoBackupEnabled: false,
+  autoBackupDirectory: "",
+  autoBackupLastAt: "",
+  backupPassphrase: ""
 };
 
 let mainWindow;
@@ -85,6 +90,7 @@ let normalWindowBounds = null;
 let alwaysOnTopEnabled = false;
 let alwaysOnTopReapplyTimer = null;
 let localCompanionStore = null;
+let autoBackupPromise = null;
 const tailer = new LogTailer();
 const resolver = new VrchatUserResolver();
 const friendPipeline = new VrchatFriendPipeline({
@@ -96,7 +102,7 @@ const friendPipeline = new VrchatFriendPipeline({
   },
   onStatus: (status) => send("companion:friend-pipeline-status", status)
 });
-const SETTINGS_SECRET_FIELDS = ["sessionToken", "vrchatAuthCookie"];
+const SETTINGS_SECRET_FIELDS = ["sessionToken", "vrchatAuthCookie", "backupPassphrase"];
 const volatileSecrets = Object.fromEntries(SETTINGS_SECRET_FIELDS.map((field) => [field, ""]));
 let lastKnownSettings = null;
 let settingsWriteQueue = Promise.resolve();
@@ -822,6 +828,15 @@ ipcMain.handle("vrchat:user-profile", async (_event, userId) => {
   return resolver.fetchUserProfile(String(userId || ""));
 });
 
+ipcMain.handle("vrchat:own-profile-update", async (_event, section, draft) => {
+  const settings = await readSettings();
+  if (!isBetaClient() || isFreeMode(settings) || !settings.sessionToken) throw new Error("paid_profile_requires_license");
+  const access = await validateCurrentSession();
+  if (!access.ok || !access.license) throw new Error("paid_profile_requires_license");
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.updateOwnProfile(section, draft);
+});
+
 ipcMain.handle("vrchat:group", async (_event, groupId) => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
@@ -851,6 +866,12 @@ ipcMain.handle("vrchat:avatar-browse", async (_event, searchText) => {
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   return filterProtectedAvatarPayload(await resolver.searchAvatars(searchText));
+});
+
+ipcMain.handle("vrchat:directory-search", async (_event, searchText) => {
+  const settings = await readSettings();
+  resolver.setAuthCookie(settings.vrchatAuthCookie);
+  return resolver.searchDirectory(searchText);
 });
 
 ipcMain.handle("vrchat:avatar-favorite", async (_event, avatarId) => {
@@ -1176,6 +1197,83 @@ ipcMain.handle("companion:import", async (event) => {
   if (info.size > 50 * 1024 * 1024) throw new Error("backup_file_too_large");
   const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
   return { ...companionStore().importData(payload), filePath };
+});
+
+function paidBackupAllowed(settings) {
+  if (!isBetaClient() || isFreeMode(settings) || !settings.sessionToken || !settings.license) return false;
+  const expiry = settings.license.expiresAt || settings.license.expires_at;
+  return !expiry || new Date(expiry).getTime() > Date.now();
+}
+
+function autoBackupStatus(settings) {
+  return {
+    enabled: Boolean(settings.autoBackupEnabled && settings.autoBackupDirectory && settings.backupPassphrase),
+    directory: String(settings.autoBackupDirectory || ""),
+    lastAt: String(settings.autoBackupLastAt || ""),
+    canEnable: paidBackupAllowed(settings)
+  };
+}
+
+ipcMain.handle("companion:auto-backup-status", async () => autoBackupStatus(await readSettings()));
+
+ipcMain.handle("companion:auto-backup-configure", async (event, options = {}) => {
+  if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
+  const settings = await readSettings();
+  if (!options.enabled) {
+    const saved = await writeSettings({ ...settings, autoBackupEnabled: false, autoBackupDirectory: "", backupPassphrase: "" });
+    return autoBackupStatus(saved);
+  }
+  if (!paidBackupAllowed(settings)) throw new Error("backup_paid_required");
+  if (!canEncryptSettings()) throw new Error("backup_os_encryption_unavailable");
+  const passphrase = requirePassphrase(options.passphrase);
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const dialogOptions = { title: "Папка для зашифрованных резервных копий", properties: ["openDirectory", "createDirectory"] };
+  const selection = await (parent ? dialog.showOpenDialog(parent, dialogOptions) : dialog.showOpenDialog(dialogOptions));
+  if (selection.canceled || !selection.filePaths?.[0]) return { ...autoBackupStatus(settings), canceled: true };
+  const directory = await fs.realpath(selection.filePaths[0]);
+  const saved = await writeSettings({
+    ...settings,
+    autoBackupEnabled: true,
+    autoBackupDirectory: directory,
+    autoBackupLastAt: "",
+    backupPassphrase: passphrase
+  });
+  return autoBackupStatus(saved);
+});
+
+ipcMain.handle("companion:auto-backup-run", async (_event, uiSettings = {}) => {
+  const settings = await readSettings();
+  if (!paidBackupAllowed(settings)) throw new Error("backup_paid_required");
+  if (!autoBackupStatus(settings).enabled) throw new Error("backup_not_configured");
+  const lastAt = Date.parse(settings.autoBackupLastAt || "");
+  if (Number.isFinite(lastAt) && Date.now() - lastAt < 24 * 60 * 60 * 1000) return { ...autoBackupStatus(settings), skipped: true };
+  if (autoBackupPromise) return autoBackupPromise;
+  autoBackupPromise = (async () => {
+    const result = await createEncryptedBackup(companionStore(), settings.autoBackupDirectory, settings.backupPassphrase, uiSettings);
+    const latest = await readSettings();
+    const saved = await writeSettings({ ...latest, autoBackupLastAt: new Date().toISOString() });
+    return { ...autoBackupStatus(saved), ...result };
+  })();
+  try {
+    return await autoBackupPromise;
+  } finally {
+    autoBackupPromise = null;
+  }
+});
+
+ipcMain.handle("companion:auto-backup-restore", async (event, passphrase) => {
+  if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
+  requirePassphrase(passphrase);
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const dialogOptions = {
+    title: "Восстановить зашифрованную резервную копию",
+    properties: ["openFile"],
+    filters: [{ name: "VRChat Admin Tools Backup", extensions: ["vrcbackup"] }]
+  };
+  const selection = await (parent ? dialog.showOpenDialog(parent, dialogOptions) : dialog.showOpenDialog(dialogOptions));
+  if (selection.canceled || !selection.filePaths?.[0]) return { ok: false, canceled: true };
+  const payload = await readEncryptedBackup(selection.filePaths[0], passphrase);
+  return { ...companionStore().importData(payload), filePath: selection.filePaths[0] };
 });
 
 ipcMain.handle("file:save-text", async (event, options = {}) => {
