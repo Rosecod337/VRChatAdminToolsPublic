@@ -2,6 +2,7 @@
 
 (function initializeModule(root) {
   const STORAGE_KEY = "betaInterfaceProfilesV1";
+  const MAX_PROFILES = 12;
   const COLOR = /^#[0-9a-f]{6}$/iu;
   const SELECTOR = /^body(?: > [a-z][a-z0-9-]*:nth-of-type\([1-9][0-9]{0,3}\)){1,20}$/u;
   const FONTS = { system: '"Segoe UI Variable", "Segoe UI", sans-serif', sans: "Arial, sans-serif", mono: "Consolas, monospace" };
@@ -10,6 +11,10 @@
     midnight: { name: "Ночной", theme: { background: "#06090d", surface: "#0c131b", secondary: "#111c27", text: "#f4f7f9", muted: "#8fa2b2", accent: "#58d6e7", positive: "#58d58d", warning: "#f2bd68", danger: "#ef7c73", border: "#223241", softBorder: "#182632" } },
     violet: { name: "Фиолетовый", theme: { background: "#0e0b18", surface: "#181329", secondary: "#241a3a", text: "#f6f0ff", muted: "#b5a7cb", accent: "#b78cff", positive: "#71d9ae", warning: "#f1bd77", danger: "#f28e9b", border: "#45365e", softBorder: "#302643" } },
     vrchat: { name: "В стиле VRChat", theme: { background: "#141821", surface: "#1c222c", secondary: "#292f3a", text: "#f5f6f8", muted: "#aeb7c3", accent: "#42cadd", positive: "#43d276", warning: "#efc46c", danger: "#f17878", border: "#384450", softBorder: "#2c3540", radius: 15 } },
+    ocean: { name: "Морской", theme: { background: "#071721", surface: "#0d2634", secondary: "#133549", text: "#f0f9fc", muted: "#a7c7d0", accent: "#72dcf2", positive: "#70ddb0", warning: "#f4c976", danger: "#fc8f91", border: "#31586a", softBorder: "#1e4052", font: "system", radius: 18 } },
+    rose: { name: "Розовый кварц", theme: { background: "#170e18", surface: "#281729", secondary: "#38243d", text: "#fff3fa", muted: "#d5b6c9", accent: "#f59bd3", positive: "#8bdab1", warning: "#eec78d", danger: "#ff8ea4", border: "#69485f", softBorder: "#4a3045", font: "system", radius: 20 } },
+    graphite: { name: "Графит", theme: { background: "#0d1013", surface: "#181d22", secondary: "#242b32", text: "#f2f5f7", muted: "#b7c3ca", accent: "#a9d2e6", positive: "#8bdd9e", warning: "#f2cf82", danger: "#f2948b", border: "#53606a", softBorder: "#313b44", font: "mono", radius: 5 } },
+    neon: { name: "Неон", theme: { background: "#080a12", surface: "#111728", secondary: "#1c2641", text: "#f5f8ff", muted: "#adb9d9", accent: "#adfa69", positive: "#65dfbd", warning: "#ffd279", danger: "#ff86b1", border: "#505381", softBorder: "#303856", font: "sans", radius: 8 } },
     forest: { name: "Лесной", theme: { background: "#07110f", surface: "#0d1e19", secondary: "#153027", text: "#eafaf1", muted: "#9db8aa", accent: "#69dca4", positive: "#79dc80", warning: "#edc67f", danger: "#ef8980", border: "#2c5143", softBorder: "#1c382f" } },
     ember: { name: "Тёплый", theme: { background: "#150d0b", surface: "#251713", secondary: "#35231c", text: "#fff1e8", muted: "#cbb2a3", accent: "#f5a86c", positive: "#a9d987", warning: "#ffd080", danger: "#f18a80", border: "#604333", softBorder: "#402c24" } }
   });
@@ -58,7 +63,7 @@
     let active = 0;
     try {
       const saved = JSON.parse(root.localStorage.getItem(STORAGE_KEY) || "null");
-      profiles = Array.isArray(saved?.profiles) ? saved.profiles.slice(0, 8).map(normalizeProfile) : [];
+      profiles = Array.isArray(saved?.profiles) ? saved.profiles.slice(0, MAX_PROFILES).map(normalizeProfile) : [];
       active = Math.floor(bounded(saved?.active || 0, 0, Math.max(0, profiles.length - 1)));
     } catch { /* Invalid local settings use defaults. */ }
     if (!profiles.length) profiles = [normalizeProfile({})];
@@ -116,7 +121,7 @@
     const presetButton = make("button", "", "Создать из темы");
     presetButton.type = "button";
     presetButton.addEventListener("click", () => {
-      if (profiles.length >= 8) { status.textContent = "Максимум 8 профилей"; return; }
+      if (profiles.length >= MAX_PROFILES) { status.textContent = "Максимум 12 профилей"; return; }
       const preset = PRESETS[presetSelect.value];
       if (!preset) return;
       profiles.push(normalizeProfile(preset)); active = profiles.length - 1; saveAndApply(); syncControls();
@@ -254,7 +259,8 @@
       if (variables.length) sheet.insertRule(`:root {${variables.join(";")}}`, sheet.cssRules.length);
       const dockPadding = !panel.hidden && root.innerWidth >= 1180 ? 386 : 0;
       sheet.insertRule(`.appShell {padding-right:${dockPadding}px}`, sheet.cssRules.length);
-      if (theme.surface) sheet.insertRule(`.panel {background:${theme.surface}}`, sheet.cssRules.length);
+      if (theme.surface) sheet.insertRule(`.panel,.sessionFilters {background:${theme.surface}}`, sheet.cssRules.length);
+      if (theme.secondary) sheet.insertRule(`.metricGrid article {background:${theme.secondary}}`, sheet.cssRules.length);
       if (theme.radius !== undefined) sheet.insertRule(`.panel,dialog {border-radius:${theme.radius}px}`, sheet.cssRules.length);
       for (const [selector, setting] of Object.entries(current().elements)) {
         const styles = [];
@@ -310,7 +316,7 @@
       }
     }
     function newProfile() {
-      if (profiles.length >= 8) { status.textContent = "Максимум 8 профилей"; return; }
+      if (profiles.length >= MAX_PROFILES) { status.textContent = "Максимум 12 профилей"; return; }
       profiles.push(normalizeProfile({ ...current(), name: `Профиль ${profiles.length + 1}` })); active = profiles.length - 1; saveAndApply(); syncControls();
     }
     function deleteProfile() {
@@ -328,7 +334,7 @@
         try {
           const file = input.files?.[0]; if (!file || file.size > 256 * 1024) throw new Error("size");
           const data = JSON.parse(await file.text()); if (data.schema !== 1 || !data.profile) throw new Error("schema");
-          if (profiles.length >= 8) throw new Error("count");
+          if (profiles.length >= MAX_PROFILES) throw new Error("count");
           profiles.push(normalizeProfile(data.profile)); active = profiles.length - 1; saveAndApply(); syncControls();
         } catch { status.textContent = "Нужен профиль до 256 КБ; максимум 8 профилей."; }
       }); input.click();

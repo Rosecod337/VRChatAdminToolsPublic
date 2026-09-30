@@ -183,6 +183,52 @@ try {
     if (persisted.exceptionDetails) throw new Error(persisted.exceptionDetails.exception?.description || persisted.exceptionDetails.text);
     console.log(JSON.stringify(persisted.result.value));
   }
+  if (process.env.BETA_PREVIEW_APPEARANCE_PRESET) {
+    const presetKey = JSON.stringify(process.env.BETA_PREVIEW_APPEARANCE_PRESET);
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const key = ${presetKey};
+        const preset = window.betaUiCustomizer?.PRESETS[key];
+        if (!preset) throw new Error('Unknown appearance preset: ' + key);
+        document.querySelector('.uiCustomLauncher').click();
+        const select = document.querySelector('.uiCustomPreset select');
+        const create = document.querySelector('.uiCustomPreset button');
+        if (!select || !create) throw new Error('Appearance preset controls are missing');
+        select.value = key;
+        create.click();
+        document.querySelector('.uiCustomHeading button').click();
+        const accent = getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim();
+        if (accent !== preset.theme.accent) throw new Error('Appearance preset was not applied: ' + accent);
+        const rgb = (hex) => 'rgb(' + hex.slice(1).match(/../g).map((value) => parseInt(value, 16)).join(', ') + ')';
+        const cardColor = getComputedStyle(document.querySelector('.metricGrid article')).backgroundColor;
+        const filterColor = getComputedStyle(document.querySelector('.sessionFilters')).backgroundColor;
+        if (cardColor !== rgb(preset.theme.secondary) || filterColor !== rgb(preset.theme.surface)) throw new Error('Preset did not recolor primary cards');
+        return { preset: key, accent, cardColor, font: getComputedStyle(document.documentElement).fontFamily };
+      })()`,
+      returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
+  if (process.env.BETA_PREVIEW_ALL_PRESETS_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        document.querySelector('.uiCustomLauncher').click();
+        const select = document.querySelector('.uiCustomPreset select');
+        const create = document.querySelector('.uiCustomPreset button');
+        const keys = Object.keys(window.betaUiCustomizer.PRESETS);
+        for (const key of keys) { select.value = key; create.click(); }
+        const saved = JSON.parse(localStorage.getItem('betaInterfaceProfilesV1'));
+        if (saved.profiles.length !== keys.length + 1 || saved.profiles.at(-1).name !== window.betaUiCustomizer.PRESETS[keys.at(-1)].name) {
+          throw new Error('Not all ready-made themes can be saved');
+        }
+        return { readyThemes: keys.length, savedProfiles: saved.profiles.length };
+      })()`,
+      returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
   if (process.env.BETA_PREVIEW_SOCIAL_QA === "1") {
     const result = await cdp.send("Runtime.evaluate", {
       expression: `(async () => {

@@ -35,3 +35,20 @@ test("built-in appearance presets contain only accepted theme values", () => {
     assert.deepEqual(normalizeProfile(preset).theme, preset.theme);
   }
 });
+
+test("ready-made themes keep text and accents legible on panels", () => {
+  const luminance = (hex) => {
+    const [red, green, blue] = hex.slice(1).match(/../gu).map((part) => Number.parseInt(part, 16) / 255)
+      .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  };
+  const contrast = (left, right) => {
+    const values = [luminance(left), luminance(right)].sort((a, b) => b - a);
+    return (values[0] + 0.05) / (values[1] + 0.05);
+  };
+  for (const [key, preset] of Object.entries(PRESETS)) {
+    for (const role of ["text", "muted", "accent"]) {
+      assert.ok(contrast(preset.theme[role], preset.theme.surface) >= 4.5, `${key} ${role} is difficult to read`);
+    }
+  }
+});
