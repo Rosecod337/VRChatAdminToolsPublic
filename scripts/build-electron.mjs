@@ -82,8 +82,9 @@ if (appName === "client" || modernClient) {
   await copyWithDeps("ws");
 }
 
-await obfuscate(path.join(stageDir, "src"));
-if (appName === "client" || modernClient) {
+// Heavy control-flow transforms multiply the work in the public log-scanning hot path.
+await obfuscate(path.join(stageDir, "src"), modernClient ? ["log-tailer.js"] : []);
+if (appName === "client") {
   await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
 }
 
@@ -97,8 +98,8 @@ if (appName === "client" || appName === "client-stable") {
   await verifyLatestYml(packageJson);
 }
 
-async function obfuscate(target) {
-  const files = await collectJsFiles(target);
+async function obfuscate(target, excludedNames = []) {
+  const files = (await collectJsFiles(target)).filter((file) => !excludedNames.includes(path.basename(file)));
   console.log(`\nObfuscating ${files.length} JavaScript files...`);
 
   for (const file of files) {

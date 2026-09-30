@@ -6,6 +6,26 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
+const { performance } = require("node:perf_hooks");
+
+const PARSE_SLICE_LINES = 256;
+const PARSE_SLICE_MS = 8;
+
+async function visitParsedLines(lines, lineParser, visit, checkActive = () => {}) {
+  let sliceStartedAt = performance.now();
+  for (let index = 0; index < lines.length; index += 1) {
+    visit(lineParser.parseLine(lines[index]), index);
+    if ((index + 1) % PARSE_SLICE_LINES === 0) {
+      checkActive();
+      if (performance.now() - sliceStartedAt >= PARSE_SLICE_MS) {
+        await new Promise((resolve) => setImmediate(resolve));
+        checkActive();
+        sliceStartedAt = performance.now();
+      }
+    }
+  }
+  checkActive();
+}
 
 let parser;
 try {
@@ -155,6 +175,7 @@ class LogTailer extends EventEmitter {
     this.rotationTimer = null;
     this.running = false;
     this.readInFlight = false;
+    this.analysisGeneration = 0;
     this.parser = typeof parser.createParser === "function" ? parser.createParser() : parser;
   }
 
@@ -173,6 +194,7 @@ class LogTailer extends EventEmitter {
 
   async beginFollowing(filePath, options = {}) {
     const stat = await fsp.stat(filePath);
+    options.checkActive?.();
     this.currentFile = filePath;
     this.position = Math.min(Math.max(Number(options.position) || 0, 0), stat.size);
     this.carry = "";
@@ -197,6 +219,7 @@ class LogTailer extends EventEmitter {
   }
 
   async stop() {
+    this.analysisGeneration += 1;
     if (this.timer) clearInterval(this.timer);
     if (this.rotationTimer) clearInterval(this.rotationTimer);
     this.timer = null;
@@ -259,6 +282,10 @@ class LogTailer extends EventEmitter {
     const target = filePath || explicitFilePaths[explicitFilePaths.length - 1] || this.currentFile || await findLatestLogFile();
     if (!target) throw new Error("VRChat log file not found");
     await this.stop();
+    const generation = ++this.analysisGeneration;
+    const checkActive = () => {
+      if (generation !== this.analysisGeneration) throw new Error("Log analysis cancelled");
+    };
 
     const mode = String(options.mode || "recent").toLowerCase();
     const maxFiles = clampInt(options.maxFiles ?? 3, 1, 60);
@@ -285,16 +312,22 @@ class LogTailer extends EventEmitter {
     const snapshots = new Map();
     for (const log of selectedLogs) {
       const snapshot = mode === "current" && selectedLogs.length === 1
-        ? await readCurrentInstanceSnapshot(log.fullPath, maxLines, maxBytesPerFile, options.expectedLocation)
+        ? await readCurrentInstanceSnapshot(log.fullPath, maxLines, maxBytesPerFile, options.expectedLocation, checkActive)
         : await readLastLinesSnapshot(log.fullPath, Math.ceil(maxLines / selectedLogs.length), maxBytesPerFile);
+      checkActive();
       snapshots.set(path.resolve(log.fullPath).toLowerCase(), snapshot);
       lines = lines.concat(snapshot.lines);
       if (mode !== "current" && lines.length > maxLines) lines = lines.slice(-maxLines);
     }
 
+    const currentSnapshot = mode === "current" && selectedLogs.length === 1
+      ? snapshots.get(path.resolve(selectedLogs[0].fullPath).toLowerCase())
+      : null;
     const boundary = options.scope === "all"
       ? { startIndex: 0, type: "full-history" }
-      : findCurrentInstanceStartIndex(lines, options.expectedLocation);
+      : currentSnapshot?.boundaryType
+        ? { startIndex: 0, type: currentSnapshot.boundaryType }
+        : await findCurrentInstanceStartIndexAsync(lines, options.expectedLocation, checkActive);
     const startIndex = boundary.startIndex;
     const boundaryType = boundary.type;
 
@@ -302,19 +335,21 @@ class LogTailer extends EventEmitter {
     this.emit("analysis:start");
 
     const analysisParser = typeof parser.createParser === "function" ? parser.createParser() : parser;
-    for (const line of scopedLines) {
-      const event = analysisParser.parseLine(line);
+    await visitParsedLines(scopedLines, analysisParser, (event) => {
       if (event) this.emit("event", event);
-    }
+    }, checkActive);
 
     const liveFile = await findLatestLogFile(directory) || selectedLogs[selectedLogs.length - 1].fullPath;
+    checkActive();
     const liveSnapshot = snapshots.get(path.resolve(liveFile).toLowerCase());
     await this.beginFollowing(liveFile, {
       position: liveSnapshot?.endPosition ?? 0,
       parser: liveSnapshot ? analysisParser : null,
       resetParser: !liveSnapshot,
-      message: "Анализ завершён, новые события отслеживаются автоматически"
+      message: "Анализ завершён, новые события отслеживаются автоматически",
+      checkActive
     });
+    checkActive();
 
     this.emit("status", {
       running: true,
@@ -363,7 +398,7 @@ async function readLastLinesSnapshot(filePath, limitLines, maxBytes = 4 * 1024 *
   };
 }
 
-async function readCurrentInstanceSnapshot(filePath, limitLines, maxBytes, expectedLocation = null) {
+async function readCurrentInstanceSnapshot(filePath, limitLines, maxBytes, expectedLocation = null, checkActive = () => {}) {
   const stat = await fsp.stat(filePath);
   if (stat.size === 0) return { lines: [], endPosition: 0 };
 
@@ -374,13 +409,14 @@ async function readCurrentInstanceSnapshot(filePath, limitLines, maxBytes, expec
   while (true) {
     const start = Math.max(0, stat.size - scanBytes);
     const raw = await readRange(filePath, start, stat.size - 1);
+    checkActive();
     lines = raw.split(/\r?\n/u);
     if (start > 0) lines.shift();
 
-    const boundary = findCurrentInstanceStartIndex(lines, expectedLocation);
+    const boundary = await findCurrentInstanceStartIndexAsync(lines, expectedLocation, checkActive);
     if (boundary.type) {
       const scoped = lines.slice(boundary.startIndex);
-      return { lines: scoped, endPosition: stat.size };
+      return { lines: scoped, endPosition: stat.size, boundaryType: boundary.type };
     }
 
     if (start === 0 || scanBytes >= maxScanBytes) break;
@@ -394,14 +430,25 @@ async function readCurrentInstanceSnapshot(filePath, limitLines, maxBytes, expec
 }
 
 function findCurrentInstanceStartIndex(lines, expectedLocation = null) {
+  const boundaryParser = typeof parser.createParser === "function" ? parser.createParser() : parser;
+  const events = lines.map((line) => boundaryParser.parseLine(line));
+  return boundaryFromEvents(events, expectedLocation);
+}
+
+async function findCurrentInstanceStartIndexAsync(lines, expectedLocation = null, checkActive = () => {}) {
+  const boundaryParser = typeof parser.createParser === "function" ? parser.createParser() : parser;
+  const events = new Array(lines.length);
+  await visitParsedLines(lines, boundaryParser, (event, index) => { events[index] = event; }, checkActive);
+  return boundaryFromEvents(events, expectedLocation);
+}
+
+function boundaryFromEvents(events, expectedLocation) {
   let startIndex = 0;
   let boundaryType = null;
   const expected = normalizeExpectedLocation(expectedLocation);
-  const boundaryParser = typeof parser.createParser === "function" ? parser.createParser() : parser;
-  const events = lines.map((line) => boundaryParser.parseLine(line));
 
   if (expected.worldId || expected.location) {
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index];
       if (!event || event.type !== "world-joining") continue;
       if (matchesExpectedLocation(event, expected)) {
@@ -413,7 +460,7 @@ function findCurrentInstanceStartIndex(lines, expectedLocation = null) {
   }
 
   if (!boundaryType) {
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index];
       if (event?.type === "world-joined") {
         startIndex = index;
@@ -424,7 +471,7 @@ function findCurrentInstanceStartIndex(lines, expectedLocation = null) {
   }
 
   if (!boundaryType) {
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index];
       if (event?.type === "world-entering" || event?.type === "world-joining") {
         startIndex = index;

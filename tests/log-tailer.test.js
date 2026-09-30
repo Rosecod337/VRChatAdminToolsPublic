@@ -252,6 +252,51 @@ test("current instance analysis expands past a large active log tail to find the
   }
 });
 
+test("large current-instance replay yields to the event loop without dropping events", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-analysis-responsive-"));
+  const logFile = path.join(directory, "output_log_responsive.txt");
+  const tailer = new LogTailer();
+  context.after(async () => {
+    await tailer.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await fs.writeFile(logFile, [
+    "2026.09.30 10:00:00 Debug - [Behaviour] Joining wrld_demo:1",
+    "2026.09.30 10:00:01 Debug - [Behaviour] OnPlayerJoined Demo (usr_demo)",
+    ...Array(50000).fill("2026.09.30 10:00:02 Debug - Unrelated log output"),
+    "2026.09.30 10:00:03 Debug - [Behaviour] OnPlayerLeft Demo (usr_demo)", ""
+  ].join("\n"));
+  let heartbeatRan = false;
+  const events = [];
+  tailer.on("analysis:start", () => setImmediate(() => { heartbeatRan = true; }));
+  tailer.on("event", (event) => {
+    if (event.type === "player-left") assert.equal(heartbeatRan, true);
+    events.push(event.type);
+  });
+  await tailer.analyzeCurrentInstance(logFile, { mode: "current" });
+  assert.deepEqual(events, ["world-joining", "player-joined", "player-left"]);
+  assert.equal(tailer.running, true);
+});
+
+test("stopping a yielded analysis prevents it from restarting monitoring", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-analysis-cancel-"));
+  const logFile = path.join(directory, "output_log_cancel.txt");
+  const tailer = new LogTailer();
+  context.after(async () => {
+    await tailer.stop();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await fs.writeFile(logFile, [
+    "2026.09.30 10:00:00 Debug - [Behaviour] Joining wrld_demo:1",
+    ...Array(50000).fill("2026.09.30 10:00:02 Debug - Unrelated log output"), ""
+  ].join("\n"));
+  tailer.on("analysis:start", () => setImmediate(() => { void tailer.stop(); }));
+  await assert.rejects(tailer.analyzeCurrentInstance(logFile, { mode: "current" }), /analysis cancelled/u);
+  assert.equal(tailer.running, false);
+  assert.equal(tailer.timer, null);
+  assert.equal(tailer.rotationTimer, null);
+});
+
 test("truncated active log resets the parser and reads the replacement content", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "vrchat-truncate-"));
   const logFile = path.join(directory, "output_log_2026-07-09_12-00-00.txt");
