@@ -494,7 +494,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false,
+      backgroundThrottling: isBetaClient(),
       devTools: !app.isPackaged
     }
   });

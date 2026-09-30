@@ -817,6 +817,35 @@ test("beta records complete friend snapshots locally without false removals", (c
   assert.equal(backup.socialEvents.length, 1);
 });
 
+test("friend feed ignores offline presence and fields missing from partial snapshots", (context) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-friend-dedupe-"));
+  const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));
+  context.after(() => {
+    store.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  const userId = "usr_demo";
+  const profile = { userId, displayName: "Demo", status: "ask me", statusDescription: "Unchanged", avatarId: "avtr_demo", bio: "Unchanged bio", location: "wrld_demo:1", online: true };
+  store.recordSocialSnapshot({ completeFriends: true, friends: [profile] });
+  assert.equal(store.recordSocialPipelineEvent({ type: "friend-offline", content: { userId, user: { status: "offline" } } }).events, 1);
+  assert.equal(store.recordSocialPipelineEvent({ type: "friend-update", content: { userId, user: { displayName: "Demo" } } }).events, 0);
+  const partial = store.recordSocialSnapshot({
+    completeFriends: true,
+    friends: [{ userId, displayName: "Demo", status: "offline", statusDescription: "", avatarId: "", bio: "", online: false,
+      _known: { status: true, statusDescription: false, avatarId: false, avatarImageUrl: false, bio: false, location: false, platform: false } }]
+  });
+  assert.equal(partial.events, 0);
+  assert.equal(store.recordSocialPipelineEvent({ type: "friend-online", content: { userId, user: { status: "ask me", location: "wrld_demo:1" } } }).events, 1);
+  assert.equal(store.recordSocialSnapshot({ completeFriends: true, friends: [profile] }).events, 0);
+  const saved = store.exportData().socialFriends[0];
+  assert.equal(saved.status, "ask me");
+  assert.equal(saved.status_description, "Unchanged");
+  assert.deepEqual(store.listSocialEvents().map((event) => event.event_type).sort(), ["offline", "online"]);
+  assert.equal(store.recordSocialPipelineEvent({ type: "friend-update", content: { userId, user: { currentAvatar: "", currentAvatarImageUrl: "https://api.vrchat.cloud/api/1/image/file_other/1/256" } } }).events, 0);
+  assert.equal(store.recordSocialPipelineEvent({ type: "friend-update", content: { userId, user: { statusDescription: "Updated" } } }).events, 1);
+  assert.equal(store.listSocialEvents()[0].event_type, "status-description");
+});
+
 test("beta records realtime friend profile and avatar changes from the VRChat pipeline", (context) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vrchat-companion-pipeline-"));
   const store = new LocalCompanionStore(path.join(tempRoot, "companion.sqlite"));

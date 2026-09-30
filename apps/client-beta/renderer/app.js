@@ -2109,7 +2109,10 @@ function setSessionSection(section) {
   localStorage.setItem("betaSessionSection", section);
   renderSession();
   if (section === "avatars") void refreshAvatars();
-  if (section === "friends") void refreshFriendActivity();
+  if (section === "friends") {
+    renderFriendActivityFeed(true);
+    void refreshFriendActivity();
+  }
   if (section === "feed") requestAnimationFrame(() => {
     renderVirtualEventRows(true);
     renderVirtualPlayerRows(true);
@@ -2173,16 +2176,12 @@ function friendPortraitElement(source = {}, extraClass = "") {
   return portrait;
 }
 
-function renderFriendActivityFeed() {
+function renderFriendActivityFeed(force = false) {
   if (!friendActivityFeed) return;
   const rows = state.socialEvents.slice(0, 500);
   if (friendActivityCount) friendActivityCount.textContent = `${rows.length} записей`;
-  if (!rows.length) {
-    friendActivityFeed.replaceChildren(emptyMessage("Подключите аккаунт VRChat. Новые события появятся, пока приложение запущено."));
-    return;
-  }
-  const fragment = document.createDocumentFragment();
-  for (const entry of rows) {
+  let friendsById;
+  const createRow = (entry) => {
     const tone = entry.event_type === "offline" || entry.event_type === "friend-removed"
       ? " left"
       : entry.event_type === "location" ? " world" : "";
@@ -2191,7 +2190,8 @@ function renderFriendActivityFeed() {
     row.dataset.socialProfile = entry.user_id;
     const time = adminElement("time", "", eventTime({ timestamp: entry.occurred_at }));
     const dot = adminElement("i");
-    const friend = (state.social?.friends || []).find((item) => item.userId === entry.user_id);
+    friendsById ??= new Map((state.social?.friends || []).map((item) => [item.userId, item]));
+    const friend = friendsById.get(entry.user_id);
     const portrait = friendPortraitElement({ ...entry.snapshot, ...friend, displayName: entry.display_name, userId: entry.user_id });
     const identity = adminElement("div", "eventIdentity");
     identity.append(
@@ -2201,9 +2201,10 @@ function renderFriendActivityFeed() {
     );
     const detail = userTextElement("span", "", entry.current_value || entry.previous_value || "—");
     row.append(time, dot, portrait, identity, detail);
-    fragment.append(row);
-  }
-  friendActivityFeed.replaceChildren(fragment);
+    return row;
+  };
+  const rowHeight = state.uiSettings.density === "compact" ? 48 : state.uiSettings.density === "vr" ? 64 : 54;
+  renderVirtualRows(friendActivityFeed, rows, rowHeight, createRow, "Подключите аккаунт VRChat. Новые события появятся, пока приложение запущено.", force);
 }
 
 function renderFriendPipelineStatus(pipeline = {}) {
@@ -2237,7 +2238,7 @@ async function refreshFriendActivity(force = false) {
     }
   }
   catch { state.socialEvents = []; }
-  if (state.sessionSection === "friends") renderFriendActivityFeed();
+  if (state.sessionSection === "friends") renderFriendActivityFeed(true);
 }
 
 function openAvatarFromEvent(avatarKey) {
@@ -9426,6 +9427,7 @@ window.addEventListener("resize", () => {
 });
 
 eventFeed?.addEventListener("scroll", () => renderVirtualEventRows(), { passive: true });
+friendActivityFeed?.addEventListener("scroll", () => renderFriendActivityFeed(), { passive: true });
 playerList?.addEventListener("scroll", () => renderVirtualPlayerRows(), { passive: true });
 avatarSessionList?.addEventListener("scroll", () => renderAvatarRows(), { passive: true });
 ownerList?.addEventListener("scroll", () => renderOwnerList(), { passive: true });
@@ -9470,12 +9472,26 @@ function resetAnalysisEvents() {
 }
 
 api?.onLogEvent(addEvent);
-api?.onSocialActivity?.(() => {
-  api.listLocalSocialEvents(500).then((events) => {
-    state.socialEvents = Array.isArray(events) ? events : [];
-    if (state.view === "social" && state.socialTab === "journal") renderSocial();
-    if (state.view === "session" && state.sessionSection === "friends") renderFriendActivityFeed();
-  }).catch(() => {});
+let socialActivityRefreshTimer = 0;
+function scheduleSocialActivityRefresh() {
+  if (!api?.listLocalSocialEvents || document.hidden || appView.hidden || socialActivityRefreshTimer) return;
+  socialActivityRefreshTimer = window.setTimeout(() => {
+    socialActivityRefreshTimer = 0;
+    api.listLocalSocialEvents(500).then((events) => {
+      state.socialEvents = Array.isArray(events) ? events : [];
+      if (state.view === "social" && state.socialTab === "journal") renderSocial();
+      if (state.view === "session" && state.sessionSection === "friends") renderFriendActivityFeed(true);
+    }).catch(() => {});
+  }, 250);
+}
+api?.onSocialActivity?.(scheduleSocialActivityRefresh);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && socialActivityRefreshTimer) {
+    window.clearTimeout(socialActivityRefreshTimer);
+    socialActivityRefreshTimer = 0;
+  } else if (!document.hidden) {
+    scheduleSocialActivityRefresh();
+  }
 });
 api?.onFriendPipelineStatus?.((status) => renderFriendPipelineStatus(status));
 api?.onAnalysisStart?.(() => {

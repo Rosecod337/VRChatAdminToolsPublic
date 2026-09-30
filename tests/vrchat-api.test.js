@@ -187,6 +187,9 @@ test("fetchSocialSummary returns authenticated friends and public groups and cac
   assert.equal(result.user.displayName, "Rose337");
   assert.equal(result.friends[0].displayName, "Friend");
   assert.equal(result.friends[0].profileImageUrl, "https://api.vrchat.cloud/api/1/image/file_demo/1/256");
+  assert.equal(result.friends[0]._known.statusDescription, false);
+  assert.equal(result.friends[0]._known.avatarId, false);
+  assert.equal(result.friends[0]._known.avatarImageUrl, true);
   assert.equal(result.groups[0].name, "Example Group");
   assert.equal(result.groups[0].iconUrl, "https://api.vrchat.cloud/api/1/image/file_group/1/256");
   assert.equal(result.completeFriends, true);

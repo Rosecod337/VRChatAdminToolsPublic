@@ -1047,6 +1047,15 @@ function normalizeFriend(data, offlineHint = false) {
   const userId = String(data?.id || "").trim();
   if (!USER_ID_RE.test(userId)) return null;
   const location = String(data?.location || "");
+  const known = {
+    status: typeof data?.status === "string",
+    statusDescription: typeof data?.statusDescription === "string",
+    location: typeof data?.location === "string",
+    platform: typeof data?.platform === "string" || typeof data?.last_platform === "string",
+    bio: typeof data?.bio === "string",
+    avatarId: typeof data?.currentAvatar === "string" || typeof data?.currentAvatarId === "string",
+    avatarImageUrl: typeof data?.currentAvatarImageUrl === "string" || typeof data?.currentAvatarThumbnailImageUrl === "string"
+  };
   return {
     userId,
     displayName: String(data?.displayName || data?.username || userId).slice(0, 160),
@@ -1064,7 +1073,8 @@ function normalizeFriend(data, offlineHint = false) {
     avatarImageUrl: String(data?.currentAvatarImageUrl || data?.currentAvatarThumbnailImageUrl || "").slice(0, 1000),
     profileImageUrl: String(data?.profilePicOverride || data?.userIcon || data?.currentAvatarThumbnailImageUrl || data?.currentAvatarImageUrl || "").slice(0, 1000),
     allowAvatarCopying: Boolean(data?.allowAvatarCopying),
-    profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`
+    profileUrl: `https://vrchat.com/home/user/${encodeURIComponent(userId)}`,
+    _known: known
   };
 }
 

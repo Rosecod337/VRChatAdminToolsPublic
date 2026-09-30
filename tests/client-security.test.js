@@ -104,11 +104,11 @@ test("always-on-top opacity stays behind IPC and resets when unpinned", () => {
   assert.match(main, /setOpacity\(alwaysOnTopEnabled \? preferredWindowOpacity : 1\)/u);
 });
 
-test("background log events are coalesced until the window is visible", () => {
+test("legacy renderer coalesces hidden log events while modern windows allow background throttling", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "../apps/client/renderer/renderer.js"), "utf8");
   const main = fs.readFileSync(path.join(__dirname, "../apps/client/src/main.js"), "utf8");
 
-  assert.match(main, /backgroundThrottling:\s*false/u);
+  assert.match(main, /backgroundThrottling:\s*isBetaClient\(\)/u);
   assert.match(renderer, /if \(document\.hidden \|\| state\.renderSuspended\) \{\s*state\.renderDeferred = true;/u);
   assert.match(renderer, /function scheduleResumeRefresh\(\)/u);
   assert.match(renderer, /Promise\.allSettled\(\[/u);

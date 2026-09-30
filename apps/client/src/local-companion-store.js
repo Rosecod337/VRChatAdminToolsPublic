@@ -44,6 +44,11 @@ function snapshotObject(value) {
   }
 }
 
+function socialFieldKnown(friend, key) {
+  if (typeof friend?._known?.[key] === "boolean") return friend._known[key];
+  return Object.hasOwn(friend || {}, key) && friend[key] !== undefined;
+}
+
 function searchPattern(value) {
   return `%${String(value || "").trim().slice(0, 120).replace(/[\\%_]/gu, "\\$&")}%`;
 }
@@ -893,14 +898,23 @@ class LocalCompanionStore {
         if (!USER_ID_RE.test(userId)) continue;
         seen.add(userId);
         const displayName = String(friend?.displayName || userId).slice(0, 160);
-        const status = String(friend?.status || "offline").slice(0, 60);
-        const statusDescription = String(friend?.statusDescription || "").slice(0, 300);
-        const location = String(friend?.location || "").slice(0, 600);
-        const platform = String(friend?.platform || "").slice(0, 80);
-        const online = typeof friend?.online === "boolean" ? friend.online : (status !== "offline" && status !== "");
         const previous = previousById.get(userId);
         const previousSnapshot = snapshotObject(previous?.snapshot);
-        const safeSnapshot = snapshotJson(friend);
+        const reportedStatus = socialFieldKnown(friend, "status") ? String(friend.status || "").slice(0, 60) : "";
+        const online = typeof friend?.online === "boolean" ? friend.online : (reportedStatus !== "offline" && reportedStatus !== "");
+        const previousStatus = String(previous?.status || "");
+        const status = !online && previousStatus && previousStatus !== "offline"
+          ? previousStatus
+          : (reportedStatus && reportedStatus !== "offline" ? reportedStatus : (previousStatus && previousStatus !== "offline" ? previousStatus : (online ? "active" : "offline")));
+        const statusDescription = String(socialFieldKnown(friend, "statusDescription") ? friend.statusDescription : previous?.status_description || "").slice(0, 300);
+        const location = String(socialFieldKnown(friend, "location") ? friend.location : (online ? previous?.location : "offline") || "").slice(0, 600);
+        const platform = String(socialFieldKnown(friend, "platform") ? friend.platform : previous?.platform || "").slice(0, 80);
+        const avatarId = String(friend?.avatarId || previousSnapshot.avatarId || "").slice(0, 120);
+        const avatarImageUrl = String(friend?.avatarImageUrl || previousSnapshot.avatarImageUrl || "").slice(0, 1_000);
+        const bio = String(socialFieldKnown(friend, "bio") ? friend.bio : previousSnapshot.bio || "").slice(0, 2_000);
+        const known = Object.fromEntries(["status", "statusDescription", "location", "platform", "avatarId", "avatarImageUrl", "bio"]
+          .map((key) => [key, previousSnapshot._known?.[key] === true || socialFieldKnown(friend, key)]));
+        const safeSnapshot = snapshotJson({ ...previousSnapshot, ...friend, _known: known, displayName, status, statusDescription, location, platform, online, avatarId, avatarImageUrl, bio });
         upsert.run(userId, displayName, status, statusDescription, location, platform, online ? 1 : 0, previous?.first_seen_at || occurredAt, occurredAt, safeSnapshot);
         if (!baselineReady) continue;
         if (!previous && complete) {
@@ -914,7 +928,7 @@ class LocalCompanionStore {
           insertEvent.run(online ? "online" : "offline", userId, displayName, previous.online ? "online" : "offline", online ? "online" : "offline", occurredAt, safeSnapshot);
           eventCount += 1;
         }
-        if (online && previous.location !== location) {
+        if (online && previous.online && previous.location && location && previous.location !== location) {
           insertEvent.run("location", userId, displayName, previous.location, location, occurredAt, safeSnapshot);
           eventCount += 1;
         }
@@ -922,13 +936,13 @@ class LocalCompanionStore {
           insertEvent.run("renamed", userId, displayName, previous.display_name, displayName, occurredAt, safeSnapshot);
           eventCount += 1;
         }
-        for (const [eventType, before, after] of [
-          ["status", onlineChanged ? status : previous.status, status],
-          ["status-description", previous.status_description, statusDescription],
-          ["avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, friend.avatarId || friend.avatarImageUrl],
-          ["bio", previousSnapshot.bio, friend.bio]
+        for (const [eventType, before, after, reliable] of [
+          ["status", previous.status, status, Boolean(previous.online) && online && socialFieldKnown(friend, "status")],
+          ["status-description", previous.status_description, statusDescription, socialFieldKnown(friend, "statusDescription") && (previousSnapshot._known?.statusDescription === true || Boolean(previous.status_description))],
+          ["avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, avatarId || avatarImageUrl, ((previousSnapshot.avatarId && avatarId && socialFieldKnown(friend, "avatarId")) || (!previousSnapshot.avatarId && !avatarId && previousSnapshot.avatarImageUrl && avatarImageUrl && socialFieldKnown(friend, "avatarImageUrl"))) && (previousSnapshot._known?.avatarId === true || previousSnapshot._known?.avatarImageUrl === true || Boolean(previousSnapshot.avatarId || previousSnapshot.avatarImageUrl))],
+          ["bio", previousSnapshot.bio, bio, socialFieldKnown(friend, "bio") && (previousSnapshot._known?.bio === true || Boolean(previousSnapshot.bio))]
         ]) {
-          if (String(before || "") === String(after || "")) continue;
+          if (!reliable || String(before || "") === String(after || "")) continue;
           insertEvent.run(eventType, userId, displayName, String(before || "").slice(0, 2_000), String(after || "").slice(0, 2_000), occurredAt, safeSnapshot);
           eventCount += 1;
         }
@@ -967,11 +981,20 @@ class LocalCompanionStore {
     const previous = this.database.prepare("SELECT * FROM local_social_friends WHERE user_id = ?").get(userId);
     const previousSnapshot = snapshotObject(previous?.snapshot);
     const displayName = String(user.displayName || previous?.display_name || userId).slice(0, 160);
-    const status = String(type === "friend-offline" ? "offline" : (user.status || previous?.status || (type === "friend-active" ? "active" : "online"))).slice(0, 60);
+    const previousStatus = String(previous?.status || "");
+    const reportedStatus = typeof user.status === "string" ? user.status : "";
+    const online = type === "friend-offline" ? false
+      : ["friend-online", "friend-location"].includes(type) ? true
+        : type === "friend-active" ? false
+          : typeof content.online === "boolean" ? content.online
+            : typeof user.online === "boolean" ? user.online
+              : previous ? Boolean(previous.online) : Boolean(reportedStatus && reportedStatus !== "offline");
+    const status = String(reportedStatus && reportedStatus !== "offline"
+      ? reportedStatus
+      : (previousStatus && previousStatus !== "offline" ? previousStatus : (online ? "active" : "offline"))).slice(0, 60);
     const statusDescription = String(user.statusDescription ?? previous?.status_description ?? "").slice(0, 300);
     const location = String(type === "friend-offline" ? "offline" : (content.location ?? user.location ?? previous?.location ?? "")).slice(0, 600);
     const platform = String(content.platform ?? user.platform ?? user.last_platform ?? previous?.platform ?? "").slice(0, 80);
-    const online = type === "friend-offline" ? false : (["friend-online", "friend-location"].includes(type) ? true : (type === "friend-active" ? false : (status !== "offline" && status !== "")));
     const safeSnapshot = {
       ...previousSnapshot,
       userId,
@@ -982,9 +1005,17 @@ class LocalCompanionStore {
       platform,
       online,
       bio: String(user.bio ?? previousSnapshot.bio ?? "").slice(0, 2_000),
-      avatarId: String(user.currentAvatar ?? user.currentAvatarId ?? previousSnapshot.avatarId ?? "").slice(0, 120),
-      avatarImageUrl: String(user.currentAvatarImageUrl ?? user.currentAvatarThumbnailImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000),
-      profileImageUrl: String(user.profilePicOverride ?? user.userIcon ?? user.currentAvatarThumbnailImageUrl ?? user.currentAvatarImageUrl ?? previousSnapshot.profileImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000)
+      avatarId: String(user.currentAvatar || user.currentAvatarId || previousSnapshot.avatarId || "").slice(0, 120),
+      avatarImageUrl: String(user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || previousSnapshot.avatarImageUrl || "").slice(0, 1_000),
+      profileImageUrl: String(user.profilePicOverride ?? user.userIcon ?? user.currentAvatarThumbnailImageUrl ?? user.currentAvatarImageUrl ?? previousSnapshot.profileImageUrl ?? previousSnapshot.avatarImageUrl ?? "").slice(0, 1_000),
+      _known: {
+        ...previousSnapshot._known,
+        status: previousSnapshot._known?.status === true || (typeof user.status === "string" && user.status !== "offline"),
+        statusDescription: previousSnapshot._known?.statusDescription === true || typeof user.statusDescription === "string",
+        bio: previousSnapshot._known?.bio === true || typeof user.bio === "string",
+        avatarId: previousSnapshot._known?.avatarId === true || typeof user.currentAvatar === "string" || typeof user.currentAvatarId === "string",
+        avatarImageUrl: previousSnapshot._known?.avatarImageUrl === true || typeof user.currentAvatarImageUrl === "string" || typeof user.currentAvatarThumbnailImageUrl === "string"
+      }
     };
     const serialized = snapshotJson(safeSnapshot);
     const insertEvent = this.database.prepare(`
@@ -1001,12 +1032,15 @@ class LocalCompanionStore {
     if (previous) {
       const onlineChanged = Boolean(previous.online) !== online;
       addChange(online ? "online" : "offline", previous.online ? "online" : "offline", online ? "online" : "offline");
-      if (online) addChange("location", previous.location, location);
+      if (online && previous.online && previous.location && location && (content.location !== undefined || user.location !== undefined)) addChange("location", previous.location, location);
       addChange("renamed", previous.display_name, displayName);
-      addChange("status", onlineChanged ? status : previous.status, status);
-      addChange("status-description", previous.status_description, statusDescription);
-      addChange("avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, safeSnapshot.avatarId || safeSnapshot.avatarImageUrl);
-      addChange("bio", previousSnapshot.bio, safeSnapshot.bio);
+      if (previous.online && online && reportedStatus && reportedStatus !== "offline") addChange("status", previous.status, status);
+      if (typeof user.statusDescription === "string" && (previousSnapshot._known?.statusDescription === true || Boolean(previous.status_description))) addChange("status-description", previous.status_description, statusDescription);
+      if ((typeof user.currentAvatar === "string" || typeof user.currentAvatarId === "string" || typeof user.currentAvatarImageUrl === "string" || typeof user.currentAvatarThumbnailImageUrl === "string")
+        && (previousSnapshot._known?.avatarId === true || previousSnapshot._known?.avatarImageUrl === true || Boolean(previousSnapshot.avatarId || previousSnapshot.avatarImageUrl))) {
+        addChange("avatar", previousSnapshot.avatarId || previousSnapshot.avatarImageUrl, safeSnapshot.avatarId || safeSnapshot.avatarImageUrl);
+      }
+      if (typeof user.bio === "string" && (previousSnapshot._known?.bio === true || Boolean(previousSnapshot.bio))) addChange("bio", previousSnapshot.bio, safeSnapshot.bio);
     } else if (!["friend-add", "friend-delete"].includes(type)) {
       changes.push([online ? "online" : "offline", "", online ? "online" : "offline"]);
     }

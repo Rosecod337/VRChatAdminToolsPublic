@@ -261,6 +261,30 @@ try {
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     console.log(JSON.stringify(result.result.value));
   }
+  if (process.env.BETA_PREVIEW_FRIEND_FEED_QA === "1") {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(async () => {
+        const assert = (value, message) => { if (!value) throw new Error(message); };
+        selectView('session');
+        setSessionSection('friends');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        state.socialEvents = Array.from({ length: 500 }, (_, index) => ({ id: index + 1, event_type: 'status-description', user_id: 'usr_demo_' + index, display_name: 'Friend ' + index, current_value: 'Status ' + index, occurred_at: new Date().toISOString(), snapshot: {} }));
+        renderFriendActivityFeed(true);
+        const list = document.querySelector('[data-friend-activity-feed]');
+        const initialRows = list.querySelectorAll('.friendActivityRow').length;
+        assert(list.dataset.virtualTotal === '500' && initialRows > 0 && initialRows < 40, 'friend feed rendered too many rows: ' + initialRows);
+        list.scrollTop = list.scrollHeight - list.clientHeight;
+        list.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        assert(Number(list.dataset.virtualStart) > 400 && list.querySelector('.friendActivityRow')?.textContent.includes('Friend 4'), 'friend feed did not render the bottom window');
+        return { totalEvents: 500, initialDomRows: initialRows, scrolledStart: Number(list.dataset.virtualStart) };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    console.log(JSON.stringify(result.result.value));
+  }
   if (process.env.BETA_PREVIEW_NOTICES_QA === "1") {
     const result = await cdp.send("Runtime.evaluate", {
       expression: `(() => {
