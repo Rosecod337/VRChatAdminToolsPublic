@@ -542,11 +542,12 @@ textarea:focus-visible,
 .insightsRuntime span { color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .insightsRuntime strong { overflow: hidden; color: var(--cyan); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .paidProfile { margin-bottom: 14px; overflow: hidden; }
-.paidProfileHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 18px; border-bottom: 1px solid var(--line-soft); }
-.paidProfileHeader h2 { margin: 3px 0; }
-.paidProfileHeader p { margin: 0; color: var(--muted); font-size: 11px; }
+.paidProfile > .paidProfileHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px 20px; border-bottom: 1px solid var(--line-soft); }
+.paidProfileHeader h2 { margin: 5px 0 7px; font-size: 18px; line-height: 1.3; }
+.paidProfileHeader .eyebrow { font-size: 11px; }
+.paidProfileHeader p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .paidProfileCard { padding: 14px 18px; }
-.paidProfileCard > .emptyState { margin: 0; padding: 14px; }
+.paidProfileCard > .emptyState { margin: 0; padding: 16px; font-size: 14px; line-height: 1.5; }
 .paidProfileLayout { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(220px, 0.8fr); gap: 12px; max-width: 1220px; margin: 0 auto; }
 .paidProfileHero { overflow: hidden; border: 1px solid var(--line-soft); border-radius: 14px; background: #0a1017; }
 .paidProfileBanner { height: 132px; background: linear-gradient(130deg, var(--profile-banner, #15586a), #13202c 62%, #0b0f17); }
@@ -554,13 +555,13 @@ textarea:focus-visible,
 .paidProfileIdentity .friendPortrait { width: 86px; height: 86px; border: 3px solid #0a1017; border-radius: 50%; }
 .paidProfileIdentityCopy { display: grid; gap: 4px; min-width: 0; }
 .paidProfileIdentityCopy strong { overflow: hidden; font-size: 22px; text-overflow: ellipsis; white-space: nowrap; }
-.paidProfileIdentityCopy span { color: var(--muted); font-size: 12px; }
+.paidProfileIdentityCopy span { color: var(--muted); font-size: 13px; }
 .paidProfileStatus { justify-self: start; padding: 4px 9px; border: 1px solid rgba(88, 213, 141, 0.38); border-radius: 999px; color: var(--green) !important; }
 .paidProfileDetails { display: grid; gap: 12px; padding: 0 18px 17px; }
-.paidProfileDetails h3 { margin: 0 0 5px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.paidProfileDetails h3 { margin: 0 0 5px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
 .paidProfileDetails p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .paidProfileMeta { display: flex; flex-wrap: wrap; gap: 6px; }
-.paidProfileMeta span { padding: 5px 8px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; }
+.paidProfileMeta span { padding: 5px 8px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 12px; }
 .paidProfileSide { display: grid; align-content: start; gap: 12px; }
 .paidProfileSideCard { display: grid; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: #0a1017; }
 .paidProfileSideCard strong, .paidProfileSideCard span { overflow-wrap: anywhere; }
@@ -571,7 +572,7 @@ textarea:focus-visible,
 .paidProfileEditorGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 12px; }
 .paidProfileEditor { display: grid; align-content: start; gap: 10px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
 .paidProfileEditor h3 { margin: 0 0 2px; font-size: 13px; }
-.paidProfileEditor label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.paidProfileEditor label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
 .paidProfileEditor input, .paidProfileEditor textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: #080d12; color: var(--text); resize: vertical; }
 .paidProfileEditor .primaryButton { justify-self: start; }
 .paidProfile > .formStatus { padding: 0 18px 14px; }
@@ -1358,7 +1359,7 @@ button.insightRow:hover { border-color: var(--line-soft); background: rgba(88, 2
   .vrchatAccountFields,
   .vrchatTwoFactor { grid-template-columns: minmax(0, 1fr); }
   .vrchatTwoFactor .settingsDataActions { grid-column: auto; }
-  .paidProfileHeader { align-items: flex-start; flex-direction: column; }
+  .paidProfile > .paidProfileHeader { align-items: flex-start; flex-direction: column; }
 }
 
 /* Compact Builder owns the complete window layout, including narrow windows. */
