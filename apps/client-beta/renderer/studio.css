@@ -1,0 +1,111 @@
+/* Studio is an optional layout; compact Builder retains its own window rules. */
+html.uiThemeStudio, body.uiThemeStudio { min-width: 0; }
+.studioTopbar[hidden], .studioNavGroup[hidden] { display: none; }
+.studioTopbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-width: 0; padding: 14px 24px; border-bottom: 1px solid var(--line-soft); background: var(--panel); }
+.studioContext { display: grid; gap: 4px; min-width: 0; }
+.studioContextMode { color: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.studioContextTitle { color: var(--text); font-size: 16px; }
+.studioQuickSearch { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-width: 235px; padding: 9px 12px; border-color: var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+.studioQuickSearch kbd { color: var(--text); font-family: inherit; font-size: 10px; }
+
+body.uiThemeStudio .appShell.uiStudio { grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: 68px 38px minmax(0, 1fr); background: var(--bg); }
+body.uiThemeStudio .appShell.uiStudio .uiChrome { grid-row: 1 / -1; overflow: visible; border-color: var(--line-soft); background: var(--panel); box-shadow: none; }
+body.uiThemeStudio .appShell.uiStudio .studioTopbar { grid-column: 2; grid-row: 1; }
+body.uiThemeStudio .appShell.uiStudio .contentStatusBar { grid-column: 2; grid-row: 2; min-height: 38px; background: var(--bg); border-color: var(--line-soft); }
+body.uiThemeStudio .appShell.uiStudio .workspace { grid-column: 2; grid-row: 3; background: var(--bg); }
+body.uiThemeStudio .appShell.uiStudio .viewPanel { min-height: calc(var(--ui-viewport-height, 100vh) - 106px); padding: 22px 24px; }
+body.uiThemeStudio .appShell.uiStudio .appTitlebar { display: contents; }
+body.uiThemeStudio .appShell.uiStudio .brand { order: 0; padding: 16px 14px 12px; gap: 8px; }
+body.uiThemeStudio .appShell.uiStudio .brandMark { width: 34px; height: 34px; border: 0; box-shadow: none; }
+body.uiThemeStudio .appShell.uiStudio .brand > div { flex: 1 1 120px; }
+body.uiThemeStudio .appShell.uiStudio .brand strong { font-size: 13px; white-space: normal; line-height: 1.25; }
+body.uiThemeStudio .appShell.uiStudio .brand em { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+body.uiThemeStudio .appShell.uiStudio .workspaceModeSwitch { margin-top: 10px; padding: 3px; border-color: var(--line); border-radius: 6px; background: var(--bg); }
+body.uiThemeStudio .appShell.uiStudio .workspaceModeSwitch button { min-height: 30px; border-radius: 4px; font-size: 12px; }
+body.uiThemeStudio .appShell.uiStudio .workspaceModeSwitch button.active { background: var(--panel-2); color: var(--cyan); box-shadow: none; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation { order: 2; gap: 3px; padding: 0 12px 16px; scrollbar-color: var(--line) transparent; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation::-webkit-scrollbar { width: 4px; }
+body.uiThemeStudio .appShell.uiStudio .studioNavGroup { flex: 0 0 auto; margin: 10px 10px 5px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+body.uiThemeStudio .appShell.uiStudio .studioNavGroup[data-studio-group="session"] { order: 0; }
+body.uiThemeStudio .appShell.uiStudio .studioNavGroup[data-studio-group="personal"] { order: 3; }
+body.uiThemeStudio .appShell.uiStudio .studioNavGroup[data-studio-group="tools"] { order: 7; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="session"] { order: 1; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="social"] { order: 2; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="insights"] { order: 4; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="library"] { order: 5; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="history"] { order: 6; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="games"] { order: 8; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="personal-tools"] { order: 9; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="crash"] { order: 9; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation [data-view-button="builder"] { order: 10; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] [data-view-button="admin"] { order: 2; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] [data-view-button="owner"] { order: 3; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] .studioNavGroup[data-studio-group="personal"] { order: 5; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] [data-view-button="insights"] { order: 6; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] [data-view-button="history"] { order: 7; }
+body.uiThemeStudio .appShell.uiStudio .topNavigation[data-workspace-navigation="team"] .studioNavGroup[data-studio-group="tools"] { order: 8; }
+body.uiThemeStudio .appShell.uiStudio .navItem { display: flex; align-items: center; gap: 12px; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 13px; white-space: nowrap; box-shadow: none; }
+body.uiThemeStudio .appShell.uiStudio .navItem[hidden] { display: none; }
+body.uiThemeStudio .appShell.uiStudio .navItem::before { display: block; flex: 0 0 17px; width: 17px; height: 17px; background: var(--cyan); content: ""; -webkit-mask: var(--studio-icon) center / contain no-repeat; mask: var(--studio-icon) center / contain no-repeat; }
+body.uiThemeStudio .appShell.uiStudio .navItem.active { background: linear-gradient(90deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 40%, transparent)); color: var(--text); box-shadow: none; }
+body.uiThemeStudio .appShell.uiStudio .windowActions { order: 4; flex: 0 0 auto; gap: 6px; margin-top: auto; padding: 12px; border-top: 1px solid var(--line-soft); }
+body.uiThemeStudio .appShell.uiStudio .windowActions button { min-height: 32px; padding: 6px 8px; border-radius: 5px; font-size: 11px; }
+body.uiThemeStudio .appShell.uiStudio .railActionsToggle { order: 3; display: block; min-height: 34px; margin: 0 12px 10px; padding: 6px 10px; border-radius: 5px; font-size: 12px; text-align: left; }
+body.uiThemeStudio .appShell.uiStudio .workspaceToolbar { position: absolute; z-index: 80; right: auto; bottom: 95px; left: calc(100% + 10px); display: none; width: 300px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 30px rgba(0, 0, 0, .25); }
+body.uiThemeStudio .appShell.uiStudio.railActionsOpen .workspaceToolbar { display: block; }
+body.uiThemeStudio .appShell.uiStudio .headerActions { gap: 8px; }
+body.uiThemeStudio .appShell.uiStudio .uiChromeResize { display: none; }
+body.uiThemeStudio .appShell.uiStudio .headerRevealButton { display: none; }
+body.uiThemeStudio .appShell.uiStudio .runtimeState { min-height: 36px; }
+body.uiThemeStudio .appShell.uiStudio .runtimeStatusCopy strong { font-size: 9px; }
+body.uiThemeStudio .appShell.uiStudio .runtimeStatusCopy span { font-size: 11px; }
+body.uiThemeStudio .appShell.uiStudio .connectionDot { animation: none; box-shadow: none; }
+
+body.uiThemeStudio .panel, body.uiThemeStudio .metricGrid article, body.uiThemeStudio .sessionFilters, body.uiThemeStudio .settingsSection { border-color: var(--line); border-radius: var(--ui-radius, 6px); background: var(--panel); box-shadow: none; }
+body.uiThemeStudio .metricGrid article { padding: 14px 16px; background: var(--panel-2); }
+body.uiThemeStudio .metricGrid article:hover { transform: none; box-shadow: none; }
+body.uiThemeStudio .panel > header { border-color: var(--line); }
+body.uiThemeStudio .eyebrow { font-weight: 600; letter-spacing: .045em; }
+body.uiThemeStudio .sectionIntro h2 { font-size: 24px; }
+body.uiThemeStudio .segmented { border-color: var(--line); border-radius: 6px; background: var(--bg); }
+body.uiThemeStudio .segmented button { border-radius: 4px; }
+body.uiThemeStudio .segmented button.active { background: var(--panel-2); color: var(--cyan); box-shadow: none; }
+body.uiThemeStudio button { border-color: var(--line); border-radius: 5px; background: var(--panel-2); box-shadow: none; }
+body.uiThemeStudio button:hover:not(:disabled) { border-color: var(--cyan); transform: none; box-shadow: none; }
+body.uiThemeStudio .eventTextLink, body.uiThemeStudio .eventTextLink:hover:not(:disabled) { border-color: transparent; background: transparent; box-shadow: none; }
+body.uiThemeStudio .primaryButton { border-color: var(--cyan); background: var(--cyan); color: var(--bg); }
+body.uiThemeStudio input:not([type="checkbox"]), body.uiThemeStudio select, body.uiThemeStudio textarea { border-color: var(--line); border-radius: 5px; background: var(--bg); }
+body.uiThemeStudio .eventRow time { color: var(--muted); }
+body.uiThemeStudio .onlineSummary { border-color: color-mix(in srgb, var(--green) 40%, var(--line)); border-radius: 6px; background: color-mix(in srgb, var(--green) 8%, var(--panel)); }
+body.uiThemeStudio .settingsDialog { border-color: var(--line); border-radius: 8px; background: var(--bg); }
+body.uiThemeStudio .settingsSection { padding: 16px; }
+body.uiThemeStudio .settingsSection .adminField { display: grid; grid-template-columns: minmax(110px, .9fr) minmax(0, 1.2fr); align-items: center; gap: 12px; font-size: 12px; }
+body.uiThemeStudio .checkRow { display: flex; flex-direction: row-reverse; justify-content: space-between; min-height: 34px; align-items: center; gap: 16px; font-size: 12px; }
+body.uiThemeStudio input[type="checkbox"] { position: relative; width: 32px; height: 18px; min-height: 18px; flex: 0 0 32px; margin: 0; border: 1px solid var(--line); border-radius: 99px; appearance: none; background: var(--panel-2); cursor: pointer; }
+body.uiThemeStudio input[type="checkbox"]::before { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); content: ""; transition: transform 120ms ease; }
+body.uiThemeStudio input[type="checkbox"]:checked { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 35%, var(--panel)); }
+body.uiThemeStudio input[type="checkbox"]:checked::before { transform: translateX(14px); background: var(--cyan); }
+body.uiThemeStudio input[type="checkbox"]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+.studioCommandDialog { width: min(560px, calc(var(--ui-viewport-width, 100vw) - 48px)); max-height: min(600px, calc(var(--ui-viewport-height, 100vh) - 48px)); margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.studioCommandDialog::backdrop { background: rgba(4, 6, 12, .72); }
+.studioCommandHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.studioCommandHeader h2 { margin: 0; font-size: 15px; }
+.studioCommandHeader button { min-height: 30px; font-size: 11px; }
+.studioCommandInput { display: block; width: calc(100% - 32px); margin: 14px 16px; padding: 12px; font-size: 14px; }
+.studioCommandResults { max-height: min(360px, calc(var(--ui-viewport-height, 100vh) - 220px)); padding: 0 8px; overflow-y: auto; }
+.studioCommandRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 42px; padding: 10px 12px; border-color: transparent; background: transparent; text-align: left; }
+.studioCommandRow strong { font-size: 13px; font-weight: 600; }
+.studioCommandRow span { color: var(--muted); font-size: 11px; }
+.studioCommandRow.selected { background: var(--panel-2); color: var(--cyan); }
+.studioCommandHint { margin: 0; padding: 14px 16px; color: var(--muted); font-size: 11px; }
+.studioSearchStatus { margin: 0; padding: 12px; color: var(--muted); font-size: 11px; }
+body.uiThemeStudio .globalCommandTrigger { display: none; }
+
+@media (max-width: 1050px) {
+  body.uiThemeStudio .appShell.uiStudio { grid-template-columns: 208px minmax(0, 1fr); }
+  body.uiThemeStudio .appShell.uiStudio .studioTopbar { padding-inline: 18px; }
+  body.uiThemeStudio .appShell.uiStudio .viewPanel { padding-inline: 18px; }
+  .studioQuickSearch { min-width: 0; gap: 10px; }
+}
+.autoRefreshStatus { font-size: 10px; color: var(--muted); max-width: 210px; }

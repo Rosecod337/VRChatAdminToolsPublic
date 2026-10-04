@@ -1,0 +1,32 @@
+/* Own adaptation of the classic GameSense layout; no vendor assets or code. */
+body.uiThemeGameSense .appShell.uiStudio { grid-template-columns: 88px minmax(0, 1fr); grid-template-rows: 56px 38px minmax(0, 1fr); border: 1px solid var(--line); background-image: radial-gradient(var(--line-soft) .5px, transparent .5px); background-size: 3px 3px; }
+body.uiThemeGameSense .appShell.uiStudio::before { position: fixed; z-index: 101; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, #65b9d9, #a195d8, #d99aae, #d9d58e, #9ad99c); content: ""; pointer-events: none; }
+body.uiThemeGameSense .studioTopbar { padding: 10px 18px; }
+body.nativeWindow.uiThemeGameSense .studioTopbar { padding-right: 132px; }
+body.uiThemeGameSense .studioContextTitle { font-size: 13px; }
+body.uiThemeGameSense .studioContextMode { font-size: 9px; }
+body.uiThemeGameSense .studioQuickSearch { min-width: 190px; min-height: 30px; font-size: 11px; border-radius: 1px; }
+body.uiThemeGameSense .appShell.uiStudio .viewPanel { padding: 18px; }
+body.uiThemeGameSense .appShell.uiStudio .brand { align-items: center; justify-content: center; padding: 12px 7px; }
+body.uiThemeGameSense .appShell.uiStudio .brand > div { display: none; }
+body.uiThemeGameSense .appShell.uiStudio .brandMark { width: 34px; height: 34px; }
+body.uiThemeGameSense .appShell.uiStudio .workspaceModeSwitch { display: grid; grid-template-columns: 1fr; width: 100%; margin-top: 5px; gap: 2px; }
+body.uiThemeGameSense .appShell.uiStudio .workspaceModeSwitch button { padding: 4px; font-size: 9px; min-height: 28px; }
+body.uiThemeGameSense .appShell.uiStudio .studioNavGroup { display: none; }
+body.uiThemeGameSense .appShell.uiStudio .topNavigation { padding: 0 7px 10px; gap: 2px; }
+body.uiThemeGameSense .appShell.uiStudio .navItem { position: relative; justify-content: center; min-height: 54px; padding: 10px; font-size: 0; border: 1px solid transparent; border-radius: 1px; }
+body.uiThemeGameSense .appShell.uiStudio .navItem::before { width: 25px; height: 25px; flex-basis: 25px; background: var(--muted); }
+body.uiThemeGameSense .appShell.uiStudio .navItem.active { border-color: var(--line); background: var(--bg); box-shadow: inset 2px 0 var(--cyan); }
+body.uiThemeGameSense .appShell.uiStudio .navItem.active::before { background: var(--cyan); }
+body.uiThemeGameSense .appShell.uiStudio .windowActions { display: grid; grid-template-columns: 1fr; padding: 7px; gap: 3px; }
+body.uiThemeGameSense .appShell.uiStudio .windowActions button { font-size: 9px; min-height: 27px; }
+body.uiThemeGameSense .appShell.uiStudio .railActionsToggle { font-size: 10px; margin: 0 7px 7px; padding: 7px; }
+body.uiThemeGameSense .panel, body.uiThemeGameSense .metricGrid article, body.uiThemeGameSense .sessionFilters { border-radius: var(--ui-radius, 1px); border: 1px solid var(--line); background: var(--panel); box-shadow: inset 0 0 0 1px var(--bg); }
+body.uiThemeGameSense .panel > header { padding: 12px 14px; background: var(--bg); }
+body.uiThemeGameSense .panel h3 { font-size: 12px; }
+body.uiThemeGameSense .sectionIntro h2 { font-size: 21px; }
+body.uiThemeGameSense .eyebrow { font-size: 9px; color: var(--muted); }
+body.uiThemeGameSense button, body.uiThemeGameSense select, body.uiThemeGameSense input, body.uiThemeGameSense textarea, body.uiThemeGameSense .segmented { border-radius: var(--ui-radius, 1px); }
+body.uiThemeGameSense input[type="checkbox"] { width: 14px; height: 14px; flex-basis: 14px; border-radius: 1px; background: var(--bg); }
+body.uiThemeGameSense input[type="checkbox"]::before { display: none; }
+body.uiThemeGameSense input[type="checkbox"]:checked { border-color: var(--cyan); background: var(--cyan); box-shadow: inset 0 0 0 2px var(--bg); }

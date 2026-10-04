@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const requestedVersion = String(process.argv[2] || "").replace(/^v/iu, "").trim();
-const clientPackage = JSON.parse(await fs.readFile(path.join(root, "apps", "client", "package.json"), "utf8"));
-const outputDir = path.join(root, "release", "client");
+const appName = requestedVersion.includes("-beta") ? "client-beta" : Number(requestedVersion.split(".")[0]) >= 2 ? "client-stable" : "client";
+const clientPackage = JSON.parse(await fs.readFile(path.join(root, "apps", appName, "package.json"), "utf8"));
+const outputDir = path.join(root, "release", appName);
 const latest = await fs.readFile(path.join(outputDir, "latest.yml"), "utf8");
 const releaseVersion = latest.match(/^version:\s*(.+?)\s*$/mu)?.[1]?.trim();
 const installerName = latest.match(/^path:\s*(.+?)\s*$/mu)?.[1]?.trim().replace(/^['"]|['"]$/gu, "");
@@ -31,5 +32,7 @@ const actualSha512 = crypto.createHash("sha512").update(installer).digest("base6
 if (actualSha512 !== expectedSha512) {
   throw new Error(`installer checksum does not match latest.yml: ${installerName}`);
 }
+const blockmap = await fs.stat(`${installerPath}.blockmap`).catch(() => null);
+if (!blockmap?.size) throw new Error(`matching blockmap is missing: ${installerName}.blockmap`);
 
 console.log(`Release ${clientPackage.version} is internally consistent: ${installerName}`);

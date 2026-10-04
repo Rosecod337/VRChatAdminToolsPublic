@@ -1,7 +1,7 @@
 {
   "name": "vrchat-admin-tools",
   "productName": "VRChat Admin Tools",
-  "version": "2.0.6",
+  "version": "2.1.0",
   "main": "src/main.js",
   "private": true,
   "description": "VRChat Admin Tools for Windows.",
@@ -17,7 +17,7 @@
   "build": {
     "appId": "com.vrchatadmintools.beta",
     "productName": "VRChat Admin Tools",
-    "electronVersion": "42.9.3",
+    "electronVersion": "42.11.10",
     "asar": true,
     "icon": "../../logo.ico",
     "asarUnpack": ["node_modules/@vrchat-log-suite/parser/**/*"],

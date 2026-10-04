@@ -59,7 +59,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   const coreMain = read("apps/client/src/main.js");
   const preload = read("apps/client/src/preload.js");
 
-  assert.match(html, /Стабильная версия 2\.0/u);
+  assert.match(html, /Начало работы/u);
   assert.match(html, /src="app-logo\.png"/u);
   assert.ok(fs.existsSync(path.join(root, "apps/client-beta/renderer/app-logo.png")));
   assert.match(html, /ваш существующий ключ/u);
@@ -268,7 +268,7 @@ test("beta renderer stays shell-neutral and exposes the new navigation", () => {
   assert.match(script, /api\.saveGlobalAvatarNote/u);
   assert.match(script, /normalizedUiSettings/u);
   assert.match(script, /function renderAvatarPage\(force = true\)/u);
-  assert.match(script, /\["comfortable", "compact", "vr"\]/u);
+  assert.match(script, /next\.density = "comfortable"/u);
   assert.match(script, /classList\.toggle\("densityVr"/u);
   assert.match(script, /density === "compact" \? 48 : state\.uiSettings\.density === "vr" \? 64 : 54/u);
   assert.match(script, /betaUiSettings/u);
@@ -776,8 +776,8 @@ test("beta preload exposes local companion search without exposing SQLite", () =
   assert.match(preload, /getVrchatGroup/u);
   assert.match(preload, /getVrchatPersonalCollection/u);
   assert.match(preload, /listLocalSocialEvents/u);
-  assert.match(main, /ipcMain\.handle\("companion:export"/u);
-  assert.match(main, /ipcMain\.handle\("companion:clear-category"/u);
+  assert.match(main, /registerPreferencesOperation\("companion:export", "export"/u);
+  assert.match(main, /registerPreferencesOperation\("companion:clear-category", "clear"/u);
   assert.match(main, /ipcMain\.handle\("file:save-text"/u);
   assert.match(main, /ipcMain\.handle\("moderation:update-appeal"/u);
   assert.match(main, /ipcMain\.handle\("vrchat:avatar-select"/u);
@@ -1214,7 +1214,8 @@ test("beta has a real renderer performance smoke check", () => {
   assert.match(performanceCheck, /playerRows > 40/u);
   assert.match(performanceCheck, /avatarCatalogTotal < 900/u);
   assert.match(performanceCheck, /avatarRows > 40/u);
-  assert.match(performanceCheck, /totalDomNodes > 1300/u);
+  assert.match(performanceCheck, /fixedDomNodes > 1300/u);
+  assert.match(performanceCheck, /maximumVirtualRows > 40/u);
   assert.match(performanceCheck, /BETA_PREVIEW_CLICK_SELECTOR/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_TEXT/u);
   assert.match(performanceCheck, /BETA_PREVIEW_EXPECT_SELECTOR/u);

@@ -1,0 +1,12 @@
+.arcadePanel { padding: 24px; max-width: 820px; }
+.arcadeStats { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0; color: var(--muted); }
+.memoryGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; max-width: 580px; }
+.memoryCard { min-height: 80px; font-size: 28px; background: var(--panel-2); border: 1px solid var(--line); }
+.memoryCard.revealed { color: var(--cyan); border-color: var(--cyan); }
+.memoryCard.matched { color: var(--green); border-color: var(--green); opacity: 1; }
+.reactionTarget { width: 100%; min-height: 200px; font-size: 24px; margin: 20px 0; }
+.reactionTarget.waiting { color: var(--amber); border-color: var(--amber); }
+.reactionTarget.ready { background: var(--green); color: #07110b; border-color: var(--green); }
+.reactionTarget.early { color: var(--red); border-color: var(--red); }
+.arcadeResult { color: var(--green); min-height: 22px; }
+@media(max-width:700px) { .memoryCard { min-height: 64px; } .arcadePanel { padding: 16px; } }

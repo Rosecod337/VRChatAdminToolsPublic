@@ -10,8 +10,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const appName = process.argv[2];
 
-if (!["client", "client-beta", "client-stable"].includes(appName)) {
-  console.error("Usage: node scripts/build-electron.mjs <client|client-beta|client-stable>");
+if (!["admin", "client", "client-beta", "client-stable", "server-manager"].includes(appName)) {
+  console.error("Usage: node scripts/build-electron.mjs <admin|client|client-beta|client-stable|server-manager>");
   process.exit(1);
 }
 
@@ -28,6 +28,16 @@ if (modernClient) {
   await fs.rm(path.join(stageDir, "renderer"), { recursive: true, force: true });
   await copyDir(path.join(root, "apps", "client-beta", "renderer"), path.join(stageDir, "renderer"));
   await fs.copyFile(path.join(root, "apps", appName, "package.json"), path.join(stageDir, "package.json"));
+}
+
+if (appName === "server-manager") {
+  const bundleTarget = path.join(stageDir, "server-bundle");
+  await copyDir(path.join(root, "deploy", "local-server"), bundleTarget);
+  await copyDir(path.join(root, "apps", "server", "src"), path.join(bundleTarget, "server", "src"));
+  await fs.copyFile(
+    path.join(root, "apps", "server", "package.json"),
+    path.join(bundleTarget, "server", "package.json")
+  );
 }
 
 const packagePath = path.join(stageDir, "package.json");
@@ -84,11 +94,16 @@ if (appName === "client" || modernClient) {
 
 // Heavy control-flow transforms multiply the work in the public log-scanning hot path.
 await obfuscate(path.join(stageDir, "src"), modernClient ? ["log-tailer.js"] : []);
+if (appName === "server-manager") {
+  await obfuscate(path.join(stageDir, "server-bundle", "server", "src"));
+}
 if (appName === "client") {
   await obfuscate(path.join(stageDir, "node_modules", "@vrchat-log-suite", "parser"));
 }
 
-run(process.execPath, [path.join(root, "node_modules", "electron-builder", "cli.js"), "--projectDir", stageDir]);
+const builderArguments = [path.join(root, "node_modules", "electron-builder", "cli.js"), "--projectDir", stageDir];
+if (process.env.BUILD_PUBLISH_NEVER === "1") builderArguments.push("--publish", "never");
+run(process.execPath, builderArguments);
 
 if (appName === "client" || modernClient) {
   await verifyPackagedClientDependencies(packageJson, packagedClientDependencies);

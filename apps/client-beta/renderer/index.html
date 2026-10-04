@@ -6,6 +6,10 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://api.vrchat.cloud https://files.vrchat.cloud https://file-variants.vrchat.cloud; connect-src 'none'">
   <title>VRChat Admin Tools</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="studio.css">
+  <link rel="stylesheet" href="personal-tools.css">
+  <link rel="stylesheet" href="onboarding.css">
+  <link rel="stylesheet" href="arcade.css">
   <link rel="stylesheet" href="ui-customizer.css" data-ui-custom-styles>
   <script src="admin-notes.js" defer></script>
   <script src="session-model.js" defer></script>
@@ -14,15 +18,24 @@
   <script src="avatar-model.js" defer></script>
   <script src="notification-model.js" defer></script>
   <script src="i18n.js" defer></script>
+  <script src="window-controls.js" defer></script>
+  <script src="personal-tools.js" defer></script>
+  <script src="photo-atlas-ui.js" defer></script>
+  <script src="diagnostic-recorder-ui.js" defer></script>
+  <script src="team-cases-ui.js" defer></script>
   <script src="ui-customizer.js" defer></script>
   <script src="mini-games.js" defer></script>
+  <script src="arcade.js" defer></script>
+  <script src="auto-refresh.js" defer></script>
+  <script src="onboarding.js" defer></script>
+  <script src="studio-shell.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <section class="activationView" data-activation-view>
     <form class="activationCard" data-activation-form>
       <div class="betaLogo" aria-hidden="true"><img src="app-logo.png" alt=""></div>
-      <div><span class="eyebrow">Стабильная версия 2.0</span><h1>VRChat Admin Tools</h1><p>Локальные функции доступны бесплатно. Версия 2.0 сохраняет настройки и историю установленной Beta и не меняет прежнее приложение 1.1.8.</p></div>
+      <div><span class="eyebrow">Начало работы</span><h1>VRChat Admin Tools</h1><p>Начните бесплатно или введите ключ для дополнительных инструментов. Аккаунт VRChat можно подключить по желанию.</p></div>
       <label class="activationLanguage"><span>Язык интерфейса</span><select name="activationLanguage" data-language-select="instant"><option value="ru">Русский</option><option value="en">English</option></select></label>
       <label>
         <span>Ключ доступа <small>ваш существующий ключ</small></span>
@@ -107,7 +120,8 @@
       <button class="navItem" id="viewTabGames" type="button" role="tab" aria-selected="false" aria-controls="viewPanelGames" tabindex="-1" data-nav-scope="personal" data-view-button="games" hidden>Мини-игры</button>
       <button class="navItem" id="viewTabCrash" type="button" role="tab" aria-selected="false" aria-controls="viewPanelCrash" tabindex="-1" data-nav-scope="shared" data-view-button="crash">Crash Analyzer</button>
       <button class="navItem" id="viewTabHistory" type="button" role="tab" aria-selected="false" aria-controls="viewPanelHistory" tabindex="-1" data-nav-scope="shared" data-view-button="history">История</button>
-      <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-nav-scope="shared" data-view-button="builder">Ещё · Рабочее место</button>
+      <button class="navItem" id="viewTabBuilder" type="button" role="tab" aria-selected="false" aria-controls="viewPanelBuilder" tabindex="-1" data-nav-scope="shared" data-view-button="builder">Рабочее место</button>
+      <button class="navItem" id="viewTabPersonalTools" type="button" role="tab" aria-selected="false" aria-controls="viewPanelPersonalTools" tabindex="-1" data-nav-scope="personal" data-view-button="personal-tools" hidden>Личные инструменты</button>
       <button class="navItem" id="viewTabAdmin" type="button" role="tab" aria-selected="false" aria-controls="viewPanelAdmin" tabindex="-1" data-nav-scope="team" data-view-button="admin" hidden>Admin Tools</button>
       <button class="navItem" id="viewTabOwner" type="button" role="tab" aria-selected="false" aria-controls="viewPanelOwner" tabindex="-1" data-nav-scope="team" data-view-button="owner" hidden>Owner</button>
     </nav>
@@ -320,19 +334,12 @@
       </section>
 
       <section class="viewPanel gamesView" id="viewPanelGames" role="tabpanel" aria-labelledby="viewTabGames" data-view="games" hidden>
-        <div class="sectionIntro"><div><span class="eyebrow">По платному ключу · Только ваши данные</span><h2>Мини-игры</h2><p>Вспомните, где бывали и куда возвращались чаще. Никакой общей таблицы или отправки истории.</p></div></div>
+        <div class="sectionIntro"><div><span class="eyebrow">По платному ключу</span><h2>Перерыв</h2><p>Две короткие игры для отдыха. Можно начать сразу; результаты остаются на этом устройстве.</p></div></div>
         <div class="gamesModes" aria-label="Выбор игры">
-          <button type="button" data-game-mode="recent"><span class="gamesModeIcon" aria-hidden="true">◷</span><strong>Маршрут</strong><small>Какой мир был позже?</small></button>
-          <button type="button" data-game-mode="visits"><span class="gamesModeIcon" aria-hidden="true">◆</span><strong>Любимые миры</strong><small>Где вы были чаще?</small></button>
+          <button type="button" data-arcade-mode="memory"><span class="gamesModeIcon" aria-hidden="true">◈</span><strong>Память</strong><small>Найдите восемь пар за меньшее число ходов.</small></button>
+          <button type="button" data-arcade-mode="reaction"><span class="gamesModeIcon" aria-hidden="true">ϟ</span><strong>Реакция</strong><small>Нажмите, когда появится зелёный сигнал.</small></button>
         </div>
-        <article class="panel gamesCard" data-games-card>
-          <div class="gamesScore"><span data-game-progress>Раунд 0 / 0</span><strong data-game-score>0 очков</strong><span data-game-streak>Серия 0</span></div>
-          <div class="gamesProgressTrack" aria-hidden="true"><span data-game-progress-fill></span></div>
-          <h3 data-game-question>Выбери игру</h3>
-          <p data-game-status aria-live="polite">Для игры нужны сохранённые посещения миров.</p>
-          <div class="gamesOptions" data-game-options></div>
-          <button class="primaryButton" type="button" data-game-next hidden>Следующий раунд</button>
-        </article>
+        <article class="panel arcadePanel" data-arcade-panel></article>
       </section>
 
       <section class="viewPanel socialView" id="viewPanelSocial" role="tabpanel" aria-labelledby="viewTabSocial" data-view="social" hidden>
@@ -517,13 +524,19 @@
       </form>
     </dialog>
 
+    <section class="viewPanel personalToolsView" id="viewPanelPersonalTools" role="tabpanel" aria-labelledby="viewTabPersonalTools" data-view="personal-tools" hidden>
+      <div class="sectionIntro"><div><span class="eyebrow">По платному ключу · команда не нужна</span><h2>Личные инструменты</h2><p>Одна задача на экране. Данные остаются на этом устройстве.</p></div></div>
+      <div class="personalToolTabs" role="tablist" aria-label="Личные инструменты"><button type="button" data-personal-tab="routes" class="active">Маршруты</button><button type="button" data-personal-tab="rules">Уведомления</button><button type="button" data-personal-tab="workflows">Подготовка</button><button type="button" data-personal-tab="reports">Отчёты</button><button type="button" data-personal-tab="photos">Фото</button><button type="button" data-personal-tab="diagnostics">Регистратор</button><button type="button" data-personal-tab="cases">Командный журнал</button></div>
+      <div data-personal-body></div><p class="formStatus" data-personal-status role="status"></p>
+    </section>
+
     <dialog class="settingsDialog" data-settings-dialog>
       <form data-settings-form>
         <header><div><span class="eyebrow">Настройки 2.0</span><h2>Настройки приложения</h2></div><button type="button" data-settings-close aria-label="Закрыть">×</button></header>
         <div class="settingsGrid">
           <section class="settingsSection settingsInterfaceSection"><h3>Интерфейс</h3>
             <label class="adminField"><span>Язык интерфейса</span><select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>
-            <label class="adminField"><span>Расположение управления</span><select name="uiPlacement"><option value="top">Сверху</option><option value="left">Слева</option></select></label>
+            <label class="adminField"><span>Расположение управления</span><select name="uiPlacement"><option value="left">Слева</option></select></label>
             <label class="adminField"><span>Стартовый раздел</span><select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="social">Друзья</option><option value="library">Библиотека</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Builder</option></select></label>
             <label class="adminField"><span>Плотность</span><select name="density"><option value="comfortable">Комфортная</option><option value="compact">Компактная</option><option value="vr">VR-крупная</option></select></label>
             <label class="adminField"><span>Масштаб интерфейса</span><select name="scale"><option value="90">90%</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select></label>

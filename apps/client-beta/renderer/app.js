@@ -12,7 +12,11 @@ const avatarModel = window.betaAvatarModel;
 const notificationModel = window.betaNotificationModel;
 const i18n = window.betaI18n;
 const miniGames = window.betaMiniGames;
-const api = window.clientApi || (previewMode ? createPreviewApi() : null);
+const api = previewMode ? createPreviewApi() : window.clientApi || null;
+if (previewMode && window.clientApi) {
+  for (const key of ["openPreferences", "onPreferencesCommand", "replyPreferences", "personalAction", "onPhotoProgress", "onAttention", "teamCaseAction", "attachCaseReport", "getLocalSession"]) api[key] = window.clientApi[key];
+}
+api?.onAttention?.((result) => setStatus(`${result.name} · ${result.event.displayName || "VRChat"} · ${result.event.type}`, false, { kind: "warning" }));
 const activationView = document.querySelector("[data-activation-view]");
 const activationForm = document.querySelector("[data-activation-form]");
 const activationStatus = document.querySelector("[data-activation-status]");
@@ -111,6 +115,7 @@ const settingsForm = document.querySelector("[data-settings-form]");
 const vrchatAuthDialog = document.querySelector("[data-vrchat-auth-dialog]");
 const uiChromeResize = document.querySelector("[data-ui-chrome-resize]");
 const railActionsToggle = document.querySelector("[data-rail-actions-toggle]");
+let studioShell = null;
 let settingsReturnFocus = null;
 let vrchatAuthReturnFocus = null;
 let ownerDialogReturnFocus = null;
@@ -199,15 +204,16 @@ function normalizedUiSettings(value = {}) {
   delete next.autoStart;
   delete next.autoAnalyzeToday;
   if (!["ru", "en"].includes(next.language)) next.language = "ru";
-  if (!["top", "left"].includes(next.uiPlacement)) next.uiPlacement = DEFAULT_UI_SETTINGS.uiPlacement;
+  next.uiPlacement = "left";
   next.uiSidebarWidth = Math.min(UI_SIDEBAR_MAX_WIDTH, Math.max(UI_SIDEBAR_COLLAPSED_WIDTH, Number(next.uiSidebarWidth) || DEFAULT_UI_SETTINGS.uiSidebarWidth));
   if (["players", "worlds", "local-avatars"].includes(next.startView)) next.startView = "library";
   if (!["session", "insights", "library", "social", "admin", "owner", "crash", "history", "builder"].includes(next.startView)) next.startView = "session";
-  if (!["comfortable", "compact", "vr"].includes(next.density)) next.density = "comfortable";
+  next.density = "comfortable";
   next.scale = [90, 100, 125, 150, 175, 200].includes(Number(next.scale)) ? Number(next.scale) : 100;
   next.eventLimit = [1000, 2500, 5000].includes(Number(next.eventLimit)) ? Number(next.eventLimit) : 2500;
   if (!["online-first", "online-only", "all"].includes(next.sessionPlayerMode)) next.sessionPlayerMode = "online-first";
   for (const key of ["animations", "showHeader", "showToolbar", "autoAnalyzeCurrentLog", "protectMonitoring", "rememberSelection", "notifyMarkedPlayers", "notifyCrashAvatars", "clearOnLogout"]) next[key] = Boolean(next[key]);
+  next.showHeader = true;
   return next;
 }
 
@@ -488,6 +494,7 @@ const viewTitles = {
   insights: "Мой VRChat",
   library: "Библиотека",
   games: "Мини-игры",
+  "personal-tools": "Личные инструменты",
   social: "Друзья",
   admin: "Admin Tools",
   owner: "Owner",
@@ -502,6 +509,7 @@ const viewEyebrows = {
   library: "Локальные игроки, миры и аватары",
   games: "По платному ключу",
   social: "Друзья и группы VRChat",
+  "personal-tools": "Личные задачи",
   admin: "Командная работа",
   owner: "Управление VRChat-группой",
   crash: "Диагностика",
@@ -636,22 +644,30 @@ async function runButtonOperation(button, operation, pendingText = "Выполн
 
 function applyUiSettings({ persist = false } = {}) {
   state.uiSettings = normalizedUiSettings(state.uiSettings);
+  state.uiSettings = normalizedUiSettings(state.uiSettings);
   if (persist) localStorage.setItem("betaUiSettings", JSON.stringify(state.uiSettings));
+  if (!localStorage.getItem("betaStudioOnlyMigrationV2")) {
+    localStorage.setItem("betaUiSettings", JSON.stringify(state.uiSettings));
+    localStorage.setItem("betaStudioOnlyMigrationV2", "1");
+  }
   document.documentElement.lang = state.uiSettings.language;
   appView.classList.toggle("densityCompact", state.uiSettings.density === "compact");
   appView.classList.toggle("densityVr", state.uiSettings.density === "vr");
   appView.classList.toggle("animationsOff", !state.uiSettings.animations);
   appView.classList.toggle("headerHidden", !state.uiSettings.showHeader);
   appView.classList.toggle("toolbarHidden", !state.uiSettings.showToolbar && !state.builderCompact);
-  const sideNavigation = state.uiSettings.uiPlacement === "left" && !state.builderCompact;
-  const collapsedSideNavigation = sideNavigation && state.uiSettings.uiSidebarWidth < UI_SIDEBAR_SNAP_WIDTH;
+  const studioNavigation = document.body.classList.contains("uiThemeStudio") && !state.builderCompact;
+  const sideNavigation = (state.uiSettings.uiPlacement === "left" || studioNavigation) && !state.builderCompact;
+  const collapsedSideNavigation = sideNavigation && !studioNavigation && state.uiSettings.uiSidebarWidth < UI_SIDEBAR_SNAP_WIDTH;
+  appView.classList.toggle("uiStudio", studioNavigation);
   appView.classList.toggle("uiChromeLeft", sideNavigation);
   appView.classList.toggle("uiChromeCollapsed", collapsedSideNavigation);
   document.querySelectorAll(".topNavigation [data-view-button]").forEach((button) => {
     if (!button.title) button.title = button.textContent.trim();
   });
-  if (!collapsedSideNavigation) appView.classList.remove("railActionsOpen");
-  railActionsToggle?.setAttribute("aria-expanded", String(collapsedSideNavigation && appView.classList.contains("railActionsOpen")));
+  if (!collapsedSideNavigation && !studioNavigation) appView.classList.remove("railActionsOpen");
+  railActionsToggle?.setAttribute("aria-expanded", String((collapsedSideNavigation || studioNavigation) && appView.classList.contains("railActionsOpen")));
+  if (settingsForm?.elements.uiPlacement) settingsForm.elements.uiPlacement.disabled = studioNavigation;
   appView.style.setProperty("--ui-chrome-width", `${state.uiSettings.uiSidebarWidth}px`);
   if (uiChromeResize) {
     uiChromeResize.setAttribute("aria-valuemin", String(UI_SIDEBAR_COLLAPSED_WIDTH));
@@ -665,6 +681,7 @@ function applyUiSettings({ persist = false } = {}) {
   appView.style.setProperty("--ui-viewport-height", `${unscaledViewport}vh`);
   appView.style.width = `${unscaledViewport}vw`;
   appView.style.height = `${unscaledViewport}vh`;
+  studioShell?.setActive(studioNavigation);
 }
 
 function fillSettingsForm(settings = state.uiSettings) {
@@ -754,12 +771,20 @@ function moveTabFocus(event) {
 }
 
 function openSettings() {
+  if (api.openPreferences) {
+    void api.openPreferences(preferencesSnapshot()).catch((error) => setStatus(error.message || "Не удалось открыть настройки.", true));
+    return;
+  }
   settingsReturnFocus = focusedElement();
   fillSettingsForm();
   settingsDialog.showModal();
   settingsForm.elements.startView.focus();
   void refreshLocalStorageSettings();
   void refreshAutoBackupSettings();
+}
+
+function preferencesSnapshot() {
+  return { uiSettings: state.uiSettings, defaults: DEFAULT_UI_SETTINGS, appearance: window.betaUiCustomizer?.getAppearance?.() || {}, backupUi: exportableUiSettings(), preview: previewMode };
 }
 
 function backupErrorMessage(error) {
@@ -1191,7 +1216,9 @@ function hasOwnerAccess() {
 }
 
 function hasPaidAccess() {
-  return state.settings?.accessMode === "paid" && Boolean(state.settings?.license);
+  const license = state.settings?.license;
+  const expiry = license?.expiresAt || license?.expires_at;
+  return state.settings?.accessMode === "paid" && Boolean(license) && license.active !== false && (!expiry || Date.parse(expiry) > Date.now());
 }
 
 function syncPaidAccess() {
@@ -1253,7 +1280,7 @@ function syncOwnerAccess() {
 
 function viewWorkspaceMode(view) {
   if (view === "admin" || view === "owner") return "team";
-  if (view === "library" || view === "social" || view === "games") return "personal";
+  if (["library", "social", "games", "personal-tools"].includes(view)) return "personal";
   return "shared";
 }
 
@@ -1267,10 +1294,11 @@ function syncWorkspaceNavigation() {
   });
   document.querySelectorAll("[data-nav-scope]").forEach((button) => {
     const scope = button.dataset.navScope;
-    button.hidden = (scope !== "shared" && scope !== mode) || (button.dataset.viewButton === "games" && !hasPaidAccess());
+    button.hidden = (scope !== "shared" && scope !== mode) || (button.dataset.viewButton === "games" && !hasPaidAccess()) || (button.dataset.viewButton === "personal-tools" && !hasPaidAccess());
   });
   document.querySelector(".topNavigation")?.setAttribute("data-workspace-navigation", mode);
   localStorage.setItem("betaWorkspaceMode", mode);
+  studioShell?.refresh();
 }
 
 function switchWorkspaceMode(mode) {
@@ -1293,7 +1321,7 @@ async function showApp() {
   appView.hidden = false;
   if (appVersionLabel) {
     const version = String(state.settings?.appVersion || "").trim();
-    appVersionLabel.textContent = version ? `Stable · ${version}` : "Stable · 2.0";
+    appVersionLabel.textContent = version ? `v${version}` : "2.0";
   }
   const latest = await api.latestFile().catch(() => ({ filePath: "" }));
   if (latest.filePath) setFilePath(latest.filePath);
@@ -2035,7 +2063,7 @@ function playerRowElement(event) {
   return row;
 }
 
-function renderVirtualRows(container, items, rowHeight, createRow, emptyText, force = false) {
+function renderVirtualRows(container, items, rowHeight, createRow, emptyText, force = false, reflowed = false) {
   if (!items.length) {
     container.replaceChildren(emptyMessage(emptyText));
     delete container.dataset.virtualStart;
@@ -2043,10 +2071,11 @@ function renderVirtualRows(container, items, rowHeight, createRow, emptyText, fo
     delete container.dataset.virtualTotal;
     return;
   }
+  const viewportHeight = container.clientHeight;
   const range = sessionModel.virtualWindow({
     total: items.length,
     scrollTop: container.scrollTop,
-    viewportHeight: container.clientHeight,
+    viewportHeight,
     rowHeight,
     overscan: 5
   });
@@ -2071,6 +2100,7 @@ function renderVirtualRows(container, items, rowHeight, createRow, emptyText, fo
   container.dataset.virtualStart = String(range.start);
   container.dataset.virtualEnd = String(range.end);
   container.dataset.virtualTotal = String(items.length);
+  if (!reflowed && container.clientHeight !== viewportHeight) renderVirtualRows(container, items, rowHeight, createRow, emptyText, true, true);
 }
 
 function renderVirtualEventRows(force = false) {
@@ -2237,7 +2267,7 @@ async function refreshFriendActivity(force = false) {
       if (pipeline) renderFriendPipelineStatus(pipeline);
     }
   }
-  catch { state.socialEvents = []; }
+  catch { /* A failed refresh keeps the last valid friend activity. */ }
   if (state.sessionSection === "friends") renderFriendActivityFeed(true);
 }
 
@@ -3517,6 +3547,7 @@ function syncBuilderControls() {
     overlayToggle.setAttribute("aria-pressed", String(state.builderOverlayHidden));
     overlayToggle.textContent = t(state.builderOverlayHidden ? "Показать · Ctrl+Shift+B" : "Скрыть · Ctrl+Shift+B");
   }
+  if (appView.classList.contains("uiStudio") !== (document.body.classList.contains("uiThemeStudio") && !state.builderCompact)) applyUiSettings();
 }
 
 function renderBuilder() {
@@ -3782,12 +3813,14 @@ function addEvent(event) {
 }
 
 function selectView(view) {
+  if (view !== "games") window.betaArcade?.pause();
   if (["players", "worlds", "local-avatars"].includes(view)) {
     selectLibraryTab(view);
     view = "library";
   }
   if (!viewTitles[view]) return;
   if (view === "games" && !hasPaidAccess()) return;
+  if (view === "personal-tools" && !hasPaidAccess()) return;
   if (view === "admin" && !hasPaidAccess()) return;
   if (view === "owner" && !hasOwnerAccess()) return;
   const mode = viewWorkspaceMode(view);
@@ -3820,6 +3853,19 @@ function selectView(view) {
     void refreshLocalDirectory(state.libraryTab);
   }
   if (view === "games") void startMiniGame(gameState.mode);
+  if (view === "personal-tools") void window.betaPersonalTools?.open(api, {
+    translate: t, paid: hasPaidAccess(), events: () => state.events,
+    isEditing: isEditingInterface,
+    workspaces: () => state.builderDashboards.map((item) => ({ id: item.id, name: item.name })),
+    openWorkspace: (id) => { loadBuilderDashboard(id); selectView("builder"); }, showTools: () => selectView("personal-tools"),
+    openHistory: async (id) => {
+      selectView("history"); await refreshHistory();
+      const local = await api.getLocalSession?.(id);
+      if (local) state.historySessions = [local, ...state.historySessions.filter((row) => row.id !== id)];
+      state.historyQuery = ""; state.historyDate = ""; state.historyStatus = "all";
+      state.historySelectedKey = `id:${id}`; renderHistory(true);
+    }, notify: setStatus
+  });
   if (view === "history") void refreshHistory();
   if (view === "admin") void refreshAdmin();
   if (view === "owner") void refreshOwner({ silent: true });
@@ -3829,9 +3875,11 @@ function selectView(view) {
     void refreshBuilderSources();
   }
   if (view === "session") requestAnimationFrame(() => renderSession());
+  studioShell?.refresh();
 }
 
 function renderMiniGame() {
+  if (window.betaArcade) { window.betaArcade.setAccess(hasPaidAccess()); return; }
   if (!gamesPanel) return;
   document.querySelectorAll("[data-game-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.gameMode === gameState.mode);
@@ -4894,18 +4942,20 @@ function socialAvatarHistory(userId, profile = null) {
   return rows.slice(0, 20);
 }
 
-async function openSocialProfile(userId) {
+async function openSocialProfile(userId, { background = false } = {}) {
   if (!socialDetailDialog || !api.getVrchatUserProfile) return;
+  socialDetailDialog.dataset.userId = userId;
+  delete socialDetailDialog.dataset.groupId;
   const generation = state.socialGeneration;
   const friend = state.social?.friends?.find((row) => row.userId === userId);
   socialDetailTitle.textContent = friend?.displayName || userId;
-  socialDetailBody.replaceChildren(emptyMessage("Загружаем профиль и локальную историю…"));
+  if (!background) socialDetailBody.replaceChildren(emptyMessage("Загружаем профиль и локальную историю…"));
   if (!socialDetailDialog.open) socialDetailDialog.showModal();
   const [profileResult, localResult] = await Promise.allSettled([
     api.getVrchatUserProfile(userId),
     api.getCompanionDetails ? api.getCompanionDetails("player", userId) : Promise.resolve(null)
   ]);
-  if (generation !== state.socialGeneration || !socialDetailDialog.open) return;
+  if (generation !== state.socialGeneration || !socialDetailDialog.open || socialDetailDialog.dataset.userId !== userId || background && isEditingInterface()) return;
   const profile = profileResult.status === "fulfilled" ? profileResult.value : null;
   const local = localResult.status === "fulfilled" ? localResult.value : null;
   if (!profile && !local && !friend) {
@@ -5145,16 +5195,18 @@ async function openSocialProfile(userId) {
   socialDetailBody.replaceChildren(content);
 }
 
-async function openSocialGroup(groupId) {
+async function openSocialGroup(groupId, { background = false } = {}) {
   if (!socialDetailDialog || !api.getVrchatGroup) return;
+  socialDetailDialog.dataset.groupId = groupId; delete socialDetailDialog.dataset.userId;
+  const queries = background ? [...socialDetailBody.querySelectorAll('input[type="search"]')].map(input => input.value) : [];
   const generation = state.socialGeneration;
   const summary = state.social?.groups?.find((row) => row.groupId === groupId);
   socialDetailTitle.textContent = summary?.name || groupId;
-  socialDetailBody.replaceChildren(emptyMessage("Загружаем публичные данные группы…"));
+  if (!background) socialDetailBody.replaceChildren(emptyMessage("Загружаем публичные данные группы…"));
   if (!socialDetailDialog.open) socialDetailDialog.showModal();
   try {
     const group = await api.getVrchatGroup(groupId);
-    if (generation !== state.socialGeneration || !socialDetailDialog.open) return;
+    if (generation !== state.socialGeneration || !socialDetailDialog.open || socialDetailDialog.dataset.groupId !== groupId || background && isEditingInterface()) return;
     socialDetailTitle.textContent = group.name || groupId;
     const content = adminElement("div", "socialProfileContent");
     const banner = vrchatImageElement(group.bannerUrl, "socialGroupBanner");
@@ -5229,8 +5281,10 @@ async function openSocialGroup(groupId) {
       content.append(rules);
     }
     socialDetailBody.replaceChildren(content);
+    if (background) socialDetailBody.querySelectorAll('input[type="search"]').forEach((input,index) => { input.value = queries[index] || ""; input.dispatchEvent(new Event("input")); });
   } catch (error) {
-    if (generation === state.socialGeneration) socialDetailBody.replaceChildren(emptyMessage(formatVrchatAuthError(error)));
+    if (!background && generation === state.socialGeneration) socialDetailBody.replaceChildren(emptyMessage(formatVrchatAuthError(error)));
+    if (background) throw error;
   }
 }
 
@@ -5352,16 +5406,17 @@ function renderOwnProfile() {
   }
 }
 
-async function loadOwnProfile() {
+async function loadOwnProfile({ background = false } = {}) {
   if (!hasPaidAccess()) throw new Error("Для редактора профиля нужен платный ключ.");
-  state.ownProfile = null;
-  state.ownProfileLoading = true;
+  if (!background) state.ownProfile = null;
+  state.ownProfileLoading = !background;
   state.ownProfileError = "";
   renderOwnProfile();
   try {
     const current = await api.getVrchatCurrentUser();
     const profile = await api.getVrchatUserProfile(current.userId);
     if (!profile || profile.userId !== current.userId) throw new Error("VRChat не подтвердил профиль вашего аккаунта.");
+    if (background && isEditingInterface()) return;
     state.ownProfile = profile;
     state.currentVrchatUser = current;
   } catch (error) {
@@ -5369,7 +5424,7 @@ async function loadOwnProfile() {
     throw error;
   } finally {
     state.ownProfileLoading = false;
-    renderOwnProfile();
+    if (!background || !isEditingInterface()) renderOwnProfile();
   }
 }
 
@@ -6962,22 +7017,6 @@ async function refreshOwner({ silent = false } = {}) {
 function syncOwnerPolling() {
   if (state.ownerPollTimer) clearInterval(state.ownerPollTimer);
   state.ownerPollTimer = 0;
-  if (state.view !== "owner" || !hasOwnerAccess()) return;
-  state.ownerPollTimer = setInterval(async () => {
-    if (state.ownerLoading) return;
-    try {
-      const [requests, groupRequests] = await Promise.all([
-        canRequestOwnerBans() ? api.listGroupBanRequests() : Promise.resolve([]),
-        canViewGroupMembers() ? api.listGroupManagementRequests() : Promise.resolve([])
-      ]);
-      state.ownerRequests = requests || [];
-      state.groupManagementRequests = groupRequests || [];
-      applyGroupManagementResults();
-      renderOwner(true);
-    } catch {
-      // Фоновое обновление не должно перекрывать рабочий экран ошибкой сети.
-    }
-  }, 5000);
 }
 
 async function readTodayOwnerPlayers() {
@@ -7739,10 +7778,9 @@ importStableButton?.addEventListener("click", async () => {
   }
 });
 
-settingsForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
+function commitUiSettings(value, { deferReload = false } = {}) {
   const previousLanguage = state.uiSettings.language;
-  state.uiSettings = readSettingsForm();
+  state.uiSettings = normalizedUiSettings({ ...state.uiSettings, ...value });
   if (!state.uiSettings.protectMonitoring) {
     clearMonitoringRestart();
     state.monitoringRestartAttempt = 0;
@@ -7762,13 +7800,19 @@ settingsForm?.addEventListener("submit", (event) => {
   }
   applyUiSettings({ persist: true });
   if (state.uiSettings.language !== previousLanguage) {
-    window.location.reload();
+    if (deferReload) window.setTimeout(() => window.location.reload(), 100);
+    else window.location.reload();
     return;
   }
   renderSession();
   closeSettings();
   setStatus("Настройки сохранены.");
   void syncNotificationMonitoring({ refreshNow: true, announceError: true });
+}
+
+settingsForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  commitUiSettings(readSettingsForm());
 });
 
 settingsForm?.querySelector("[data-local-retention]")?.addEventListener("change", (event) => {
@@ -9591,6 +9635,127 @@ async function initialize() {
   }
 }
 
+async function searchCommandEntities(query) {
+  const knownId = window.betaStudioShell.parseKnownVrchatId(query);
+  const result = await api.searchCompanion(knownId || query);
+  const rows = [];
+  for (const [kind, label] of [["player", "Игрок"], ["world", "Мир"], ["avatar", "Аватар"]]) {
+    for (const entity of directoryEntities(result, kind).slice(0, 10)) {
+      const key = directoryEntityKey(entity, kind);
+      if (!key) continue;
+      rows.push({ label: String(directoryEntityTitle(entity, kind) || key).slice(0, 100), type: label, run: async () => {
+        try {
+          selectView(kind === "player" ? "players" : kind === "world" ? "worlds" : "local-avatars");
+          await selectDirectoryResult(kind, key);
+        } catch (error) { setStatus(error.message || "Не удалось открыть локальную карточку.", true); }
+      } });
+    }
+  }
+  if (knownId && !rows.length) {
+    const path = knownId.startsWith("usr_") ? "user" : knownId.startsWith("wrld_") ? "world" : "avatar";
+    rows.push({ label: knownId, type: "Открыть на VRChat", run: async () => {
+      try { await api.openExternal(`https://vrchat.com/home/${path}/${knownId}`); }
+      catch (error) { setStatus(error.message || "Не удалось открыть ссылку.", true); }
+    } });
+  }
+  return rows;
+}
+
+studioShell = window.betaStudioShell?.create({ app: appView, translate: t, getTitle: () => viewTitles[state.view] || "Живая сессия", getMode: () => state.workspaceMode, preview: previewMode, searchEntities: searchCommandEntities }) || null;
+window.betaTutorial?.init({ selectView, getView: () => state.view, paid: hasPaidAccess });
+const automaticStatus = document.createElement("span"); automaticStatus.className = "autoRefreshStatus";
+document.querySelector(".studioTopbar")?.append(automaticStatus);
+function isEditingInterface() {
+  const active = document.activeElement;
+  if (active?.matches("input,textarea,select,[contenteditable=true]")) return true;
+  const panel = document.querySelector(`[data-view="${state.view}"]`);
+  return Boolean(panel && ([...panel.querySelectorAll("textarea,input[type=text],input[type=password]")].some(input => input.getClientRects().length && !input.closest("details:not([open])") && input.value !== input.defaultValue) || panel.querySelector(".photoAnnotationEditor,details[open].paidProfileEditors")));
+}
+function automaticJob() {
+  if (appView.hidden || !state.settings) return null;
+  if (socialDetailDialog?.open && socialDetailDialog.dataset.userId) return { key: `social-profile:${socialDetailDialog.dataset.userId}`, interval: 60000, run: () => openSocialProfile(socialDetailDialog.dataset.userId, { background: true }) };
+  if (socialDetailDialog?.open && socialDetailDialog.dataset.groupId) return { key: `social-group:${socialDetailDialog.dataset.groupId}`, interval: 60000, run: () => openSocialGroup(socialDetailDialog.dataset.groupId, { background: true }) };
+  const key = `${state.view}:${state.view === "session" ? state.sessionSection : state.view === "social" ? state.socialTab : state.view === "library" ? state.libraryTab : state.view === "personal-tools" ? window.betaPersonalTools.getTab() : ""}`;
+  let interval = 15000, action;
+  if (state.view === "session" && state.sessionSection === "friends") action = () => refreshFriendActivity(false);
+  else if (state.view === "session" && state.sessionSection === "avatars" && hasPaidAccess()) { interval = 30000; action = refreshAvatars; }
+  else if (state.view === "insights") { interval = 30000; action = async () => { await refreshInsights(); if (state.ownProfile && hasPaidAccess() && (previewMode || state.settings.hasVrchatAuthCookie)) await loadOwnProfile({ background: true }); }; }
+  else if (state.view === "history") { interval = 30000; action = refreshHistory; }
+  else if (state.view === "social" && (previewMode || state.settings.hasVrchatAuthCookie)) { interval = 60000; action = async () => { await refreshSocial(false); if (state.socialError) throw new Error("social_refresh_failed"); }; }
+  else if (state.view === "library") action = () => refreshLocalDirectory(state.libraryTab);
+  else if (state.view === "admin" && hasPaidAccess()) action = refreshAdmin;
+  else if (state.view === "owner" && hasOwnerAccess()) action = () => refreshOwner({ silent: true });
+  else if (state.view === "crash" && !state.crashEnabled) { interval = 5000; action = refreshCrash; }
+  else if (state.view === "builder") action = refreshBuilderSources;
+  else if (state.view === "personal-tools" && hasPaidAccess() && ["photos","diagnostics","cases"].includes(window.betaPersonalTools.getTab())) { interval = window.betaPersonalTools.getTab() === "diagnostics" ? 5000 : 15000; action = () => window.betaPersonalTools.autoRefresh(); }
+  if (!action) return null;
+  return { key, interval, run: async () => {
+    const workspace = document.querySelector(".workspace"), scroll = workspace?.scrollTop;
+    await action();
+    if (workspace && workspace.scrollTop === scroll) workspace.scrollTop = scroll;
+    if (state.view === "admin" && state.adminError || state.view === "owner" && state.ownerError || state.view === "history" && state.historyError || state.view === "insights" && state.insightsError || state.view === "session" && state.sessionSection === "avatars" && state.avatarError) throw new Error("refresh_unavailable");
+  } };
+}
+const autoRefresh = new window.betaAutoRefresh.AutoRefreshController({
+  getJob: automaticJob,
+  paused: () => document.hidden || isEditingInterface() || Boolean(document.querySelector("dialog[open]:not([data-social-detail-dialog])")),
+  changed: value => { automaticStatus.textContent = value.key ? t(value.failures ? "Связь недоступна. Повторим автоматически." : "Данные обновляются автоматически") : ""; }
+});
+window.betaRefreshController = autoRefresh;
+document.addEventListener("click", () => { window.setTimeout(() => autoRefresh.wake(), 0); });
+document.addEventListener("focusout", () => { window.setTimeout(() => autoRefresh.wake(), 0); });
+document.addEventListener("visibilitychange", () => { autoRefresh.wake({ immediate: !document.hidden }); });
+const activationObserver = new MutationObserver(() => autoRefresh.wake()); activationObserver.observe(appView, { attributes: true, attributeFilter: ["hidden"] });
+window.addEventListener("beforeunload", () => { autoRefresh.stop(); activationObserver.disconnect(); });
+autoRefresh.wake();
+api.onPreferencesCommand?.(async (request) => {
+  try {
+    if (request.command === "save") {
+      window.betaUiCustomizer?.applyPreferences?.(request.value.appearance);
+      commitUiSettings(request.value.uiSettings, { deferReload: true });
+    } else if (request.command === "appearance") {
+      const launcher = document.querySelector(".uiCustomLauncher");
+      if (document.querySelector(".uiCustomPanel")?.hidden) launcher?.click();
+    } else if (request.command === "account") {
+      openVrchatAuth();
+    } else if (request.command === "tutorial") {
+      window.betaTutorial?.start();
+    } else if (request.command === "monitor-resume") {
+      void (async () => {
+        if (state.monitoringTransition) return;
+        if (state.currentFile && api.recoverTail) await api.recoverTail();
+        else await startTail();
+      })().catch((error) => setStatus(error.message || "Не удалось возобновить чтение.", true));
+    } else if (request.command === "choose-log") {
+      document.querySelector('[data-action="choose"]')?.click();
+    } else if (request.command === "import") {
+      applyImportedUiSettings(request.value);
+      void refreshInsights();
+      state.historySessions = [];
+    } else if (request.command === "data-changed") {
+      const category = request.value.category;
+      if (["history", "all"].includes(category)) { state.historySessions = []; state.historySelectedKey = ""; renderHistory(true); void refreshInsights(); }
+      if (["social", "all"].includes(category)) { state.socialEvents = []; renderFriendActivityFeed(); }
+      if (state.view === "library") void refreshLocalDirectory();
+      if (request.value.action === "backup-configure") state.autoBackupStatus = null;
+    }
+    if (request.id) api.replyPreferences({ id: request.id, snapshot: preferencesSnapshot() });
+  } catch (error) {
+    if (request.id) api.replyPreferences({ id: request.id, error: error.message || "Не удалось сохранить настройки." });
+    else setStatus(error.message || "Не удалось обновить настройки.", true);
+  }
+});
+window.addEventListener("beta:appearance-changed", () => {
+  applyUiSettings();
+  if (appView.hidden) return;
+  if (state.view === "session") scheduleSessionRender();
+  else if (state.view === "admin") scheduleAdminRender();
+  else if (state.view === "owner") scheduleOwnerRender();
+  else if (state.view === "crash") scheduleCrashRender();
+  else if (state.view === "builder") scheduleBuilderRender();
+  else if (state.view === "history") requestAnimationFrame(() => renderHistory(true));
+  else if (state.view === "social") requestAnimationFrame(() => renderSocial());
+});
 renderSession();
 renderAdminList();
 renderAdminCard();

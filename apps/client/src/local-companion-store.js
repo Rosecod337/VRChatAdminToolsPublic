@@ -5,6 +5,11 @@ const fs = require("node:fs");
 const { once } = require("node:events");
 const { createHash, randomUUID } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
+const { normalizePrivacyPolicy, redactedReportRow } = require("./privacy-policy");
+const { PersonalToolsStore, KINDS: PERSONAL_KINDS } = require("./personal-tools-store");
+const { PhotoAtlas } = require("./photo-atlas");
+const { DiagnosticRecorder } = require("./diagnostic-recorder");
+const EXTRA_BACKUP_TABLES = { photoRoots: ["photo_roots", "photos"], photos: ["photo_items", "photos"], diagnosticRuns: ["diagnostic_runs", "diagnostics"], diagnosticSamples: ["diagnostic_samples", "diagnostics"], diagnosticMarks: ["diagnostic_marks", "diagnostics"] };
 
 const MAX_LOCAL_SESSIONS = 5_000;
 const MAX_LOCAL_SOCIAL_EVENTS = 20_000;
@@ -267,6 +272,7 @@ class LocalCompanionStore {
 
   createSession({ worldName = "", startedAt = Date.now() } = {}) {
     const id = `local-${randomUUID()}`;
+    if (!this.getPrivacyPolicy().captureHistory) return id;
     const timestamp = isoTimestamp(startedAt);
     this.database.prepare(`
       INSERT INTO play_sessions (id, started_at, world_name, updated_at)
@@ -277,6 +283,7 @@ class LocalCompanionStore {
   }
 
   ensureSession(id, { worldName = "", startedAt = Date.now() } = {}) {
+    if (!this.getPrivacyPolicy().captureHistory) return { ok: true, skipped: true, playSessionId: String(id || "") };
     const sessionId = String(id || "").trim();
     if (!/^[a-zA-Z0-9_-]{1,200}$/.test(sessionId)) return { ok: false, error: "invalid_session_id" };
     const timestamp = isoTimestamp(startedAt);
@@ -288,6 +295,7 @@ class LocalCompanionStore {
   }
 
   updateSession(id, stats = {}, { end = false } = {}) {
+    if (!this.getPrivacyPolicy().captureHistory) return { ok: true, skipped: true, playSessionId: String(id || "") };
     const sessionId = String(id || "").trim();
     if (!/^[a-zA-Z0-9_-]{1,200}$/.test(sessionId)) return { ok: false, error: "invalid_session_id" };
     const safeStats = stats && typeof stats === "object" ? stats : {};
@@ -349,7 +357,8 @@ class LocalCompanionStore {
     `).all(safeLimit);
   }
 
-  ingestSessions(sessions = []) {
+  ingestSessions(sessions = [], { explicitImport = false } = {}) {
+    if (!explicitImport && !this.getPrivacyPolicy().captureHistory) return { imported: 0 };
     const rows = Array.isArray(sessions) ? sessions.slice(0, MAX_LOCAL_SESSIONS) : [];
     const upsert = this.database.prepare(`
       INSERT INTO play_sessions (id, started_at, ended_at, world_name, player_count, avatar_count, event_count, snapshot, updated_at)
@@ -884,11 +893,12 @@ class LocalCompanionStore {
         last_seen_at = excluded.last_seen_at,
         snapshot = excluded.snapshot
     `);
-    const insertEvent = this.database.prepare(`
+    const insertEventStatement = this.database.prepare(`
       INSERT INTO local_social_events (
         event_type, user_id, display_name, previous_value, current_value, occurred_at, snapshot
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
+    const insertEvent = this.getPrivacyPolicy().captureSocialEvents ? insertEventStatement : { run: () => ({ changes: 0 }) };
     const seen = new Set();
     let eventCount = 0;
     this.database.exec("BEGIN IMMEDIATE");
@@ -1018,7 +1028,7 @@ class LocalCompanionStore {
       }
     };
     const serialized = snapshotJson(safeSnapshot);
-    const insertEvent = this.database.prepare(`
+    const insertEventStatement = this.database.prepare(`
       INSERT INTO local_social_events (
         event_type, user_id, display_name, previous_value, current_value, occurred_at, snapshot
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1061,14 +1071,16 @@ class LocalCompanionStore {
             last_seen_at = excluded.last_seen_at, snapshot = excluded.snapshot
         `).run(userId, displayName, status, statusDescription, location, platform, online ? 1 : 0, previous?.first_seen_at || occurredAt, occurredAt, serialized);
       }
-      for (const [eventType, before, after] of changes) insertEvent.run(eventType, userId, displayName, before, after, occurredAt, serialized);
+      if (this.getPrivacyPolicy().captureSocialEvents) {
+        for (const [eventType, before, after] of changes) insertEventStatement.run(eventType, userId, displayName, before, after, occurredAt, serialized);
+      }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
     if (changes.length) this.pruneOverflow();
-    return { ok: true, events: changes.length, userId };
+    return { ok: true, events: this.getPrivacyPolicy().captureSocialEvents ? changes.length : 0, userId };
   }
 
   listSocialEvents(limit = 500) {
@@ -1110,15 +1122,18 @@ class LocalCompanionStore {
       socialFriends: this.database.prepare("SELECT * FROM local_social_friends ORDER BY last_seen_at ASC").all(),
       socialEvents: this.database.prepare("SELECT * FROM local_social_events ORDER BY occurred_at ASC, id ASC").all(),
       retentionDays: this.getRetentionDays(),
+      privacyPolicy: this.getPrivacyPolicy(),
+      personalPlans: this.personalPlanBackup(),
+      ...Object.fromEntries(Object.entries(EXTRA_BACKUP_TABLES).map(([key, [table]]) => [key, this.optionalRows(table)])),
       uiSettings: uiSettings && typeof uiSettings === "object" && !Array.isArray(uiSettings) ? uiSettings : {}
     };
   }
 
-  async exportToFile(filePath, uiSettings = {}) {
+  async exportToFile(filePath, uiSettings = {}, options = {}) {
     if (!path.isAbsolute(filePath)) throw new Error("Local companion export path must be absolute");
     const output = fs.createWriteStream(filePath, { encoding: "utf8", flags: "w" });
     try {
-      await this.exportToWritable(output, uiSettings);
+      await this.exportToWritable(output, uiSettings, options);
       return { ok: true, filePath };
     } catch (error) {
       output.destroy();
@@ -1126,7 +1141,7 @@ class LocalCompanionStore {
     }
   }
 
-  async exportToWritable(output, uiSettings = {}) {
+  async exportToWritable(output, uiSettings = {}, { redacted = false, categories = ["history", "social", "preferences", "photos", "diagnostics"] } = {}) {
     const completion = new Promise((resolve, reject) => {
       output.once("finish", resolve);
       output.once("error", reject);
@@ -1135,13 +1150,15 @@ class LocalCompanionStore {
     const safeUiSettings = uiSettings && typeof uiSettings === "object" && !Array.isArray(uiSettings) ? uiSettings : {};
     const writeRows = async (key, query) => {
       await writeStreamChunk(output, `${JSON.stringify(key)}:[`);
+      const category = EXTRA_BACKUP_TABLES[key]?.[1] || (key === "sessions" ? "history" : key.startsWith("social") ? "social" : "preferences");
+      if (!categories.includes(category) || EXTRA_BACKUP_TABLES[key] && !this.hasTable(EXTRA_BACKUP_TABLES[key][0]) || redacted && key === "photoRoots") { await writeStreamChunk(output, "]"); return; }
       const statement = this.database.prepare(`${query} LIMIT ? OFFSET ?`);
       let offset = 0;
       let first = true;
       while (true) {
         const rows = statement.all(EXPORT_PAGE_SIZE, offset);
         for (const row of rows) {
-          await writeStreamChunk(output, `${first ? "" : ","}${JSON.stringify(row)}`);
+          await writeStreamChunk(output, `${first ? "" : ","}${JSON.stringify(redacted ? redactedReportRow(key, row) : row)}`);
           first = false;
         }
         if (rows.length < EXPORT_PAGE_SIZE) break;
@@ -1152,7 +1169,7 @@ class LocalCompanionStore {
     };
 
     try {
-      await writeStreamChunk(output, `{${JSON.stringify("format")}:${JSON.stringify("vrchat-admin-tools-local-backup")},${JSON.stringify("version")}:1,${JSON.stringify("exportedAt")}:${JSON.stringify(isoTimestamp())},`);
+      await writeStreamChunk(output, `{${JSON.stringify("format")}:${JSON.stringify(redacted ? "vrchat-admin-tools-redacted-report" : "vrchat-admin-tools-local-backup")},${JSON.stringify("version")}:1,${JSON.stringify("exportedAt")}:${JSON.stringify(isoTimestamp())},`);
       await writeRows("sessions", "SELECT id, started_at, ended_at, world_name, player_count, avatar_count, event_count, snapshot FROM play_sessions ORDER BY started_at ASC");
       await writeStreamChunk(output, ",");
       await writeRows("playerPreferences", "SELECT * FROM local_player_preferences ORDER BY updated_at ASC");
@@ -1162,7 +1179,10 @@ class LocalCompanionStore {
       await writeRows("socialFriends", "SELECT * FROM local_social_friends ORDER BY last_seen_at ASC");
       await writeStreamChunk(output, ",");
       await writeRows("socialEvents", "SELECT * FROM local_social_events ORDER BY occurred_at ASC, id ASC");
-      await writeStreamChunk(output, `,${JSON.stringify("retentionDays")}:${this.getRetentionDays()},${JSON.stringify("uiSettings")}:${JSON.stringify(safeUiSettings)}}\n`);
+      const plans = categories.includes("preferences") ? this.personalPlanBackup() : [];
+      await writeStreamChunk(output, `,${JSON.stringify("personalPlans")}:${JSON.stringify(redacted ? plans.map((row) => ({ kind: row.kind, updatedDay: String(row.updated_at).slice(0, 10) })) : plans)}`);
+      for (const [key, [table]] of Object.entries(EXTRA_BACKUP_TABLES)) { await writeStreamChunk(output, ","); await writeRows(key, `SELECT * FROM ${table} ORDER BY rowid`); }
+      await writeStreamChunk(output, `,${JSON.stringify("retentionDays")}:${this.getRetentionDays()},${JSON.stringify("privacyPolicy")}:${JSON.stringify(this.getPrivacyPolicy())},${JSON.stringify("uiSettings")}:${JSON.stringify(redacted ? {} : safeUiSettings)}}\n`);
       output.end();
       await completion;
     } catch (error) {
@@ -1176,7 +1196,20 @@ class LocalCompanionStore {
       throw new Error("invalid_backup_format");
     }
     const sessions = Array.isArray(payload.sessions) ? payload.sessions.slice(0, MAX_LOCAL_SESSIONS) : [];
-    this.ingestSessions(sessions);
+    if (Array.isArray(payload.personalPlans)) {
+      const plans = new PersonalToolsStore(this.database);
+      for (const row of payload.personalPlans.slice(0, 400)) {
+        if (!PERSONAL_KINDS.includes(row?.kind)) continue;
+        try {
+          const data = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+          if (row.kind === "rules" && data) data.enabled = false;
+          plans.save(row.kind, { id: row.id, name: row.name, payload: data });
+        } catch { /* Invalid plans cannot create commands or block history restoration. */ }
+      }
+    }
+    this.ingestSessions(sessions, { explicitImport: true });
+    if (Array.isArray(payload.photos)) new PhotoAtlas(this.database).restoreBackup(payload.photoRoots || [], payload.photos);
+    if (Array.isArray(payload.diagnosticRuns)) new DiagnosticRecorder(this.database).restoreBackup(payload.diagnosticRuns, payload.diagnosticSamples || [], payload.diagnosticMarks || []);
     for (const row of Array.isArray(payload.playerPreferences) ? payload.playerPreferences.slice(0, 10000) : []) {
       this.savePlayerPreference(row);
     }
@@ -1202,6 +1235,7 @@ class LocalCompanionStore {
       insertSocialEvent.run(String(row.event_type || "").slice(0, 60), row.user_id, String(row.display_name || "").slice(0, 160), String(row.previous_value || "").slice(0, 1000), String(row.current_value || "").slice(0, 1000), isoTimestamp(row.occurred_at), snapshotJson(row.snapshot));
     }
     if (Object.hasOwn(payload, "retentionDays")) this.setRetentionDays(payload.retentionDays);
+    if (payload.privacyPolicy) this.setPrivacyPolicy(payload.privacyPolicy, { prune: false });
     return {
       ok: true,
       importedSessions: sessions.length,
@@ -1221,17 +1255,33 @@ class LocalCompanionStore {
       INSERT INTO companion_meta (key, value) VALUES ('retention_days', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(String(retentionDays));
+    this.setPrivacyPolicy({ ...this.getPrivacyPolicy(), historyDays: retentionDays, socialDays: retentionDays }, { prune: false });
     const removed = this.prune(retentionDays);
     return { ok: true, retentionDays, removed };
   }
 
   prune(retentionDays = this.getRetentionDays()) {
-    const days = Number(retentionDays);
+    const policy = this.getPrivacyPolicy();
+    if (arguments.length > 0) { policy.historyDays = Number(retentionDays) || 0; policy.socialDays = Number(retentionDays) || 0; }
     let removed = this.pruneOverflow();
-    if (days) {
-      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    if (policy.historyDays) {
+      const cutoff = new Date(Date.now() - policy.historyDays * 86_400_000).toISOString();
       removed += Number(this.database.prepare("DELETE FROM play_sessions WHERE started_at < ?").run(cutoff).changes) || 0;
+    }
+    if (policy.socialDays) {
+      const cutoff = new Date(Date.now() - policy.socialDays * 86_400_000).toISOString();
       removed += Number(this.database.prepare("DELETE FROM local_social_events WHERE occurred_at < ?").run(cutoff).changes) || 0;
+    }
+    if (policy.preferencesDays) {
+      const cutoff = new Date(Date.now() - policy.preferencesDays * 86_400_000).toISOString();
+      for (const table of ["local_player_preferences", "local_world_preferences"]) removed += Number(this.database.prepare(`DELETE FROM ${table} WHERE updated_at < ?`).run(cutoff).changes) || 0;
+      if (this.hasTable("personal_items")) removed += Number(this.database.prepare("DELETE FROM personal_items WHERE updated_at < ?").run(cutoff).changes) || 0;
+    }
+    if (policy.photosDays && this.hasTable("photo_items")) removed += Number(this.database.prepare("DELETE FROM photo_items WHERE captured_at < ?").run(new Date(Date.now() - policy.photosDays * 86400000).toISOString()).changes) || 0;
+    if (policy.diagnosticsDays && this.hasTable("diagnostic_runs")) {
+      const cutoff = new Date(Date.now() - policy.diagnosticsDays * 86400000).toISOString();
+      for (const table of ["diagnostic_samples", "diagnostic_marks"]) this.database.prepare(`DELETE FROM ${table} WHERE run_id IN (SELECT id FROM diagnostic_runs WHERE started_at < ? AND ended_at IS NOT NULL)`).run(cutoff);
+      removed += Number(this.database.prepare("DELETE FROM diagnostic_runs WHERE started_at < ? AND ended_at IS NOT NULL").run(cutoff).changes) || 0;
     }
     this.database.exec(`
       DELETE FROM local_players
@@ -1266,14 +1316,67 @@ class LocalCompanionStore {
       socialEvents: count("local_social_events"),
       playerPreferences: count("local_player_preferences"),
       worldPreferences: count("local_world_preferences"),
+      personalPlans: this.hasTable("personal_items") ? count("personal_items") : 0,
+      photos: this.hasTable("photo_items") ? count("photo_items") : 0,
+      diagnostics: this.hasTable("diagnostic_runs") ? count("diagnostic_runs") : 0,
       fileBytes,
       retentionDays: this.getRetentionDays()
     };
   }
 
+  getPrivacyPolicy() {
+    if (!this.privacyPolicyCache) {
+      const stored = this.database.prepare("SELECT value FROM companion_meta WHERE key = 'privacy_policy'").get()?.value;
+      let value = {};
+      try { value = stored ? JSON.parse(stored) : {}; } catch { value = { captureHistory: false, captureSocialEvents: false, serverArchive: false }; }
+      this.privacyPolicyCache = normalizePrivacyPolicy(value, this.getRetentionDays());
+    }
+    return { ...this.privacyPolicyCache };
+  }
+
+  personalPlanBackup() {
+    if (!this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='personal_items'").get()) return [];
+    return this.database.prepare("SELECT * FROM personal_items ORDER BY updated_at LIMIT 400").all();
+  }
+
+  hasTable(table) { return Boolean(this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)); }
+  optionalRows(table) { return this.hasTable(table) ? this.database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all() : []; }
+
+  setPrivacyPolicy(value, { prune = true } = {}) {
+    const next = normalizePrivacyPolicy({ ...this.getPrivacyPolicy(), ...value }, this.getRetentionDays());
+    this.database.prepare("INSERT INTO companion_meta (key,value) VALUES ('privacy_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(next));
+    this.privacyPolicyCache = next;
+    return { policy: { ...next }, removed: prune ? this.prune() : 0 };
+  }
+
+  previewPrivacyChange({ category, policy } = {}) {
+    if (category && !["history", "social", "preferences", "photos", "diagnostics", "all"].includes(category)) throw new Error("invalid_cleanup_category");
+    const current = this.storageStats();
+    const next = policy ? normalizePrivacyPolicy(policy, this.getRetentionDays()) : this.getPrivacyPolicy();
+    const old = (table, field, days) => days ? Number(this.database.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${field} < ?`).get(new Date(Date.now() - days * 86400000).toISOString())?.n) || 0 : 0;
+    return {
+      category: category || "policy", current, policy: next,
+      affected: category ? {
+        sessions: ["history", "all"].includes(category) ? current.sessions : 0,
+        friendEvents: ["social", "all"].includes(category) ? current.socialEvents : 0,
+        friendCache: ["social", "all"].includes(category) ? current.socialFriends : 0,
+        notes: ["preferences", "all"].includes(category) ? current.playerPreferences + current.worldPreferences : 0,
+        plans: ["preferences", "all"].includes(category) ? current.personalPlans : 0,
+        photos: ["photos", "all"].includes(category) ? current.photos : 0,
+        diagnostics: ["diagnostics", "all"].includes(category) ? current.diagnostics : 0
+      } : {
+        sessions: old("play_sessions", "started_at", next.historyDays), friendEvents: old("local_social_events", "occurred_at", next.socialDays), friendCache: 0,
+        notes: old("local_player_preferences", "updated_at", next.preferencesDays) + old("local_world_preferences", "updated_at", next.preferencesDays),
+        plans: this.hasTable("personal_items") ? old("personal_items", "updated_at", next.preferencesDays) : 0,
+        photos: this.hasTable("photo_items") ? old("photo_items", "captured_at", next.photosDays) : 0,
+        diagnostics: this.hasTable("diagnostic_runs") ? old("diagnostic_runs", "started_at", next.diagnosticsDays) : 0
+      }
+    };
+  }
+
   clearCategory(category) {
     const safeCategory = String(category || "").trim().toLowerCase();
-    if (!["history", "social", "preferences", "all"].includes(safeCategory)) throw new Error("invalid_cleanup_category");
+    if (!["history", "social", "preferences", "photos", "diagnostics", "all"].includes(safeCategory)) throw new Error("invalid_cleanup_category");
     const before = this.storageStats();
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -1289,10 +1392,16 @@ class LocalCompanionStore {
       }
       if (safeCategory === "social" || safeCategory === "all") {
         this.database.exec("DELETE FROM local_social_events; DELETE FROM local_social_friends;");
+        this.database.prepare("DELETE FROM companion_meta WHERE key = 'social_snapshot_ready'").run();
       }
       if (safeCategory === "preferences" || safeCategory === "all") {
         this.database.exec("DELETE FROM local_player_preferences; DELETE FROM local_world_preferences;");
+        if (this.hasTable("personal_items")) this.database.exec("DELETE FROM personal_items");
+        if (this.hasTable("personal_apps")) this.database.exec("DELETE FROM personal_apps");
       }
+      if (["photos", "all"].includes(safeCategory) && this.hasTable("photo_items")) this.database.exec("DELETE FROM photo_items; DELETE FROM photo_roots;");
+      if (["diagnostics", "all"].includes(safeCategory) && this.hasTable("diagnostic_runs")) this.database.exec("DELETE FROM diagnostic_samples; DELETE FROM diagnostic_marks; DELETE FROM diagnostic_runs;");
+      if (safeCategory === "all") this.database.exec("DELETE FROM local_players; DELETE FROM local_worlds;");
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");

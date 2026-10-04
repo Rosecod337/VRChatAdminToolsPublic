@@ -175,6 +175,8 @@ class LogTailer extends EventEmitter {
     this.rotationTimer = null;
     this.running = false;
     this.readInFlight = false;
+    this.lastReadAt = null;
+    this.lastReadError = null;
     this.analysisGeneration = 0;
     this.parser = typeof parser.createParser === "function" ? parser.createParser() : parser;
   }
@@ -230,6 +232,13 @@ class LogTailer extends EventEmitter {
     }
   }
 
+  async recover() {
+    if (!this.currentFile) throw new Error("VRChat log file not selected");
+    if (this.running) { await this.checkRotation(); await this.readNewBytes(); }
+    else await this.beginFollowing(this.currentFile, { position: this.position, resetParser: false, message: "Чтение возобновлено" });
+    return { running: this.running, filePath: this.currentFile };
+  }
+
   async checkRotation() {
     if (!this.running || !this.currentFile || this.readInFlight) return;
     const latest = await findLatestLogFile(path.dirname(this.currentFile));
@@ -262,14 +271,19 @@ class LogTailer extends EventEmitter {
         this.emit("status", { running: true, filePath, message: "Лог был перезаписан, чтение начато заново" });
       }
       if (stat.size === position) {
+        this.lastReadAt = Date.now(); this.lastReadError = null;
         this.position = position;
         return;
       }
 
       const chunk = await readRange(filePath, position, stat.size - 1);
       if (!this.running || this.currentFile !== filePath) return;
+      this.lastReadAt = Date.now(); this.lastReadError = null;
       this.position = stat.size;
       this.consume(chunk);
+    } catch (error) {
+      this.lastReadError = ["ENOENT", "EACCES", "EPERM", "EIO", "EBUSY"].includes(error.code) ? error.code : "read-error";
+      throw error;
     } finally {
       this.readInFlight = false;
     }

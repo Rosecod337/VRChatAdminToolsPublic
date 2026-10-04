@@ -1919,3 +1919,14 @@ body.uiThemeVrchat .paidProfileDetails h3 { color: #b9c6d0; }
 .gamesOptions button:disabled{opacity:1}
 .gamesCard [data-game-next]{min-height:42px}
 @media (max-width:900px){.gamesModes,.gamesOptions{grid-template-columns:1fr}}
+/* Native controls live in the existing interface, without an extra title row. */
+.nativeWindowControls { position: fixed; top: 8px; right: 10px; z-index: 120; display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.nativeWindowControls button { display: grid; place-items: center; width: 34px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); }
+.nativeWindowControls button:hover { background: var(--panel-2); color: var(--text); }
+.nativeWindowControls button[data-window-command="close"]:hover { background: #ae3343; color: #fff; }
+.nativeWindowControls svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+body.nativeWindow .studioTopbar { padding-right: 132px; -webkit-app-region: drag; }
+body.nativeWindow .appTitlebar .brand > div, body.nativeWindow .activationIntro { -webkit-app-region: drag; }
+body.nativeWindow .studioTopbar button, body.nativeWindow .activationIntro a, body.nativeWindow .activationIntro button, body.nativeWindow .activationIntro select { -webkit-app-region: no-drag; }
+body.nativeWindow .appShell:not(.uiStudio) .appTitlebar { padding-right: 132px; }
+body.nativeWindow .activationView { padding-top: 48px; }

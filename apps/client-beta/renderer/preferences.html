@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>VRChat Admin Tools — Настройки</title>
+  <link rel="stylesheet" href="preferences.css">
+  <script src="i18n.js" defer></script>
+  <script src="preferences.js" defer></script>
+</head>
+<body>
+  <form id="preferences-form">
+    <header><span class="eyebrow">VRCHAT ADMIN TOOLS</span><h1>Настройки</h1><p id="preview-label" hidden>Просмотр на вымышленных данных</p></header>
+    <nav aria-label="Разделы настроек"><button type="button" data-page="interface" class="active" title="Интерфейс">Вид</button><button type="button" data-page="session">Сессия</button><button type="button" data-page="data">Данные</button><button type="button" data-page="privacy">Приватность</button><button type="button" data-page="health">Состояние</button></nav>
+    <main>
+      <section data-section="interface">
+        <h2>Общий вид</h2>
+        <label class="field">Язык интерфейса<select name="language"><option value="ru">Русский</option><option value="en">English</option></select></label>
+        <label class="field">Цветовая палитра<select name="preset"></select></label>
+        <label class="field">Масштаб интерфейса<select name="scale"><option>90</option><option>100</option><option>125</option><option>150</option><option>175</option><option>200</option></select></label>
+        <label class="field">Стартовый раздел<select name="startView"><option value="session">Сессия</option><option value="insights">Мой VRChat</option><option value="social">Друзья</option><option value="library">Библиотека</option><option value="admin">Admin Tools</option><option value="owner">Owner</option><option value="crash">Crash Analyzer</option><option value="history">История</option><option value="builder">Рабочее место</option></select></label>
+        <label class="toggle">Использовать анимации<input name="animations" type="checkbox"></label>
+        <button type="button" class="secondary" data-action="tutorial">Пройти обучение</button>
+        <button type="button" class="secondary" data-action="account">Аккаунт VRChat</button>
+      </section>
+      <section data-section="session" hidden>
+        <h2>Мониторинг</h2>
+        <label class="field">Игроки по умолчанию<select name="sessionPlayerMode"><option value="online-first">Онлайн сначала</option><option value="online-only">Только онлайн</option><option value="all">Все за сессию</option></select></label>
+        <label class="field">Буфер событий<select name="eventLimit"><option value="1000">1 000</option><option value="2500">2 500</option><option value="5000">5 000</option></select></label>
+        <label class="toggle">Автоматически анализировать текущий лог<input name="autoAnalyzeCurrentLog" type="checkbox"></label>
+        <label class="toggle">Автоматически восстанавливать мониторинг после сбоя<input name="protectMonitoring" type="checkbox"></label>
+        <label class="toggle">Запоминать выбранные карточки<input name="rememberSelection" type="checkbox"></label>
+        <details class="notificationMenu"><summary>Уведомления <span id="notification-count"></span></summary><div><label class="toggle">Уведомлять о входе отмеченных игроков<input name="notifyMarkedPlayers" type="checkbox"></label><label class="toggle">Уведомлять об отмеченных crash-аватарах<input name="notifyCrashAvatars" type="checkbox"></label></div></details>
+        <p>Защита мониторинга не мешает ручной остановке. Системные уведомления появляются только по свежим событиям активного лога.</p>
+      </section>
+      <section data-section="data" hidden>
+        <h2>Локальные данные</h2>
+        <label class="field">Хранить историю<select id="retention"><option value="0">Без ограничения</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="180">180 дней</option><option value="365">1 год</option></select></label>
+        <p id="storage-status"></p><div class="actions"><button type="button" data-data="export">Экспорт</button><button type="button" data-data="import">Импорт</button></div>
+        <label class="toggle">Очищать поиски и выбор при выходе<input name="clearOnLogout" type="checkbox"></label>
+        <h2>Зашифрованные автокопии</h2><p id="backup-status"></p>
+        <label class="passwordField">Пароль копии или восстановления<input id="passphrase" type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="Не менее 12 символов"></label>
+        <div class="actions"><button type="button" id="backup-toggle" data-data="backup-configure">Включить и выбрать папку</button><button type="button" data-data="backup-restore">Восстановить копию</button></div>
+        <p>Сохраните пароль отдельно: без него копию нельзя открыть на другом устройстве. Автокопия создаётся раз в сутки, пока приложение запущено. Ручной экспорт и восстановление доступны бесплатно.</p>
+        <details class="cleanup"><summary>Очистка локальных данных</summary><div class="actions"><button type="button" data-clear="history">Очистить историю</button><button type="button" data-clear="social">Очистить друзей</button><button type="button" data-clear="preferences">Очистить заметки и планы</button><button type="button" data-clear="photos">Очистить индекс фото</button><button type="button" data-clear="diagnostics">Очистить диагностику</button><button type="button" data-clear="all" class="danger">Очистить всё</button></div></details>
+        <p>В резервную копию входят локальные сессии, карточки, избранные миры и настройки интерфейса. Ключ и сессия VRChat не экспортируются.</p>
+      </section>
+      <section data-section="privacy" hidden>
+        <h2>Где находятся данные</h2>
+        <p>История, кеш друзей, личные планы, фотоатлас и диагностика хранятся на этом устройстве. Фото не отправляются на сервер. По ключу метаданные сессий могут архивироваться на сервере. Командные заметки, случаи и доказательства доступны вашей команде на сервере. Ключ и сессия VRChat не входят в резервную копию.</p>
+        <p id="privacy-stats"></p>
+        <label class="field">История сессий<select data-policy="historyDays"></select></label>
+        <label class="field">События друзей<select data-policy="socialDays"></select></label>
+        <label class="field">Заметки и избранное<select data-policy="preferencesDays"></select></label>
+        <label class="field">Индекс фото и подписи<select data-policy="photosDays"></select></label>
+        <label class="field">Диагностические записи<select data-policy="diagnosticsDays"></select></label>
+        <p>Очистка фото удаляет только индекс, альбомы и подписи. Оригиналы в выбранных папках остаются.</p>
+        <label class="toggle">Сохранять новые локальные сессии<input data-policy="captureHistory" type="checkbox"></label>
+        <label class="toggle">Сохранять новые события друзей<input data-policy="captureSocialEvents" type="checkbox"></label>
+        <p>Кеш текущего списка друзей остаётся для работы живого интерфейса. Отключение сбора не удаляет прежние записи.</p>
+        <label class="toggle">Отправлять архив метаданных сессий на сервер<input data-policy="serverArchive" type="checkbox"></label>
+        <p>Действует по активному ключу. Отключение прекращает новые отправки; ранее отправленный архив остаётся на сервере.</p>
+        <h2>Отчёт для передачи</h2>
+        <label class="toggle">История сессий<input data-report-category="history" type="checkbox" checked></label>
+        <label class="toggle">События друзей<input data-report-category="social" type="checkbox" checked></label>
+        <label class="toggle">Количество заметок<input data-report-category="preferences" type="checkbox" checked></label>
+        <label class="toggle">Количество фото<input data-report-category="photos" type="checkbox" checked></label>
+        <label class="toggle">Количество диагностических записей<input data-report-category="diagnostics" type="checkbox" checked></label>
+        <p>В отчёте нет имён, ID, ссылок, путей, текста заметок и исходных логов. Даты округляются до дня. Он содержит статистику и не предназначен для восстановления. Полная копия для восстановления находится во вкладке «Данные».</p>
+        <button type="button" id="privacy-report">Предпросмотр и экспорт отчёта</button>
+      </section>
+      <section data-section="health" hidden>
+        <h2>Состояние сессии</h2>
+        <dl id="health-values"></dl>
+        <div class="actions"><button type="button" id="health-refresh">Обновить состояние</button><button type="button" data-data="health-report">Экспорт состояния</button><button type="button" data-action="monitor-resume">Возобновить чтение</button><button type="button" data-action="choose-log">Выбрать лог</button><button type="button" data-action="account">Аккаунт VRChat</button></div>
+        <p>Пустой лог и отсутствие свежих событий сами по себе не означают ошибку. В свёрнутом окне частота обновления интерфейса снижается.</p>
+      </section>
+    </main>
+    <p id="status" role="status"></p>
+    <footer><button type="button" id="reset">По умолчанию</button><div><button type="button" id="cancel">Закрыть</button><button type="submit" class="primary">Сохранить</button></div></footer>
+  </form>
+</body>
+</html>

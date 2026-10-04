@@ -1,0 +1,45 @@
+.personalToolsView { min-width: 0; }
+.personalToolTabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.personalToolTabs button { padding: 8px 12px; font-size: 12px; }
+.personalToolTabs button.active { color: var(--cyan); border-color: var(--cyan); background: var(--panel-2); }
+.personalPlanLayout { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.personalPlanList { display: grid; gap: 8px; padding: 14px; max-height: calc(var(--ui-viewport-height, 100vh) - 270px); overflow-y: auto; }
+.personalPlanList button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.personalPlanList button.active { border-color: var(--cyan); color: var(--cyan); }
+.personalPlanEditor { min-width: 0; padding: 18px; }
+.personalPlanEditor h3 { margin: 0 0 12px; }
+.personalPlanEditor .adminField { margin-bottom: 12px; }
+.personalPlanActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.personalRouteSteps { display: grid; gap: 12px; padding: 0; margin: 16px 0; list-style: none; }
+.personalRouteStep { padding: 14px; border: 1px solid var(--line); border-radius: var(--ui-radius, 6px); background: var(--panel-2); }
+.personalStepHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.personalStepHeading > label { display: flex; align-items: center; gap: 8px; }
+.personalStepFields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.personalStepFields label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.personalStepFields input, .personalStepFields textarea { width: 100%; min-width: 0; }
+.personalStepFields textarea { min-height: 70px; }
+.personalStepControls { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.personalStepControls button { font-size: 11px; padding: 5px 9px; }
+.personalPlanList [data-plan-new] { color: var(--cyan); }
+.personalHeatmap { display: flex; flex-wrap: wrap; gap: 5px; margin: 18px 0; }
+.personalHeatmapDay { min-width: 84px; white-space: pre-line; font-size: 10px; color: var(--cyan); border-color: var(--cyan); }
+.personalHeatmapDay.incomplete { border-style: dashed; }
+.personalHeatmapDay.heatLevel0 { color: var(--muted); border-color: var(--line); background: var(--bg); }
+.personalHeatmapDay.heatLevel1 { background: color-mix(in srgb, var(--cyan) 10%, var(--bg)); }
+.personalHeatmapDay.heatLevel2 { background: color-mix(in srgb, var(--cyan) 20%, var(--bg)); }
+.personalHeatmapDay.heatLevel3 { background: color-mix(in srgb, var(--cyan) 30%, var(--bg)); }
+.personalHeatmapDay.heatLevel4 { background: color-mix(in srgb, var(--cyan) 40%, var(--bg)); }
+.personalReportSessions { display: grid; gap: 6px; max-height: 400px; overflow-y: auto; }
+.personalReportSessions button { text-align: left; font-size: 12px; }
+.personalReportResult .metricGrid button { display: grid; gap: 8px; padding: 16px; text-align: left; min-width: 0; }
+.personalReportResult .metricGrid button strong { font-size: 24px; color: var(--green); }
+.photoAtlasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 16px; }
+.photoAtlasCard { padding: 14px; min-width: 0; }
+.photoAtlasCard > img { width: 100%; height: 170px; object-fit: contain; background: var(--bg); }
+.photoAtlasCard .checkRow strong { overflow-wrap: anywhere; font-size: 12px; }
+.diagnosticChart { display: block; width: 100%; height: 180px; background: var(--bg); border: 1px solid var(--line); }
+.diagnosticChart polyline, .diagnosticChart path { fill: none; stroke: var(--cyan); stroke-width: 2; }
+.diagnosticSampleRows { max-height: 360px; overflow-y: auto; }
+.diagnosticDetails { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.caseEvidenceText { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 1100px) { .personalPlanLayout { grid-template-columns: minmax(0, 1fr); } .personalPlanList { max-height: 150px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }

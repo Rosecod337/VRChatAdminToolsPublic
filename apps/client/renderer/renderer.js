@@ -262,7 +262,8 @@ const ACTIVATION_ERROR_MESSAGES = Object.freeze({
     author_alias_invalid_characters: "В имени автора разрешены буквы, цифры, пробел, точка, дефис и подчёркивание.",
     author_alias_mixed_scripts: "Не смешивайте кириллицу и латиницу в имени автора.",
     author_alias_reserved: "Это имя автора зарезервировано. Выберите другое.",
-    author_alias_taken: "Это имя автора уже используется другим ключом."
+    author_alias_taken: "Это имя автора уже используется другим ключом.",
+    too_many_activation_attempts: "Слишком много неудачных попыток активации с этого подключения. Подождите до 15 минут и попробуйте снова."
 });
 
 function activationErrorCode(error) {
@@ -536,8 +537,8 @@ function currentAdminIdentity() {
   const key = String(license.keyPrefix || license.id || "").trim();
   const authorAlias = String(license.authorAlias || "").trim();
   const legacyLabel = String(license.label || "").trim();
-  const generatedOrderLabel = /^order\s+#\d+$/iu.test(legacyLabel);
-  const label = authorAlias || (!generatedOrderLabel ? legacyLabel : "") || key;
+  const legacyPaymentLabel = /^(?:yookassa|payment)\s+order\s+#\d+$/iu.test(legacyLabel);
+  const label = authorAlias || (!legacyPaymentLabel ? legacyLabel : "") || key;
   return {
     key: key.slice(0, 80),
     label: label.slice(0, 120)

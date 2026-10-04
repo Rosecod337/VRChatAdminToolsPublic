@@ -6,7 +6,7 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { execFile } = require("node:child_process");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, safeStorage, shell, nativeImage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { getHardwareId } = require("./hwid");
 const { LogTailer, defaultLogDirectory, findLatestLogFile, readTodayPlayers } = require("./log-tailer");
@@ -21,14 +21,97 @@ const { createEncryptedBackup, readEncryptedBackup, requirePassphrase } = requir
 const { VrchatUserResolver } = require("./vrchat-api");
 const { VrchatFriendPipeline } = require("./vrchat-friend-pipeline");
 const { isModernClientVersion, isPrereleaseVersion, modernUserDataPath } = require("./release-channel");
+const { registerPreferencesWindow } = require("./preferences-window");
+const { buildSessionHealth, redactedHealthReport } = require("./session-health");
+const { PersonalToolsStore, worldId: personalWorldId } = require("./personal-tools-store");
+const { AttentionEngine, simulateAttentionRule } = require("./attention-engine");
+const { createAttentionDelivery } = require("./attention-delivery");
+const { WorkflowService } = require("./workflow-service");
+const { personalReport } = require("./personal-reports");
+const { PhotoAtlas } = require("./photo-atlas");
+const { paidLocalAllowed } = require("./paid-access");
+const { DiagnosticRecorder } = require("./diagnostic-recorder");
+const { GameProcessMonitor } = require("./game-process-monitor");
+const { monitorEventLoopDelay } = require("node:perf_hooks");
 
-if (isModernClientVersion(app.getVersion()) && !isPrereleaseVersion(app.getVersion())) {
+const uiPreview = !app.isPackaged && process.env.VRCHAT_CLIENT_UI_PREVIEW === "1";
+
+if (!uiPreview && isModernClientVersion(app.getVersion()) && !isPrereleaseVersion(app.getVersion())) {
   const userDataPath = modernUserDataPath(app.getPath("appData"));
   mkdirSync(userDataPath, { recursive: true });
   app.setPath("userData", userDataPath);
 }
 
-const CURRENT_SERVER_URL = "https://api.vrchatadmintools.ru";
+const CURRENT_SERVER_URL = "http://localhost:8080";
+const preferencesOperations = Object.create(null);
+let lastObservedLogEventAt = null;
+let personalToolsStore = null;
+let workflowService = null;
+let photoAtlas = null;
+let diagnosticRecorder = null;
+let previewCaseServer = null;
+const gameProcessMonitor = new GameProcessMonitor();
+const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
+function recorder() {
+  diagnosticRecorder ??= new DiagnosticRecorder(companionStore().database, {
+    allowed: () => uiPreview || Boolean(lastKnownSettings && paidBackupAllowed(lastKnownSettings)),
+    sample: async () => {
+      const health = await preferencesOperations.health();
+      const value = { ...health, eventLoopMs: Number.isFinite(eventLoopHistogram.max) ? eventLoopHistogram.max / 1000000 : null, game: gameProcessMonitor.latest };
+      eventLoopHistogram.reset(); return value;
+    }, notify: (state) => send("personal:diagnostic-state", state), onStop: () => { gameProcessMonitor.stop(); eventLoopHistogram.disable(); }
+  });
+  return diagnosticRecorder;
+}
+const photoThumbnailCache = new Map();
+function atlas() {
+  photoAtlas ??= new PhotoAtlas(companionStore().database, { thumbnail: async (file, identity = file) => {
+    if (photoThumbnailCache.has(identity)) { const cached = photoThumbnailCache.get(identity); photoThumbnailCache.delete(identity); photoThumbnailCache.set(identity, cached); return cached; }
+    const image = nativeImage.createFromPath(file);
+    if (image.isEmpty()) return null;
+    const size = image.getSize();
+    if (size.width * size.height > 40000000) throw new Error("photo_dimensions_too_large");
+    const result = image.resize({ width: Math.min(280, size.width) }).toDataURL();
+    photoThumbnailCache.set(identity, result);
+    while (photoThumbnailCache.size > 72) photoThumbnailCache.delete(photoThumbnailCache.keys().next().value);
+    return result;
+  } });
+  return photoAtlas;
+}
+let attentionTimer = null;
+let attentionReloadAt = 0;
+const attentionEngine = new AttentionEngine({ onFire: createAttentionDelivery({
+  allowed: () => uiPreview || Boolean(lastKnownSettings && paidBackupAllowed(lastKnownSettings)),
+  send: (result) => send("personal:attention", result),
+  notify: (payload) => { if (!uiPreview && Notification.isSupported()) new Notification(payload).show(); }
+}) });
+
+function reloadAttentionRules() {
+  attentionEngine.configure(personalStore().list("rules"));
+  attentionReloadAt = Date.now();
+  if (attentionTimer) clearTimeout(attentionTimer);
+  attentionTimer = null;
+}
+
+function scheduleAttentionDelivery() {
+  if (attentionTimer) clearTimeout(attentionTimer);
+  const due = attentionEngine.nextDue();
+  attentionTimer = due === null ? null : setTimeout(() => { attentionTimer = null; attentionEngine.advance(); scheduleAttentionDelivery(); }, Math.max(1, due - Date.now()));
+}
+
+function personalStore() {
+  personalToolsStore ??= new PersonalToolsStore(companionStore().database);
+  return personalToolsStore;
+}
+
+async function requirePersonalKey() {
+  if (!isBetaClient() || (!uiPreview && !paidBackupAllowed(await readSettings()))) throw new Error("personal_paid_key_required");
+}
+function registerPreferencesOperation(channel, action, handler) {
+  preferencesOperations[action] = handler;
+  ipcMain.handle(channel, (event, ...arguments_) => { requireMainWindowSender(event); return handler(event, ...arguments_); });
+}
+registerPreferencesWindow({ app, BrowserWindow, ipcMain, getParent: () => mainWindow, getRendererPath: clientRendererPath, operations: preferencesOperations });
 const RETIRED_SERVER_URLS = new Set([
   "https://web-production-a9b1cd.up.railway.app",
   "https://web-production-a54bb.up.railway.app"
@@ -310,6 +393,7 @@ async function apiRequest(route, options = {}) {
 }
 
 async function refreshRuntimeConfig() {
+  if (process.env.VRCHAT_ADMIN_TOOLS_OFFICIAL_BUILD !== "1") return runtimeConfig.getPublicState();
   const result = await runtimeConfig.refresh();
   if (result.changed) {
     const settings = await readSettings();
@@ -489,6 +573,7 @@ function createWindow() {
     minHeight: 660,
     title: isBetaClient() ? app.getName() : "VRChat Log Analyzer",
     backgroundColor: "#111111",
+    frame: !isBetaClient(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -500,11 +585,11 @@ function createWindow() {
   });
 
   mainWindow.removeMenu();
-  mainWindow.loadFile(rendererPath);
+  mainWindow.loadFile(rendererPath, uiPreview ? { query: { preview: "1", seed: "1", stress: "0", appearancePreset: "studio" } } : undefined);
 
   // Запрещаем навигацию на любые внешние URL — защита от случайного loadURL
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url !== rendererUrl) event.preventDefault();
+    if (url.split("?")[0] !== rendererUrl) event.preventDefault();
   });
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -514,6 +599,8 @@ function createWindow() {
   mainWindow.on("focus", scheduleAlwaysOnTopReapply);
   mainWindow.on("show", scheduleAlwaysOnTopReapply);
   mainWindow.on("restore", scheduleAlwaysOnTopReapply);
+  mainWindow.on("maximize", () => send("window:state", windowState()));
+  mainWindow.on("unmaximize", () => send("window:state", windowState()));
   mainWindow.on("closed", () => {
     if (alwaysOnTopReapplyTimer) clearTimeout(alwaysOnTopReapplyTimer);
     alwaysOnTopReapplyTimer = null;
@@ -530,7 +617,14 @@ tailer.on("error", (error) => {
 });
 
 tailer.on("event", (event) => {
+  diagnosticRecorder?.observe(redactProtectedAvatarEvent(event));
+  lastObservedLogEventAt = Date.now();
   send("log:event", redactProtectedAvatarEvent(event));
+  if (isBetaClient() && (uiPreview || (lastKnownSettings && paidBackupAllowed(lastKnownSettings)))) {
+    if (Date.now() - attentionReloadAt > 30000) reloadAttentionRules();
+    attentionEngine.observe(redactProtectedAvatarEvent(event));
+    scheduleAttentionDelivery();
+  }
   if (event.userId) {
     resolver.resolve(event.userId).then((profile) => {
       if (profile) send("user:resolved", profile);
@@ -596,6 +690,7 @@ async function startHeartbeat() {
 }
 
 function setupAutoUpdater() {
+  if (process.env.VRCHAT_ADMIN_TOOLS_OFFICIAL_BUILD !== "1") return;
   if (!app.isPackaged) return;
 
   autoUpdater.allowPrerelease = isPrereleaseVersion(app.getVersion());
@@ -663,12 +758,13 @@ function formatUpdaterError(error) {
 }
 
 app.whenReady().then(async () => {
-  await importStableSettingsForBeta().catch(() => {});
+  if (!uiPreview) await importStableSettingsForBeta().catch(() => {});
   runtimeConfig.setCachePath(path.join(app.getPath("userData"), "runtime-config.json"));
   await runtimeConfig.loadCache();
   const settings = await readSettings();
   resolver.setAuthCookie(settings.vrchatAuthCookie);
   createWindow();
+  if (uiPreview) return;
   void syncFriendPipeline(settings.vrchatAuthCookie, { createBaseline: true });
   initialRuntimeConfigRefresh = refreshRuntimeConfig();
   initialRuntimeConfigRefresh.catch(() => {});
@@ -684,6 +780,8 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", async () => {
+  if (previewCaseServer) { const preview = await previewCaseServer.catch(() => null); await preview?.close(); previewCaseServer = null; }
+  diagnosticRecorder?.stop(); gameProcessMonitor.stop(); eventLoopHistogram.disable();
   friendPipeline.stop();
   if (runtimeConfigTimer) clearInterval(runtimeConfigTimer);
   runtimeConfigTimer = null;
@@ -693,6 +791,11 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("before-quit", (event) => {
+  diagnosticRecorder?.stop(); gameProcessMonitor.stop(); eventLoopHistogram.disable();
+  diagnosticRecorder = null;
+  if (photoAtlas) photoAtlas.cancelled = true;
+  if (attentionTimer) clearTimeout(attentionTimer);
+  attentionTimer = null; attentionEngine.configure([]);
   friendPipeline.stop();
   if (quitFinalizationStarted || !currentPlaySessionId) {
     localCompanionStore?.close();
@@ -971,7 +1074,7 @@ ipcMain.handle("notification:show", (_event, payload) => {
 async function startCurrentPlaySession(worldName = null) {
   try {
     const settings = await readSettings();
-    if (isFreeMode(settings)) {
+    if (isFreeMode(settings) || (isBetaClient() && !companionStore().getPrivacyPolicy().serverArchive)) {
       currentPlaySessionId = companionStore().createSession({ worldName });
       return currentPlaySessionId;
     }
@@ -1016,7 +1119,7 @@ function hasMeaningfulPlaySessionStats(stats) {
 async function updateCurrentPlaySession(stats, end = false) {
   if (!currentPlaySessionId) return { ok: false, error: "no_active_play_session" };
   const settings = await readSettings();
-  if (isFreeMode(settings)) return companionStore().updateSession(currentPlaySessionId, stats, { end });
+  if (isFreeMode(settings) || (isBetaClient() && (!companionStore().getPrivacyPolicy().serverArchive || String(currentPlaySessionId).startsWith("local-")))) return companionStore().updateSession(currentPlaySessionId, stats, { end });
   if (isBetaClient()) {
     companionStore().ensureSession(currentPlaySessionId, { worldName: stats?.worldName || "" });
     companionStore().updateSession(currentPlaySessionId, stats, { end });
@@ -1079,6 +1182,7 @@ ipcMain.handle("tail:stop", async (_event, stats) => {
 
 ipcMain.handle("play-sessions:list", async () => {
   const settings = await readSettings();
+  if (uiPreview) return companionStore().listSessions(1000);
   if (isFreeMode(settings)) return companionStore().listSessions(1_000);
   const hwid = await getHardwareId();
   const payload = await apiPost("/play-sessions/list", {
@@ -1088,8 +1192,10 @@ ipcMain.handle("play-sessions:list", async () => {
   });
   const sessions = payload.sessions ?? [];
   if (isBetaClient()) companionStore().ingestSessions(sessions);
-  return sessions;
+  return isBetaClient() ? companionStore().listSessions(1000) : sessions;
 });
+
+ipcMain.handle("companion:session", (event, id) => { requireMainWindowSender(event); return companionStore().database.prepare("SELECT * FROM play_sessions WHERE id=?").get(String(id).slice(0,200)) || null; });
 
 ipcMain.handle("companion:search", async (_event, query) => {
   if (!isBetaClient()) throw new Error("companion_search_requires_beta");
@@ -1153,22 +1259,63 @@ ipcMain.handle("companion:save-world-preference", async (_event, preference) => 
   return companionStore().saveWorldPreference(preference || {});
 });
 
-ipcMain.handle("companion:storage-stats", async () => {
+registerPreferencesOperation("companion:storage-stats", "stats", async () => {
   if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
   return companionStore().storageStats();
 });
 
-ipcMain.handle("companion:clear-category", async (_event, category) => {
-  if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
-  return companionStore().clearCategory(category);
+registerPreferencesOperation("client:privacy-state", "privacy", async () => {
+  const settings = await readSettings();
+  return { policy: companionStore().getPrivacyPolicy(), stats: companionStore().storageStats(), serverArchiveAvailable: Boolean(settings.sessionToken && !isFreeMode(settings)), hasVrchatConnection: Boolean(settings.vrchatAuthCookie) };
+});
+registerPreferencesOperation("client:privacy-preview", "privacy-preview", async (_event, options) => companionStore().previewPrivacyChange(options || {}));
+registerPreferencesOperation("client:privacy-update", "privacy-update", async (_event, policy) => {
+  const previous = companionStore().getPrivacyPolicy();
+  const result = companionStore().setPrivacyPolicy(policy || {});
+  reloadAttentionRules(); photoThumbnailCache.clear();
+  if (previous.serverArchive && !result.policy.serverArchive && currentPlaySessionId && !String(currentPlaySessionId).startsWith("local-")) {
+    const oldSession = currentPlaySessionId;
+    currentPlaySessionId = null;
+    const settings = await readSettings();
+    void getHardwareId().then((hwid) => apiPost(`/play-sessions/${oldSession}/end`, { sessionToken: settings.sessionToken, hwid })).catch(() => {});
+  }
+  return result;
+});
+registerPreferencesOperation("client:privacy-report", "privacy-report", async (event, options = {}) => {
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const selected = await dialog.showSaveDialog(parent, { title: "Отчёт без личных идентификаторов", defaultPath: `VRChat-summary-${new Date().toISOString().slice(0, 10)}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (selected.canceled || !selected.filePath) return { canceled: true };
+  const categories = Array.isArray(options.categories) ? options.categories.filter((key) => ["history", "social", "preferences", "photos", "diagnostics"].includes(key)) : ["history", "social", "preferences", "photos", "diagnostics"];
+  return companionStore().exportToFile(selected.filePath, {}, { redacted: true, categories });
+});
+registerPreferencesOperation("client:session-health", "health", async () => {
+  let file = null;
+  if (tailer.currentFile) file = await fs.stat(tailer.currentFile).catch(() => null);
+  return buildSessionHealth({ tailer, pipeline: friendPipeline.getStatus(), file, lastEventAt: lastObservedLogEventAt, metrics: app.getAppMetrics(), minimized: mainWindow?.isMinimized() || false });
+});
+registerPreferencesOperation("client:session-health-export", "health-report", async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const selected = await dialog.showSaveDialog(parent, { title: "Отчёт о состоянии приложения", defaultPath: "VRChat-session-health.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (selected.canceled || !selected.filePath) return { canceled: true };
+  await fs.writeFile(selected.filePath, JSON.stringify(redactedHealthReport(await preferencesOperations.health()), null, 2), "utf8"); return { ok: true };
 });
 
-ipcMain.handle("companion:set-retention", async (_event, days) => {
+registerPreferencesOperation("companion:clear-category", "clear", async (_event, category) => {
   if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
-  return companionStore().setRetentionDays(days);
+  if (["photos", "all"].includes(category) && photoAtlas?.job.running) throw new Error("photo_scan_running");
+  if (["diagnostics", "all"].includes(category)) diagnosticRecorder?.stop();
+  const result = companionStore().clearCategory(category);
+  if (["preferences", "all"].includes(category)) reloadAttentionRules();
+  photoThumbnailCache.clear();
+  return result;
 });
 
-ipcMain.handle("companion:export", async (event, uiSettings) => {
+registerPreferencesOperation("companion:set-retention", "retention", async (_event, days) => {
+  if (!isBetaClient()) throw new Error("companion_storage_requires_beta");
+  const result = companionStore().setRetentionDays(days); reloadAttentionRules(); return result;
+});
+
+registerPreferencesOperation("companion:export", "export", async (event, uiSettings) => {
   if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
   const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
   const date = new Date().toISOString().slice(0, 10);
@@ -1182,7 +1329,7 @@ ipcMain.handle("companion:export", async (event, uiSettings) => {
   return companionStore().exportToFile(result.filePath, uiSettings || {});
 });
 
-ipcMain.handle("companion:import", async (event) => {
+registerPreferencesOperation("companion:import", "import", async (event) => {
   if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
   const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
   const openOptions = {
@@ -1196,13 +1343,14 @@ ipcMain.handle("companion:import", async (event) => {
   const info = await fs.stat(filePath);
   if (info.size > 50 * 1024 * 1024) throw new Error("backup_file_too_large");
   const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
-  return { ...companionStore().importData(payload), filePath };
+  if (photoAtlas?.job.running) throw new Error("photo_scan_running");
+  diagnosticRecorder?.stop();
+  photoThumbnailCache.clear();
+  const imported = companionStore().importData(payload); reloadAttentionRules(); return { ...imported, filePath };
 });
 
 function paidBackupAllowed(settings) {
-  if (!isBetaClient() || isFreeMode(settings) || !settings.sessionToken || !settings.license) return false;
-  const expiry = settings.license.expiresAt || settings.license.expires_at;
-  return !expiry || new Date(expiry).getTime() > Date.now();
+  return paidLocalAllowed(settings, { modern: isBetaClient() });
 }
 
 function autoBackupStatus(settings) {
@@ -1214,9 +1362,9 @@ function autoBackupStatus(settings) {
   };
 }
 
-ipcMain.handle("companion:auto-backup-status", async () => autoBackupStatus(await readSettings()));
+registerPreferencesOperation("companion:auto-backup-status", "backup-status", async () => autoBackupStatus(await readSettings()));
 
-ipcMain.handle("companion:auto-backup-configure", async (event, options = {}) => {
+registerPreferencesOperation("companion:auto-backup-configure", "backup-configure", async (event, options = {}) => {
   if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
   const settings = await readSettings();
   if (!options.enabled) {
@@ -1241,7 +1389,7 @@ ipcMain.handle("companion:auto-backup-configure", async (event, options = {}) =>
   return autoBackupStatus(saved);
 });
 
-ipcMain.handle("companion:auto-backup-run", async (_event, uiSettings = {}) => {
+registerPreferencesOperation("companion:auto-backup-run", "backup-run", async (_event, uiSettings = {}) => {
   const settings = await readSettings();
   if (!paidBackupAllowed(settings)) throw new Error("backup_paid_required");
   if (!autoBackupStatus(settings).enabled) throw new Error("backup_not_configured");
@@ -1261,7 +1409,7 @@ ipcMain.handle("companion:auto-backup-run", async (_event, uiSettings = {}) => {
   }
 });
 
-ipcMain.handle("companion:auto-backup-restore", async (event, passphrase) => {
+registerPreferencesOperation("companion:auto-backup-restore", "backup-restore", async (event, passphrase) => {
   if (!isBetaClient()) throw new Error("companion_backup_requires_beta");
   requirePassphrase(passphrase);
   const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
@@ -1273,7 +1421,9 @@ ipcMain.handle("companion:auto-backup-restore", async (event, passphrase) => {
   const selection = await (parent ? dialog.showOpenDialog(parent, dialogOptions) : dialog.showOpenDialog(dialogOptions));
   if (selection.canceled || !selection.filePaths?.[0]) return { ok: false, canceled: true };
   const payload = await readEncryptedBackup(selection.filePaths[0], passphrase);
-  return { ...companionStore().importData(payload), filePath: selection.filePaths[0] };
+  if (photoAtlas?.job.running) throw new Error("photo_scan_running");
+  diagnosticRecorder?.stop(); photoThumbnailCache.clear();
+  const result = companionStore().importData(payload); reloadAttentionRules(); return { ...result, filePath: selection.filePaths[0] };
 });
 
 ipcMain.handle("file:save-text", async (event, options = {}) => {
@@ -1773,6 +1923,151 @@ ipcMain.handle("crash:status", async (_event, options) => {
 });
 
 ipcMain.handle("shell:open", (_event, url) => openExternalHttpsUrl(url));
+
+ipcMain.handle("team-case:action", async (event, action, input = {}) => {
+  requireMainWindowSender(event); await requirePersonalKey();
+  if (!["list", "detail", "create", "update", "evidence"].includes(action)) throw new Error("case_action_invalid");
+  if (uiPreview) {
+    previewCaseServer ??= require("./preview-case-server").startPreviewCaseServer();
+    const preview = await previewCaseServer;
+    const response = await fetch(`${preview.url}/team-cases/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error); return result;
+  }
+  const settings = await readSettings();
+  return apiPost(`/team-cases/${action}`, { ...input, sessionToken: settings.sessionToken, hwid: await getHardwareId() });
+});
+
+ipcMain.handle("team-case:evidence-file", async (event, id) => {
+  requireMainWindowSender(event); await requirePersonalKey();
+  const selected = await dialog.showOpenDialog(mainWindow, { title: "Приложить отчёт к случаю", properties: ["openFile"], filters: [{ name: "Text report", extensions: ["json", "txt"] }] });
+  if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+  const file = selected.filePaths[0]; if ((await fs.stat(file)).size > 16000) throw new Error("case_evidence_too_large");
+  const input = { id, title: path.basename(file).slice(0, 150), content: await fs.readFile(file, "utf8") };
+  if (uiPreview) {
+    previewCaseServer ??= require("./preview-case-server").startPreviewCaseServer(); const preview = await previewCaseServer;
+    const response = await fetch(`${preview.url}/team-cases/evidence`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error); return result;
+  }
+  const settings = await readSettings(); return apiPost("/team-cases/evidence", { ...input, sessionToken: settings.sessionToken, hwid: await getHardwareId() });
+});
+
+ipcMain.handle("personal:action", async (event, action, input = {}) => {
+  requireMainWindowSender(event);
+  await requirePersonalKey();
+  const store = personalStore();
+  if (action === "diagnostic-state") return recorder().state();
+  if (action === "diagnostic-start") { eventLoopHistogram.enable(); gameProcessMonitor.start(); return recorder().start(input.name); }
+  if (action === "diagnostic-stop") { const state = recorder().stop(); gameProcessMonitor.stop(); eventLoopHistogram.disable(); return state; }
+  if (action === "diagnostic-mark") return recorder().mark(input.label);
+  if (action === "diagnostic-detail") return recorder().detail(input.id);
+  if (action === "diagnostic-compare") return recorder().compare(input.first, input.second);
+  if (action === "diagnostic-export") {
+    const report = recorder().exportReport(input.id);
+    const selected = await dialog.showSaveDialog(mainWindow, { title: "Отчёт диагностики без личных данных", defaultPath: "VRChat-diagnostic-report.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (selected.canceled || !selected.filePath) return { canceled: true };
+    await fs.writeFile(selected.filePath, JSON.stringify(report, null, 2), "utf8"); return { ok: true };
+  }
+  if (action === "photo-list") return atlas().list(input);
+  if (action === "photo-thumbnail") return atlas().getThumbnail(input.id);
+  if (action === "photo-annotate") return atlas().annotate(input.id, input);
+  if (action === "photo-sessions") return companionStore().listSessions(200).map((row) => ({ id: row.id, name: `${String(row.started_at).slice(0,10)} · ${row.world_name || ""}` }));
+  if (action === "photo-folder") {
+    if (atlas().job.running) throw new Error("photo_scan_already_running");
+    const selected = await dialog.showOpenDialog(mainWindow, { title: "Папка фотографий VRChat", properties: ["openDirectory"] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+    const rootId = await atlas().approveRoot(selected.filePaths[0]);
+    photoThumbnailCache.clear();
+    void atlas().scan(rootId, { allowed: () => uiPreview || Boolean(lastKnownSettings && paidBackupAllowed(lastKnownSettings)), progress: (job) => send("personal:photo-progress", job) }).catch(() => send("personal:photo-progress", { running: false, error: "photo_scan_failed" }));
+    return { started: true };
+  }
+  if (action === "photo-cancel") { atlas().cancelled = true; return { ok: true }; }
+  if (action === "photo-export") {
+    const selected = await dialog.showOpenDialog(mainWindow, { title: "Папка для копий фотографий", properties: ["openDirectory", "createDirectory"] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+    return atlas().exportCopies(Array.isArray(input.ids) ? input.ids : [], selected.filePaths[0], { stripMetadata: input.stripMetadata !== false, hideFilenames: input.hideFilenames !== false });
+  }
+  if (action === "report" || action === "report-export") {
+    const filters = require("./personal-tools-store").normalizePersonalItem("reports", { payload: input.filters || {} }).payload;
+    const report = personalReport(companionStore().database.prepare("SELECT id,started_at,ended_at,world_name,player_count,event_count FROM play_sessions ORDER BY started_at DESC LIMIT 5000").all(), filters);
+    if (action === "report") return report;
+    const selected = await dialog.showSaveDialog(mainWindow, { title: "Экспорт личного отчёта", defaultPath: "VRChat-personal-report.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (selected.canceled || !selected.filePath) return { canceled: true };
+    const sanitize = (period) => period ? { ...period, returns: period.returns.map(({ worldName: _name, ...row }) => row), days: period.days.map(({ ids: _ids, ...day }) => day), sessions: period.sessions.map(({ id: _id, worldName: _name, ...row }) => row) } : null;
+    await fs.writeFile(selected.filePath, JSON.stringify({ ...report, filters: { ...filters, world: "" }, current: sanitize(report.current), comparison: sanitize(report.comparison) }, null, 2), "utf8");
+    return { ok: true };
+  }
+  if (action === "applications") { workflowService ??= new WorkflowService(companionStore().database, { preview: uiPreview }); return workflowService.list(); }
+  if (action === "choose-app") {
+    const selected = await dialog.showOpenDialog(mainWindow, { title: "Выберите установленное приложение", properties: ["openFile"], filters: [{ name: "Windows application", extensions: ["exe"] }] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+    workflowService ??= new WorkflowService(companionStore().database, { preview: uiPreview });
+    return workflowService.approve(selected.filePaths[0]);
+  }
+  if (action === "launch-app") { workflowService ??= new WorkflowService(companionStore().database, { preview: uiPreview }); return workflowService.run(input.id, input.vrMode); }
+  if (action === "check") {
+    const settings = await readSettings();
+    if (input.target === "license") return { ok: uiPreview || paidBackupAllowed(settings), label: "Активный ключ" };
+    if (input.target === "account") return { ok: Boolean(settings.vrchatAuthCookie), label: "Сессия VRChat сохранена" };
+    if (input.target === "log") return { ok: Boolean(tailer.currentFile && await fs.stat(tailer.currentFile).catch(() => null)), label: "Файл лога доступен" };
+    throw new Error("workflow_check_invalid");
+  }
+  if (action === "list") return store.list(input.kind);
+  if (action === "save") { const saved = store.save(input.kind, input.item); if (input.kind === "rules") reloadAttentionRules(); return saved; }
+  if (action === "remove") { const removed = store.remove(input.kind, input.id); if (input.kind === "rules") reloadAttentionRules(); return removed; }
+  if (action === "rule-sessions") return companionStore().listSessions(200).map((row) => ({ id: row.id, name: `${String(row.started_at).slice(0,10)} · ${row.world_name || ""}` }));
+  if (action === "simulate-rule") {
+    let events = Array.isArray(input.events) ? input.events.slice(0, 2000) : [];
+    if (input.sessionId) {
+      const row = companionStore().database.prepare("SELECT snapshot FROM play_sessions WHERE id=?").get(String(input.sessionId).slice(0,200));
+      if (!row) throw new Error("personal_session_missing");
+      const snapshot = JSON.parse(row.snapshot || "{}");
+      events = Array.isArray(snapshot.events) ? snapshot.events.slice(-2000) : [];
+    }
+    return simulateAttentionRule(input.item || {}, events);
+  }
+  if (action === "open-world") {
+    const id = personalWorldId(input.worldId);
+    if (!id) throw new Error("personal_world_id_required");
+    return openExternalHttpsUrl(`https://vrchat.com/home/world/${id}`);
+  }
+  if (action === "export") {
+    const item = store.exportItem(input.kind, input.id);
+    const selected = await dialog.showSaveDialog(mainWindow, { title: "Экспорт личного плана", defaultPath: `${input.kind}-plan.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (selected.canceled || !selected.filePath) return { canceled: true };
+    await fs.writeFile(selected.filePath, JSON.stringify(item, null, 2), "utf8");
+    return { ok: true };
+  }
+  if (action === "import") {
+    const selected = await dialog.showOpenDialog(mainWindow, { title: "Импорт личного плана", properties: ["openFile"], filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+    const file = selected.filePaths[0];
+    if ((await fs.stat(file)).size > 128 * 1024) throw new Error("personal_import_too_large");
+    const imported = store.importItem(JSON.parse(await fs.readFile(file, "utf8")));
+    reloadAttentionRules();
+    return imported;
+  }
+  throw new Error("personal_action_invalid");
+});
+
+function windowState() {
+  return { frameless: isBetaClient(), maximized: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized()), minimized: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMinimized()) };
+}
+
+function requireMainWindowSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error("window_sender_denied");
+}
+
+ipcMain.handle("tail:recover", async (event) => { requireMainWindowSender(event); return tailer.recover(); });
+
+ipcMain.handle("window:get-state", (event) => { requireMainWindowSender(event); return windowState(); });
+ipcMain.handle("window:command", (event, command) => {
+  requireMainWindowSender(event);
+  if (command === "minimize") mainWindow.minimize();
+  else if (command === "maximize") { if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize(); }
+  else if (command === "close") { const target = mainWindow; setImmediate(() => { if (!target.isDestroyed()) target.close(); }); }
+  else throw new Error("window_command_denied");
+  return windowState();
+});
 
 ipcMain.handle("window:set-always-on-top", (_event, enabled, opacity) => {
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Window is not available");

@@ -2,31 +2,36 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { normalizeProfile, PRESETS } = require("../apps/client-beta/renderer/ui-customizer");
+const { normalizeProfile, PRESETS, migrateAppearance } = require("../apps/client-beta/renderer/ui-customizer");
 const target = "body > main:nth-of-type(1) > h2:nth-of-type(2)";
 
 test("interface profile import rejects executable CSS and bounds resource usage", () => {
   const profile = normalizeProfile({ name: "n".repeat(100), theme: {
-    background: "url(https://example.com/tracker)", accent: "#aBc123", font: "__proto__", scale: 500,
+    background: "url(https://example.com/tracker)", accent: "#aBc123", font: "__proto__", scale: 500, shell: "url(https://example.com/tracker)",
   }, elements: {
     "body{color:red}/*": { color: "#ffffff" },
     [target]: { color: "red;display:none", background: "#ffffff", opacity: 0, fontSize: 500, maxWidth: 9000, textAlign: "url(x)", text: "t".repeat(500) },
   } });
-  assert.equal(profile.name.length, 60);
-  assert.equal(profile.theme.background, undefined);
-  assert.equal(profile.theme.font, undefined);
+  assert.equal(profile.name, "Студия");
+  assert.equal(profile.theme.background, PRESETS.studio.theme.background);
+  assert.equal(profile.theme.font, "system");
   assert.equal(profile.theme.scale, undefined);
-  assert.equal(profile.theme.accent, "#aBc123");
-  assert.deepEqual(Object.keys(profile.elements), [target]);
-  assert.equal(profile.elements[target].color, undefined);
-  assert.equal(profile.elements[target].fontSize, 64);
-  assert.equal(profile.elements[target].opacity, 40);
-  assert.equal(profile.elements[target].maxWidth, 1600);
-  assert.equal(profile.elements[target].textAlign, undefined);
-  assert.equal(profile.elements[target].text.length, 200);
+  assert.equal(profile.theme.shell, "studio");
+  assert.equal(profile.theme.accent, PRESETS.studio.theme.accent);
+  assert.deepEqual(Object.keys(profile.elements), []);
   const large = normalizeProfile({ elements: Object.fromEntries(Array.from({ length: 1000 }, (_, i) =>
     [`body > div:nth-of-type(${i+1})`, { radius: 10 }])) });
-  assert.equal(Object.keys(large.elements).length, 250);
+  assert.equal(Object.keys(large.elements).length, 0);
+});
+
+test("every legacy layout migrates to Studio and only recognized preset colors survive", () => {
+  for (const shell of [undefined,"gamesense","studio"]) {
+    const saved = { active: 1, profiles: [{}, { name: "Custom", theme: { ...PRESETS.violet.theme, shell, font: "mono", radius: 30 }, elements: { [target]: { text: "Override", fontSize: 50 } } }] };
+    const next = migrateAppearance(saved); assert.equal(next.schema,2); assert.equal(next.profiles.length,1);
+    assert.equal(next.profiles[0].theme.shell,"studio"); assert.equal(next.profiles[0].theme.font,"system"); assert.equal(next.profiles[0].theme.preset,"violet"); assert.deepEqual(next.profiles[0].elements,{});
+    assert.deepEqual(migrateAppearance(next),next);
+  }
+  assert.equal(migrateAppearance(null).profiles[0].theme.preset,"studio");
 });
 
 test("built-in appearance presets contain only accepted theme values", () => {

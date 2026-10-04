@@ -1,0 +1,10 @@
+.tourLayer { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; padding: 0; margin: 0; border: 0; background: transparent; overflow: hidden; }
+.tourLayer::backdrop { background: transparent; }
+.tourFocus { position: fixed; border: 2px solid var(--cyan); border-radius: 7px; box-shadow: 0 0 0 9999px #000a; pointer-events: none; }
+.tourCard { position: fixed; z-index: 2; background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 20px; border-radius: 10px; box-sizing: border-box; max-height: calc(100vh - 32px); overflow-y: auto; }
+.tourCard p { line-height: 1.6; color: var(--muted); }
+.tourActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.tourInvitation { width: min(440px, calc(100vw - 40px)); background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 24px; border-radius: 10px; }
+.tourInvitation::backdrop { background: #0008; }
+.tourInvitation p { color: var(--muted); line-height: 1.6; }
+.tourInvitation button { margin: 8px 8px 0 0; }

@@ -1,0 +1,57 @@
+:root { color-scheme: dark; --bg: #0b0e15; --panel: #111620; --secondary: #192132; --text: #edf1f8; --muted: #a4afc2; --accent: #7c9bff; --line: #2c3547; font: 13px "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+button, select, input { font: inherit; }
+button, select, input:not([type="checkbox"]) { min-height: 34px; border: 1px solid var(--line); border-radius: 5px; background: var(--secondary); color: var(--text); padding: 7px 10px; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+form { height: 100vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+header { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.eyebrow { color: var(--muted); font-size: 10px; letter-spacing: .07em; }
+h1 { font-size: 19px; margin: 6px 0 0; }
+h2 { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+h2:not(:first-child) { margin-top: 24px; }
+p { font-size: 11px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+nav { display: flex; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+nav button { flex: 1; min-width: 0; padding-inline: 4px; font-size: 11px; background: transparent; border-color: transparent; }
+nav button.active { background: var(--secondary); color: var(--accent); }
+main { padding: 18px 20px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, 1.1fr); align-items: center; gap: 12px; margin-bottom: 12px; color: var(--muted); font-size: 12px; }
+.field select { width: 100%; min-width: 0; font-size: 12px; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 40px; font-size: 12px; line-height: 1.4; }
+input[type="checkbox"] { appearance: none; position: relative; flex: 0 0 30px; width: 30px; height: 18px; margin: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--secondary); cursor: pointer; }
+input[type="checkbox"]::before { position: absolute; content: ""; width: 12px; height: 12px; left: 2px; top: 2px; background: var(--muted); border-radius: 50%; }
+input[type="checkbox"]:checked { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); }
+input[type="checkbox"]:checked::before { left: 14px; background: var(--accent); }
+.advancedRow { display: flex; align-items: center; gap: 10px; position: relative; }
+.advancedRow > label { flex: 1; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 10px 0; }
+.popover summary { list-style: none; color: var(--accent); font-size: 19px; padding: 5px; }
+.popover > div { position: absolute; z-index: 2; right: 0; bottom: calc(100% + 4px); width: min(300px, 100%); padding: 10px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 20px #0007; }
+.notificationMenu { border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; }
+.notificationMenu > summary { padding: 10px 12px; color: var(--text); }
+.notificationMenu > div { padding: 0 12px 10px; }
+#notification-count { float: right; color: var(--accent); }
+.secondary { width: 100%; margin-top: 10px; }
+.passwordField { display: grid; gap: 8px; color: var(--muted); font-size: 12px; }
+.passwordField input { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.actions button { flex: 1 1 130px; font-size: 12px; }
+.danger { color: #f28e9c; }
+#status { margin: 0; padding: 0 20px; }
+#status:not(:empty) { padding-block: 8px; border-top: 1px solid var(--line); }
+#status.error { color: #f28e9c; }
+footer { display: flex; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+footer > div { display: flex; gap: 8px; }
+footer button { font-size: 12px; }
+.primary { background: var(--accent); color: #0b0e15; font-weight: 600; }
+body.classic button, body.classic select, body.classic input { border-radius: 1px; }
+body.classic input[type="checkbox"] { flex-basis: 14px; width: 14px; height: 14px; }
+body.classic input[type="checkbox"]::before { display: none; }
+body.classic input[type="checkbox"]:checked { background: var(--accent); box-shadow: inset 0 0 0 2px var(--bg); }
+#health-values { display: grid; grid-template-columns: minmax(90px, .85fr) minmax(0, 1.15fr); gap: 14px 12px; padding: 12px; border: 1px solid var(--line); font-size: 12px; }
+#health-values dt { color: var(--muted); }
+#health-values dd { margin: 0; overflow-wrap: anywhere; }

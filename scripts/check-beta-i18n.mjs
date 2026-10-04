@@ -10,7 +10,7 @@ const rendererDir = path.join(root, "apps", "client-beta", "renderer");
 const scriptSources = fs.readdirSync(rendererDir)
   .filter((name) => name.endsWith(".js") && name !== "i18n.js")
   .map((name) => fs.readFileSync(path.join(rendererDir, name), "utf8"));
-const htmlSource = fs.readFileSync(path.join(rendererDir, "index.html"), "utf8");
+const htmlSource = ["index.html", "preferences.html"].map((file) => fs.readFileSync(path.join(rendererDir, file), "utf8")).join("\n");
 const cyrillic = /[А-Яа-яЁё]/u;
 const values = new Set();
 

@@ -246,6 +246,7 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .toolbar {
   display: flex;
   gap: 9px;
@@ -2497,4 +2498,3 @@ body.compactMode .builderMiniList .eventDetailsLine {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Stable 1.1.8 */

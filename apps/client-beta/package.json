@@ -17,7 +17,7 @@
   "build": {
     "appId": "com.vrchatadmintools.beta",
     "productName": "VRChat Admin Tools Beta",
-    "electronVersion": "42.9.3",
+    "electronVersion": "42.11.10",
     "asar": true,
     "icon": "../../logo.ico",
     "asarUnpack": [
