@@ -22,8 +22,8 @@
 | Канал релиза и совместимый путь данных Beta → Stable 2.0 | `apps/client/src/release-channel.js` | `main.js`, `tests/release-channel.test.js` |
 | Однократный импорт сохранённой сессии Stable в отдельные настройки Beta | `apps/client/src/stable-settings-import.js` | `main.js`, `preload.js`, `tests/client-beta.test.js` |
 | Beta-интерфейс, Social и сохранённые рабочие пространства | `apps/client-beta/renderer/app.js` | `index.html`, `styles.css`, `tests/client-beta.test.js` |
-| Мини-игры Beta по локальной истории миров с проверкой активного платного ключа | `apps/client-beta/renderer/mini-games.js` | `app.js`, `tests/client-beta-mini-games.test.js` |
-| Профили оформления, настройка отдельных элементов и статических подписей | `apps/client-beta/renderer/ui-customizer.js` | `ui-customizer.css`, `tests/client-beta-ui-customizer.test.js` |
+| Игры памяти/реакции с локальными рекордами и проверкой активного ключа | `apps/client-beta/renderer/arcade.js` | `arcade.css`, `app.js`, `tests/studio-intuitive.test.js` |
+| Единый Studio и готовые цвета; миграция старых оформлений | `apps/client-beta/renderer/ui-customizer.js` | `ui-customizer.css`, `tests/client-beta-ui-customizer.test.js` |
 | Профили VRChat, избранное, Prints, инвентарь и календарь группы | `apps/client/src/vrchat-api.js` | `main.js`, `tests/vrchat-api.test.js` |
 | Realtime-лента друзей VRChat | `apps/client/src/vrchat-friend-pipeline.js` | `main.js`, `local-companion-store.js`, `tests/vrchat-friend-pipeline.test.js` |
 | Чтение и анализ VRChat-логов | `apps/client/src/log-tailer.js` | `packages/parser/index.js` |
